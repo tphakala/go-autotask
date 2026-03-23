@@ -23,20 +23,40 @@ type circuitBreakerConfig struct {
 	successThreshold int
 }
 
+// WithFailureThreshold sets the number of failures before opening. Values <= 0 are ignored.
 func WithFailureThreshold(n int) CircuitBreakerOption {
-	return func(c *circuitBreakerConfig) { c.failureThreshold = n }
+	return func(c *circuitBreakerConfig) {
+		if n > 0 {
+			c.failureThreshold = n
+		}
+	}
 }
 
+// WithFailureWindow sets the sliding window for counting failures. Values <= 0 are ignored.
 func WithFailureWindow(d time.Duration) CircuitBreakerOption {
-	return func(c *circuitBreakerConfig) { c.failureWindow = d }
+	return func(c *circuitBreakerConfig) {
+		if d > 0 {
+			c.failureWindow = d
+		}
+	}
 }
 
+// WithOpenTimeout sets how long the circuit stays open before half-open. Values <= 0 are ignored.
 func WithOpenTimeout(d time.Duration) CircuitBreakerOption {
-	return func(c *circuitBreakerConfig) { c.openTimeout = d }
+	return func(c *circuitBreakerConfig) {
+		if d > 0 {
+			c.openTimeout = d
+		}
+	}
 }
 
+// WithSuccessThreshold sets successes needed in half-open to close. Values <= 0 are ignored.
 func WithSuccessThreshold(n int) CircuitBreakerOption {
-	return func(c *circuitBreakerConfig) { c.successThreshold = n }
+	return func(c *circuitBreakerConfig) {
+		if n > 0 {
+			c.successThreshold = n
+		}
+	}
 }
 
 type CircuitBreakerOpenError struct{}

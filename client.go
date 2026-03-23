@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -144,9 +145,10 @@ func (c *Client) do(ctx context.Context, method, path string, body any, result a
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", c.userAgent)
-	// Only attach credentials if the request targets our base URL to prevent
-	// credential leaks to external hosts (e.g., via a spoofed nextPageUrl).
-	if c.baseURL != "" && strings.HasPrefix(requestURL, c.baseURL) {
+	// Only attach credentials if the request targets the same origin to prevent
+	// credential leaks to external hosts (e.g., via a spoofed nextPageUrl like
+	// https://api.autotask.net.evil.com which would pass a prefix check).
+	if c.baseURL != "" && isSameOrigin(requestURL, c.baseURL) {
 		req.Header.Set("UserName", c.auth.Username)
 		req.Header.Set("Secret", c.auth.Secret)
 		req.Header.Set("ApiIntegrationCode", c.auth.IntegrationCode)
@@ -165,6 +167,19 @@ func (c *Client) do(ctx context.Context, method, path string, body any, result a
 // Do is the exported version of do for sub-packages (metadata, autotasktest).
 func (c *Client) Do(ctx context.Context, method, path string, body any, result any) error {
 	return c.do(ctx, method, path, body, result)
+}
+
+// isSameOrigin returns true if requestURL has the same scheme and host as baseURL.
+func isSameOrigin(requestURL, baseURL string) bool {
+	reqParsed, err := url.Parse(requestURL)
+	if err != nil {
+		return false
+	}
+	baseParsed, err := url.Parse(baseURL)
+	if err != nil {
+		return false
+	}
+	return reqParsed.Scheme == baseParsed.Scheme && reqParsed.Host == baseParsed.Host
 }
 
 type discardHandler struct{}

@@ -413,7 +413,7 @@ For tenant-specific picklists and UDFs that vary across Autotask instances.
 autotask-gen -username USER -secret SECRET -integration-code CODE -output ./internal/autotask/entities/
 ```
 
-Connects to a live Autotask instance, queries all entity metadata endpoints, and generates Go files with tenant-specific picklist constants and UDF typed fields.
+Connects to a live Autotask instance, queries all entity metadata endpoints, and generates Go files with tenant-specific picklist constants and UDF-typed fields.
 
 **Important:** The generator outputs into the *consumer's* repository, not the library itself. The open-source library ships with base entity types containing standard fields (consistent across all Autotask tenants). Consumers run `autotask-gen` against their own instance to get extended types with their tenant-specific UDFs and picklist values. Generated types embed the base types from the library so they remain compatible with the generic CRUD functions.
 
@@ -425,7 +425,7 @@ This allows consumers to work with UDFs as typed struct fields while maintaining
 
 ## Project Structure
 
-```
+```text
 go-autotask/
 ├── go.mod                          # github.com/tphakala/go-autotask, go 1.26
 ├── LICENSE
