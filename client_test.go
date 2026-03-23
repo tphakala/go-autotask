@@ -62,7 +62,9 @@ func TestClientAuthHeaders(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer client.Close()
-	client.do(context.Background(), http.MethodGet, "/v1.0/Tickets/1", nil, nil)
+	if err := client.do(context.Background(), http.MethodGet, "/v1.0/Tickets/1", nil, nil); err != nil {
+		t.Fatal(err)
+	}
 	if gotHeaders.Get("UserName") != "user@test.com" {
 		t.Fatalf("UserName header = %q", gotHeaders.Get("UserName"))
 	}
@@ -85,9 +87,14 @@ func TestClientImpersonation(t *testing.T) {
 	}))
 	defer srv.Close()
 	auth := AuthConfig{Username: "user", Secret: "secret", IntegrationCode: "code"}
-	client, _ := NewClient(context.Background(), auth, WithBaseURL(srv.URL), WithImpersonation(12345))
+	client, err := NewClient(context.Background(), auth, WithBaseURL(srv.URL), WithImpersonation(12345))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer client.Close()
-	client.do(context.Background(), http.MethodGet, "/v1.0/Tickets/1", nil, nil)
+	if err := client.do(context.Background(), http.MethodGet, "/v1.0/Tickets/1", nil, nil); err != nil {
+		t.Fatal(err)
+	}
 	if gotHeaders.Get("ImpersonationResourceId") != "12345" {
 		t.Fatalf("ImpersonationResourceId = %q", gotHeaders.Get("ImpersonationResourceId"))
 	}
@@ -97,7 +104,10 @@ func TestClientClose(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer srv.Close()
 	auth := AuthConfig{Username: "user", Secret: "secret", IntegrationCode: "code"}
-	client, _ := NewClient(context.Background(), auth, WithBaseURL(srv.URL))
+	client, err := NewClient(context.Background(), auth, WithBaseURL(srv.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := client.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -113,11 +123,14 @@ func TestClientDoPost(t *testing.T) {
 	}))
 	defer srv.Close()
 	auth := AuthConfig{Username: "user", Secret: "secret", IntegrationCode: "code"}
-	client, _ := NewClient(context.Background(), auth, WithBaseURL(srv.URL))
+	client, err := NewClient(context.Background(), auth, WithBaseURL(srv.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer client.Close()
 	payload := map[string]any{"title": "test"}
 	var result map[string]any
-	err := client.do(context.Background(), http.MethodPost, "/v1.0/Tickets", payload, &result)
+	err = client.do(context.Background(), http.MethodPost, "/v1.0/Tickets", payload, &result)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,9 +155,14 @@ func TestClientWithMiddleware(t *testing.T) {
 	}))
 	defer srv.Close()
 	auth := AuthConfig{Username: "u", Secret: "s", IntegrationCode: "c"}
-	client, _ := NewClient(context.Background(), auth, WithBaseURL(srv.URL), WithMiddleware(customMiddleware))
+	client, err := NewClient(context.Background(), auth, WithBaseURL(srv.URL), WithMiddleware(customMiddleware))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer client.Close()
-	client.do(context.Background(), http.MethodGet, "/v1.0/Test/1", nil, nil)
+	if err := client.do(context.Background(), http.MethodGet, "/v1.0/Test/1", nil, nil); err != nil {
+		t.Fatal(err)
+	}
 	if !middlewareCalled {
 		t.Fatal("middleware was not called")
 	}

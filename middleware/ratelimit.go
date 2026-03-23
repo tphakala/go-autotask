@@ -18,14 +18,22 @@ type rateLimitConfig struct {
 	adaptiveDelay   bool
 }
 
-// WithRequestsPerHour sets the sustained request rate.
+// WithRequestsPerHour sets the sustained request rate. Values <= 0 are ignored.
 func WithRequestsPerHour(n int) RateLimitOption {
-	return func(c *rateLimitConfig) { c.requestsPerHour = n }
+	return func(c *rateLimitConfig) {
+		if n > 0 {
+			c.requestsPerHour = n
+		}
+	}
 }
 
-// WithBurstSize sets the maximum burst above the sustained rate.
+// WithBurstSize sets the maximum burst above the sustained rate. Values <= 0 are ignored.
 func WithBurstSize(n int) RateLimitOption {
-	return func(c *rateLimitConfig) { c.burstSize = n }
+	return func(c *rateLimitConfig) {
+		if n > 0 {
+			c.burstSize = n
+		}
+	}
 }
 
 // WithAdaptiveDelay enables or disables adaptive delay based on window usage.

@@ -77,6 +77,8 @@ func Count[T Entity](ctx context.Context, c *Client, q *Query) (int64, error) {
 
 func Create[T Entity](ctx context.Context, c *Client, entity *T) (*T, error) {
 	path := fmt.Sprintf("/v1.0/%s", (*entity).EntityName())
+	// Autotask returns {"itemId": N} for creates, not the full entity,
+	// so we cannot unmarshal a T from the response. Return the input entity.
 	var resp json.RawMessage
 	if err := c.do(ctx, http.MethodPost, path, entity, &resp); err != nil {
 		return nil, err
@@ -94,9 +96,10 @@ func Update[T Entity](ctx context.Context, c *Client, entity *T) (*T, error) {
 	}
 	if resp.Item != nil {
 		var updated T
-		if err := json.Unmarshal(resp.Item, &updated); err == nil {
-			return &updated, nil
+		if err := json.Unmarshal(resp.Item, &updated); err != nil {
+			return nil, fmt.Errorf("autotask: decoding updated %s: %w", (*entity).EntityName(), err)
 		}
+		return &updated, nil
 	}
 	return entity, nil
 }

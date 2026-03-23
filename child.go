@@ -34,6 +34,9 @@ func GetChild[P Entity, C Entity](ctx context.Context, c *Client, parentID int64
 
 // CreateChild creates a child entity under a parent.
 func CreateChild[P Entity, C Entity](ctx context.Context, c *Client, parentID int64, child *C) (*C, error) {
+	if child == nil {
+		return nil, fmt.Errorf("autotask: child entity must not be nil")
+	}
 	var parent P
 	path := fmt.Sprintf("/v1.0/%s/%d/%s", parent.EntityName(), parentID, (*child).EntityName())
 	var resp json.RawMessage

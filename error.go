@@ -122,11 +122,14 @@ func extractErrors(body []byte) []APIError {
 		var ae APIError
 		if err := json.Unmarshal(raw, &ae); err != nil {
 			var s string
-			if err := json.Unmarshal(raw, &s); err == nil {
-				ae = APIError{Message: s}
+			if err := json.Unmarshal(raw, &s); err == nil && s != "" {
+				result = append(result, APIError{Message: s})
 			}
+			continue
 		}
-		result = append(result, ae)
+		if ae.Message != "" {
+			result = append(result, ae)
+		}
 	}
 	return result
 }

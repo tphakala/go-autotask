@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 )
@@ -70,6 +71,9 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 		return nil, fmt.Errorf("autotask: zone discovery version request: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("autotask: version request returned %d", resp.StatusCode)
+	}
 	var versionResp struct {
 		Versions []string `json:"versions"`
 	}
@@ -80,7 +84,7 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 		return nil, fmt.Errorf("autotask: no API versions available")
 	}
 	version := versionResp.Versions[len(versionResp.Versions)-1]
-	zoneURL := fmt.Sprintf("%s/atservicesrest/%s/zoneInformation?user=%s", baseURL, version, username)
+	zoneURL := fmt.Sprintf("%s/atservicesrest/%s/zoneInformation?user=%s", baseURL, version, url.QueryEscape(username))
 	req, err = http.NewRequestWithContext(ctx, http.MethodGet, zoneURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("autotask: creating zone request: %w", err)

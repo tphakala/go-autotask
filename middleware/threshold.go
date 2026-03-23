@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -24,8 +25,13 @@ type thresholdMonitorConfig struct {
 }
 
 // WithCheckInterval sets how often the monitor polls the threshold endpoint.
+// Values <= 0 are ignored.
 func WithCheckInterval(d time.Duration) ThresholdMonitorOption {
-	return func(c *thresholdMonitorConfig) { c.checkInterval = d }
+	return func(c *thresholdMonitorConfig) {
+		if d > 0 {
+			c.checkInterval = d
+		}
+	}
 }
 
 // WithWarningCallback sets the function called when usage reaches the warning level (>=75%).
@@ -47,6 +53,9 @@ type ThresholdMonitor struct {
 	config     thresholdMonitorConfig
 	cancel     context.CancelFunc
 	done       chan struct{}
+
+	mu      sync.Mutex
+	running bool
 }
 
 // NewThresholdMonitor creates a new ThresholdMonitor. Call Start to begin polling.
@@ -62,10 +71,21 @@ func NewThresholdMonitor(httpClient *http.Client, baseURL string, opts ...Thresh
 
 // Start begins the background polling loop.
 func (m *ThresholdMonitor) Start() {
+	m.mu.Lock()
+	if m.running {
+		m.mu.Unlock()
+		return
+	}
+	m.running = true
+	m.done = make(chan struct{})
+	m.mu.Unlock()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	go func() {
 		defer close(m.done)
+		// Perform an immediate check on startup before entering the ticker loop.
+		m.check(ctx)
 		ticker := time.NewTicker(m.config.checkInterval)
 		defer ticker.Stop()
 		for {
@@ -81,6 +101,14 @@ func (m *ThresholdMonitor) Start() {
 
 // Stop cancels the background polling and waits for it to finish.
 func (m *ThresholdMonitor) Stop() error {
+	m.mu.Lock()
+	if !m.running {
+		m.mu.Unlock()
+		return nil
+	}
+	m.running = false
+	m.mu.Unlock()
+
 	if m.cancel != nil {
 		m.cancel()
 		<-m.done
@@ -99,6 +127,9 @@ func (m *ThresholdMonitor) check(ctx context.Context) {
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
 	var data struct {
 		CurrentCount int `json:"currentTimeframeRequestCount"`
 		Threshold    int `json:"externalRequestThreshold"`

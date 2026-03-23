@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -87,12 +88,13 @@ func NewClient(ctx context.Context, auth AuthConfig, opts ...ClientOption) (*Cli
 }
 
 func (c *Client) Close() error {
+	var errs []error
 	for _, closer := range c.closers {
 		if err := closer(); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func (c *Client) resolveZone(ctx context.Context) (*ZoneInfo, error) {

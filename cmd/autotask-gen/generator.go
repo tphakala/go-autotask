@@ -50,7 +50,8 @@ func (g *Generator) generateEntity(name string, fields []metadata.FieldInfo, udf
 	}
 	formatted, err := format.Source([]byte(buf.String()))
 	if err != nil {
-		return os.WriteFile(path, []byte(buf.String()), 0o644)
+		_ = os.WriteFile(path, []byte(buf.String()), 0o644)
+		return fmt.Errorf("formatting generated code for %s: %w", name, err)
 	}
 	return os.WriteFile(path, formatted, 0o644)
 }
