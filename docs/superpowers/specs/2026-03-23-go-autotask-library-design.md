@@ -461,8 +461,6 @@ go-autotask/
 ├── cmd/
 │   └── autotask-gen/
 │       └── main.go                 # Code generator CLI
-├── internal/
-│   └── jsonutil/                   # Internal JSON helpers
 └── examples/
     ├── basic/main.go
     ├── query/main.go
