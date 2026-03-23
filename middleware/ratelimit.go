@@ -1,0 +1,150 @@
+package middleware
+
+import (
+	"net/http"
+	"strconv"
+	"sync"
+	"time"
+
+	"golang.org/x/time/rate"
+)
+
+// RateLimitOption configures a RateLimiter.
+type RateLimitOption func(*rateLimitConfig)
+
+type rateLimitConfig struct {
+	requestsPerHour int
+	burstSize       int
+	adaptiveDelay   bool
+}
+
+// WithRequestsPerHour sets the sustained request rate.
+func WithRequestsPerHour(n int) RateLimitOption {
+	return func(c *rateLimitConfig) { c.requestsPerHour = n }
+}
+
+// WithBurstSize sets the maximum burst above the sustained rate.
+func WithBurstSize(n int) RateLimitOption {
+	return func(c *rateLimitConfig) { c.burstSize = n }
+}
+
+// WithAdaptiveDelay enables or disables adaptive delay based on window usage.
+func WithAdaptiveDelay(enabled bool) RateLimitOption {
+	return func(c *rateLimitConfig) { c.adaptiveDelay = enabled }
+}
+
+// RateLimiter is an http.RoundTripper that enforces rate limits using a token
+// bucket algorithm with optional adaptive delays. It also respects 429
+// Retry-After headers from the server.
+type RateLimiter struct {
+	next    http.RoundTripper
+	limiter *rate.Limiter
+	config  rateLimitConfig
+
+	mu               sync.Mutex
+	windowStart      time.Time
+	requestsInWindow int
+	retryAfterUntil  time.Time
+}
+
+// NewRateLimiter wraps next with rate-limiting behaviour.
+// Default: 5000 requests/hour, burst of 20, adaptive delay enabled.
+func NewRateLimiter(next http.RoundTripper, opts ...RateLimitOption) *RateLimiter {
+	cfg := rateLimitConfig{
+		requestsPerHour: 5000,
+		burstSize:       20,
+		adaptiveDelay:   true,
+	}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	rps := rate.Limit(float64(cfg.requestsPerHour) / 3600.0)
+	return &RateLimiter{
+		next:        next,
+		limiter:     rate.NewLimiter(rps, cfg.burstSize),
+		config:      cfg,
+		windowStart: time.Now(),
+	}
+}
+
+// RoundTrip implements http.RoundTripper with rate limiting.
+func (rl *RateLimiter) RoundTrip(req *http.Request) (*http.Response, error) {
+	ctx := req.Context()
+
+	// Honour any active Retry-After wait.
+	rl.mu.Lock()
+	retryUntil := rl.retryAfterUntil
+	rl.mu.Unlock()
+
+	if wait := time.Until(retryUntil); wait > 0 {
+		select {
+		case <-time.After(wait):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+
+	// Token bucket wait.
+	if err := rl.limiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+
+	// Optional adaptive delay based on hourly window usage.
+	if rl.config.adaptiveDelay {
+		delay := rl.adaptiveDelay()
+		if delay > 0 {
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+	}
+
+	rl.recordRequest()
+
+	resp, err := rl.next.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the server tells us to back off, record the deadline.
+	if resp.StatusCode == 429 {
+		if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
+			if secs, err := strconv.Atoi(retryAfter); err == nil {
+				rl.mu.Lock()
+				rl.retryAfterUntil = time.Now().Add(time.Duration(secs) * time.Second)
+				rl.mu.Unlock()
+			}
+		}
+	}
+
+	return resp, nil
+}
+
+// recordRequest tracks requests in the current one-hour window.
+func (rl *RateLimiter) recordRequest() {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	now := time.Now()
+	if now.Sub(rl.windowStart) > time.Hour {
+		rl.windowStart = now
+		rl.requestsInWindow = 0
+	}
+	rl.requestsInWindow++
+}
+
+// adaptiveDelay returns an extra delay when hourly usage is high.
+func (rl *RateLimiter) adaptiveDelay() time.Duration {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	usage := float64(rl.requestsInWindow) / float64(rl.config.requestsPerHour)
+	switch {
+	case usage >= 0.75:
+		return 1 * time.Second
+	case usage >= 0.50:
+		return 500 * time.Millisecond
+	default:
+		return 0
+	}
+}
