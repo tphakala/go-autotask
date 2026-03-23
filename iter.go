@@ -22,9 +22,7 @@ func ListIter[T Entity](ctx context.Context, c *Client, q *Query) iter.Seq2[*T, 
 				} `json:"pageDetails"`
 			}
 			if err := c.do(ctx, http.MethodPost, path, queryBody, &resp); err != nil {
-				if !yield(nil, err) {
-					return
-				}
+				yield(nil, err)
 				return
 			}
 			for _, raw := range resp.Items {

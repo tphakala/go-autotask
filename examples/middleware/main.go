@@ -49,6 +49,9 @@ func main() {
 		log.Println("Failed to get ticket:", err)
 		return
 	}
-	title, _ := ticket.Title.Get()
-	fmt.Printf("Ticket: %s\n", title)
+	if title, ok := ticket.Title.Get(); ok {
+		fmt.Printf("Ticket: %s\n", title)
+	} else {
+		fmt.Println("Ticket title not set")
+	}
 }

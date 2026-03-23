@@ -133,7 +133,7 @@ func (m *ThresholdMonitor) check(ctx context.Context) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("UserName", m.auth.Username)
 	req.Header.Set("Secret", m.auth.Secret)
-	req.Header.Set("ApiIntegrationcode", m.auth.IntegrationCode)
+	req.Header.Set("ApiIntegrationCode", m.auth.IntegrationCode)
 
 	resp, err := m.httpClient.Do(req)
 	if err != nil {

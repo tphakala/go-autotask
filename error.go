@@ -71,6 +71,9 @@ func (e *ServerError) Error() string { return e.Err.Error() }
 func (e *ServerError) Unwrap() error { return &e.Err }
 
 func parseResponse(resp *http.Response, result any) error {
+	if resp == nil || resp.Body == nil {
+		return fmt.Errorf("autotask: nil HTTP response or body")
+	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("autotask: reading response body: %w", err)
@@ -138,7 +141,7 @@ func parseRetryAfter(header string) time.Duration {
 	if header == "" {
 		return 60 * time.Second
 	}
-	if seconds, err := strconv.Atoi(header); err == nil {
+	if seconds, err := strconv.Atoi(header); err == nil && seconds > 0 {
 		return time.Duration(seconds) * time.Second
 	}
 	if t, err := http.ParseTime(header); err == nil {

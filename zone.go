@@ -86,6 +86,9 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 	if len(versionResp.Versions) == 0 {
 		return nil, fmt.Errorf("autotask: no API versions available")
 	}
+	// The Autotask API currently only has version "1.0". We select the last
+	// element assuming ascending order. If multiple versions exist in the
+	// future, implement explicit version comparison (e.g., semver parsing).
 	version := versionResp.Versions[len(versionResp.Versions)-1]
 	zoneURL := fmt.Sprintf("%s/atservicesrest/%s/zoneInformation?user=%s", baseURL, version, url.QueryEscape(username))
 	req, err = http.NewRequestWithContext(ctx, http.MethodGet, zoneURL, nil)

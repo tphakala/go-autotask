@@ -42,8 +42,10 @@ func TestListIter(t *testing.T) {
 }
 
 func TestListIterBreakEarly(t *testing.T) {
+	reqs := 0
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1.0/TestEntities/query", func(w http.ResponseWriter, r *http.Request) {
+		reqs++
 		json.NewEncoder(w).Encode(map[string]any{
 			"items":       []any{map[string]any{"id": 1}, map[string]any{"id": 2}, map[string]any{"id": 3}},
 			"pageDetails": map[string]any{"count": 3, "nextPageUrl": "/v1.0/TestEntities/query?page=2"},
@@ -64,5 +66,8 @@ func TestListIterBreakEarly(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("count = %d; want 2", count)
+	}
+	if reqs != 1 {
+		t.Fatalf("requests = %d; want 1 when breaking early", reqs)
 	}
 }

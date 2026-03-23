@@ -76,4 +76,7 @@ func TestRateLimiterCustomConfig(t *testing.T) {
 	if rl.config.requestsPerHour != 1000 {
 		t.Fatalf("requestsPerHour = %d; want 1000", rl.config.requestsPerHour)
 	}
+	if rl.config.burstSize != 5 {
+		t.Fatalf("burstSize = %d; want 5", rl.config.burstSize)
+	}
 }

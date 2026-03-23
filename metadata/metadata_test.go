@@ -25,6 +25,9 @@ func testClient(t *testing.T, handler http.Handler) *autotask.Client {
 
 func TestGetFields(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1.0/Tickets/entityInformation/fields" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
 		json.NewEncoder(w).Encode(map[string]any{
 			"fields": []any{
 				map[string]any{

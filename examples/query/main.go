@@ -12,10 +12,16 @@ import (
 
 func main() {
 	ctx := context.Background()
+	username := os.Getenv("AUTOTASK_USERNAME")
+	secret := os.Getenv("AUTOTASK_SECRET")
+	integrationCode := os.Getenv("AUTOTASK_INTEGRATION_CODE")
+	if username == "" || secret == "" || integrationCode == "" {
+		log.Fatal("AUTOTASK_USERNAME, AUTOTASK_SECRET, and AUTOTASK_INTEGRATION_CODE must be set")
+	}
 	client, err := autotask.NewClient(ctx, autotask.AuthConfig{
-		Username:        os.Getenv("AUTOTASK_USERNAME"),
-		Secret:          os.Getenv("AUTOTASK_SECRET"),
-		IntegrationCode: os.Getenv("AUTOTASK_INTEGRATION_CODE"),
+		Username:        username,
+		Secret:          secret,
+		IntegrationCode: integrationCode,
 	})
 	if err != nil {
 		log.Fatal(err)

@@ -149,7 +149,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any, result a
 	if c.baseURL != "" && strings.HasPrefix(requestURL, c.baseURL) {
 		req.Header.Set("UserName", c.auth.Username)
 		req.Header.Set("Secret", c.auth.Secret)
-		req.Header.Set("ApiIntegrationcode", c.auth.IntegrationCode)
+		req.Header.Set("ApiIntegrationCode", c.auth.IntegrationCode)
 		if c.impersonationID != 0 {
 			req.Header.Set("ImpersonationResourceId", strconv.FormatInt(c.impersonationID, 10))
 		}

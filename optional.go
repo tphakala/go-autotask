@@ -45,7 +45,9 @@ func (o Optional[T]) IsNull() bool { return o.null }
 // the omitzero struct tag to omit unset fields from JSON output.
 func (o Optional[T]) IsZero() bool { return !o.set }
 
-// MarshalJSON implements json.Marshaler.
+// MarshalJSON implements json.Marshaler. Note: when called directly on an unset
+// Optional (not via a struct field with omitzero), this marshals the zero value
+// of T. Optional is designed for use as struct fields with the `omitzero` tag.
 func (o Optional[T]) MarshalJSON() ([]byte, error) {
 	if o.null {
 		return []byte("null"), nil

@@ -17,7 +17,9 @@ type TicketNote struct {
 	CreateDateTime    autotask.Optional[time.Time] `json:"createDateTime,omitzero"`
 	CreatorResourceID autotask.Optional[int64]     `json:"creatorResourceID,omitzero"`
 	LastActivityDate  autotask.Optional[time.Time] `json:"lastActivityDate,omitzero"`
+	UserDefinedFields []autotask.UDF              `json:"userDefinedFields,omitempty"`
 }
 
 // EntityName returns the Autotask API entity name for ticket notes.
+// For child access under Tickets, use ChildEntityName().
 func (TicketNote) EntityName() string { return "TicketNotes" }

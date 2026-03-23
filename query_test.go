@@ -5,14 +5,22 @@ import (
 	"testing"
 )
 
-func TestQuerySimpleWhere(t *testing.T) {
-	q := NewQuery().Where("status", OpEq, 1)
+// marshalQuery is a test helper that marshals q and unmarshals into a map.
+func marshalQuery(t *testing.T, q *Query) map[string]any {
+	t.Helper()
 	b, err := json.Marshal(q)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var m map[string]any
-	json.Unmarshal(b, &m)
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func TestQuerySimpleWhere(t *testing.T) {
+	m := marshalQuery(t, NewQuery().Where("status", OpEq, 1))
 	filter := m["filter"].([]any)
 	if len(filter) != 1 {
 		t.Fatalf("filter length = %d; want 1", len(filter))
@@ -24,10 +32,7 @@ func TestQuerySimpleWhere(t *testing.T) {
 }
 
 func TestQueryMultipleWhere(t *testing.T) {
-	q := NewQuery().Where("status", OpEq, 1).Where("queueID", OpEq, 8)
-	b, _ := json.Marshal(q)
-	var m map[string]any
-	json.Unmarshal(b, &m)
+	m := marshalQuery(t, NewQuery().Where("status", OpEq, 1).Where("queueID", OpEq, 8))
 	filter := m["filter"].([]any)
 	if len(filter) != 2 {
 		t.Fatalf("filter length = %d; want 2", len(filter))
@@ -35,10 +40,7 @@ func TestQueryMultipleWhere(t *testing.T) {
 }
 
 func TestQueryOr(t *testing.T) {
-	q := NewQuery().Or(Field("priority", OpEq, 1), Field("priority", OpEq, 2))
-	b, _ := json.Marshal(q)
-	var m map[string]any
-	json.Unmarshal(b, &m)
+	m := marshalQuery(t, NewQuery().Or(Field("priority", OpEq, 1), Field("priority", OpEq, 2)))
 	filter := m["filter"].([]any)
 	orGroup := filter[0].(map[string]any)
 	if orGroup["op"] != "or" {
@@ -51,13 +53,10 @@ func TestQueryOr(t *testing.T) {
 }
 
 func TestQueryNestedAndOr(t *testing.T) {
-	q := NewQuery().Or(
+	m := marshalQuery(t, NewQuery().Or(
 		And(Field("status", OpEq, 1), Field("queueID", OpEq, 8)),
 		And(Field("priority", OpEq, 1), Field("priority", OpEq, 2)),
-	)
-	b, _ := json.Marshal(q)
-	var m map[string]any
-	json.Unmarshal(b, &m)
+	))
 	filter := m["filter"].([]any)
 	orGroup := filter[0].(map[string]any)
 	items := orGroup["items"].([]any)
@@ -71,10 +70,7 @@ func TestQueryNestedAndOr(t *testing.T) {
 }
 
 func TestQueryUDF(t *testing.T) {
-	q := NewQuery().WhereUDF("CustomField", OpEq, "value")
-	b, _ := json.Marshal(q)
-	var m map[string]any
-	json.Unmarshal(b, &m)
+	m := marshalQuery(t, NewQuery().WhereUDF("CustomField", OpEq, "value"))
 	filter := m["filter"].([]any)
 	f := filter[0].(map[string]any)
 	if f["udf"] != true {
@@ -83,10 +79,7 @@ func TestQueryUDF(t *testing.T) {
 }
 
 func TestQueryFields(t *testing.T) {
-	q := NewQuery().Where("status", OpEq, 1).Fields("id", "title", "status")
-	b, _ := json.Marshal(q)
-	var m map[string]any
-	json.Unmarshal(b, &m)
+	m := marshalQuery(t, NewQuery().Where("status", OpEq, 1).Fields("id", "title", "status"))
 	fields := m["IncludeFields"].([]any)
 	if len(fields) != 3 {
 		t.Fatalf("IncludeFields length = %d; want 3", len(fields))
@@ -94,20 +87,14 @@ func TestQueryFields(t *testing.T) {
 }
 
 func TestQueryLimit(t *testing.T) {
-	q := NewQuery().Where("status", OpEq, 1).Limit(100)
-	b, _ := json.Marshal(q)
-	var m map[string]any
-	json.Unmarshal(b, &m)
+	m := marshalQuery(t, NewQuery().Where("status", OpEq, 1).Limit(100))
 	if m["MaxRecords"] != float64(100) {
 		t.Fatalf("MaxRecords = %v; want 100", m["MaxRecords"])
 	}
 }
 
 func TestQueryLimitClampedTo500(t *testing.T) {
-	q := NewQuery().Limit(1000)
-	b, _ := json.Marshal(q)
-	var m map[string]any
-	json.Unmarshal(b, &m)
+	m := marshalQuery(t, NewQuery().Limit(1000))
 	if m["MaxRecords"] != float64(500) {
 		t.Fatalf("MaxRecords = %v; want 500 (clamped)", m["MaxRecords"])
 	}

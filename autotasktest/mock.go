@@ -52,7 +52,9 @@ func NewMockClient(t *testing.T, opts ...MockOption) *autotask.Client {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(f.status)
 			if f.body != nil {
-				json.NewEncoder(w).Encode(f.body)
+				if err := json.NewEncoder(w).Encode(f.body); err != nil {
+					http.Error(w, "mock encode error: "+err.Error(), 500)
+				}
 			}
 		})
 	}

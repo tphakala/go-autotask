@@ -32,7 +32,10 @@ func (g *Generator) Generate(ctx context.Context) error {
 			fmt.Fprintf(os.Stderr, "warning: skipping %s: %v\n", entityName, err)
 			continue
 		}
-		udfs, _ := metadata.GetUDFs(ctx, g.Client, entityName)
+		udfs, err := metadata.GetUDFs(ctx, g.Client, entityName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: %s: could not fetch UDFs: %v\n", entityName, err)
+		}
 		if err := g.generateEntity(entityName, fields, udfs); err != nil {
 			return fmt.Errorf("generating %s: %w", entityName, err)
 		}

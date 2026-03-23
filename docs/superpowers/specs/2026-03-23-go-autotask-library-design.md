@@ -41,7 +41,7 @@ func NewClient(ctx context.Context, auth AuthConfig, opts ...ClientOption) (*Cli
 Key behaviors:
 - `NewClient` accepts `context.Context` for zone discovery timeout/cancellation
 - `NewClient` performs zone discovery automatically (cached for 24h)
-- Auth headers (`Username`, `Secret`, `ApiIntegrationcode`) injected on every request
+- Auth headers (`Username`, `Secret`, `ApiIntegrationCode`) injected on every request
 - Optional `ImpersonationResourceID` header via `WithImpersonation(resourceID int64)`
 - Default `User-Agent: go-autotask/<version>` header, overridable via `WithUserAgent()`
 - TLS 1.2+ enforced
@@ -409,7 +409,7 @@ For tenant-specific picklists and UDFs that vary across Autotask instances.
 
 ### Code generator (`cmd/autotask-gen`)
 
-```
+```bash
 autotask-gen -username USER -secret SECRET -integration-code CODE -output ./internal/autotask/entities/
 ```
 
@@ -506,7 +506,7 @@ func WithLatency(d time.Duration) MockOption
 ## Autotask API Reference
 
 ### Authentication
-- Header-based: `Username`, `Secret`, `ApiIntegrationcode` headers on every request
+- Header-based: `Username`, `Secret`, `ApiIntegrationCode` headers on every request
 - No token refresh needed
 - TLS 1.2 required
 
