@@ -46,7 +46,8 @@ func main() {
 
 	ticket, err := autotask.Get[entities.Ticket](ctx, client, 1)
 	if err != nil {
-		log.Fatal(err)
+		log.Println("Failed to get ticket:", err)
+		return
 	}
 	title, _ := ticket.Title.Get()
 	fmt.Printf("Ticket: %s\n", title)

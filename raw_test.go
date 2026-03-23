@@ -5,36 +5,48 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 )
 
 func newCRUDTestServer(t *testing.T) (*httptest.Server, *[]http.Request) {
 	t.Helper()
+	var mu sync.Mutex
 	var requests []http.Request
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1.0/Tickets/{id}", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		requests = append(requests, *r)
+		mu.Unlock()
 		json.NewEncoder(w).Encode(map[string]any{
 			"item": map[string]any{"id": 123, "title": "Test Ticket"},
 		})
 	})
 	mux.HandleFunc("POST /v1.0/Tickets/query", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		requests = append(requests, *r)
+		mu.Unlock()
 		json.NewEncoder(w).Encode(map[string]any{
 			"items":       []any{map[string]any{"id": 1}, map[string]any{"id": 2}},
 			"pageDetails": map[string]any{"count": 2, "nextPageUrl": nil},
 		})
 	})
 	mux.HandleFunc("POST /v1.0/Tickets", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		requests = append(requests, *r)
+		mu.Unlock()
 		json.NewEncoder(w).Encode(map[string]any{"itemId": 456})
 	})
 	mux.HandleFunc("PATCH /v1.0/Tickets", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		requests = append(requests, *r)
+		mu.Unlock()
 		json.NewEncoder(w).Encode(map[string]any{"item": map[string]any{"id": 123}})
 	})
 	mux.HandleFunc("DELETE /v1.0/Tickets/{id}", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		requests = append(requests, *r)
+		mu.Unlock()
 		w.WriteHeader(200)
 	})
 	srv := httptest.NewServer(mux)

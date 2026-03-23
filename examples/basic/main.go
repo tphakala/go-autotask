@@ -34,7 +34,7 @@ func main() {
 	// Create a ticket.
 	newTicket := &entities.Ticket{
 		Title:     autotask.Set("Server unreachable"),
-		CompanyID: autotask.Set(int64(0)),
+		CompanyID: autotask.Set(int64(0)), // TODO: Replace with a valid company ID
 		Status:    autotask.Set(1),
 		Priority:  autotask.Set(2),
 	}

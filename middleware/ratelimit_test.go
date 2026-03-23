@@ -22,7 +22,10 @@ func (m *mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 func TestRateLimiterAllowsRequests(t *testing.T) {
 	inner := &mockTransport{}
 	rl := NewRateLimiter(inner)
-	req, _ := http.NewRequest("GET", "https://example.com/test", nil)
+	req, err := http.NewRequest("GET", "https://example.com/test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	resp, err := rl.RoundTrip(req)
 	if err != nil {
 		t.Fatal(err)
@@ -39,7 +42,10 @@ func TestRateLimiterRespectsRetryAfter(t *testing.T) {
 		},
 	}
 	rl := NewRateLimiter(inner)
-	req, _ := http.NewRequest("GET", "https://example.com/test", nil)
+	req, err := http.NewRequest("GET", "https://example.com/test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	resp, err := rl.RoundTrip(req)
 	if err != nil {
 		t.Fatal(err)
@@ -47,13 +53,23 @@ func TestRateLimiterRespectsRetryAfter(t *testing.T) {
 	if resp.StatusCode != 429 {
 		t.Fatalf("status = %d; want 429", resp.StatusCode)
 	}
+	// Verify the retry-after was recorded
+	rl.mu.Lock()
+	retryUntil := rl.retryAfterUntil
+	rl.mu.Unlock()
+	if retryUntil.IsZero() {
+		t.Fatal("retryAfterUntil should be set after 429")
+	}
 }
 
 func TestRateLimiterCustomConfig(t *testing.T) {
 	inner := &mockTransport{}
 	rl := NewRateLimiter(inner, WithRequestsPerHour(1000), WithBurstSize(5))
-	req, _ := http.NewRequest("GET", "https://example.com/test", nil)
-	_, err := rl.RoundTrip(req)
+	req, err := http.NewRequest("GET", "https://example.com/test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = rl.RoundTrip(req)
 	if err != nil {
 		t.Fatal(err)
 	}

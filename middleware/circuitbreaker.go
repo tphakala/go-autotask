@@ -70,11 +70,21 @@ func NewCircuitBreaker(next http.RoundTripper, opts ...CircuitBreakerOption) *Ci
 
 func (cb *CircuitBreaker) State() CircuitState {
 	cb.mu.RLock()
-	defer cb.mu.RUnlock()
-	if cb.state == StateOpen && time.Since(cb.lastStateChange) >= cb.config.openTimeout {
-		return StateHalfOpen
+	state := cb.state
+	shouldTransition := state == StateOpen && time.Since(cb.lastStateChange) >= cb.config.openTimeout
+	cb.mu.RUnlock()
+
+	if shouldTransition {
+		cb.mu.Lock()
+		// Double-check under write lock
+		if cb.state == StateOpen && time.Since(cb.lastStateChange) >= cb.config.openTimeout {
+			cb.state = StateHalfOpen
+			cb.lastStateChange = time.Now()
+		}
+		state = cb.state
+		cb.mu.Unlock()
 	}
-	return cb.state
+	return state
 }
 
 func (cb *CircuitBreaker) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -82,10 +92,6 @@ func (cb *CircuitBreaker) RoundTrip(req *http.Request) (*http.Response, error) {
 	switch state {
 	case StateOpen:
 		return nil, &CircuitBreakerOpenError{}
-	case StateHalfOpen:
-		cb.mu.Lock()
-		cb.state = StateHalfOpen
-		cb.mu.Unlock()
 	}
 	resp, err := cb.next.RoundTrip(req)
 	if err != nil {

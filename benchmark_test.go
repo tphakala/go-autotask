@@ -8,6 +8,8 @@ import (
 	"testing"
 )
 
+var benchSink any
+
 func BenchmarkQueryMarshal(b *testing.B) {
 	q := NewQuery().
 		Where("status", OpEq, 1).
@@ -16,7 +18,7 @@ func BenchmarkQueryMarshal(b *testing.B) {
 		Fields("id", "title", "status").
 		Limit(100)
 	for b.Loop() {
-		json.Marshal(q)
+		benchSink, _ = json.Marshal(q)
 	}
 }
 
@@ -29,7 +31,7 @@ func BenchmarkParseResponseSuccess(b *testing.B) {
 			Header:     http.Header{},
 		}
 		var result map[string]any
-		parseResponse(resp, &result)
+		benchSink = parseResponse(resp, &result)
 	}
 }
 
@@ -41,7 +43,7 @@ func BenchmarkParseResponseError(b *testing.B) {
 			Body:       io.NopCloser(strings.NewReader(body)),
 			Header:     http.Header{},
 		}
-		parseResponse(resp, nil)
+		benchSink = parseResponse(resp, nil)
 	}
 }
 
@@ -53,6 +55,6 @@ func BenchmarkOptionalMarshal(b *testing.B) {
 	}
 	s := S{Name: Set("test"), Clear: Null[string]()}
 	for b.Loop() {
-		json.Marshal(s)
+		benchSink, _ = json.Marshal(s)
 	}
 }
