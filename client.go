@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/tphakala/go-autotask/middleware"
 )
 
 const version = "0.1.0"
@@ -18,15 +20,16 @@ const version = "0.1.0"
 var _ interface{ Close() error } = (*Client)(nil)
 
 type Client struct {
-	httpClient      *http.Client
-	baseURL         string
-	auth            AuthConfig
-	zoneCache       *ZoneCache
-	middlewares     []Middleware
-	logger          *slog.Logger
-	userAgent       string
-	impersonationID int64
-	closers         []func() error
+	httpClient           *http.Client
+	baseURL              string
+	auth                 AuthConfig
+	zoneCache            *ZoneCache
+	middlewares           []Middleware
+	thresholdMonitorOpts []middleware.ThresholdMonitorOption
+	logger               *slog.Logger
+	userAgent            string
+	impersonationID      int64
+	closers              []func() error
 }
 
 type AuthConfig struct {
@@ -73,6 +76,12 @@ func NewClient(ctx context.Context, auth AuthConfig, opts ...ClientOption) (*Cli
 			return nil, err
 		}
 		c.baseURL = zone.URL
+	}
+	// Start threshold monitor if configured.
+	if len(c.thresholdMonitorOpts) > 0 {
+		monitor := middleware.NewThresholdMonitor(c.httpClient, c.baseURL, c.thresholdMonitorOpts...)
+		monitor.Start()
+		c.closers = append(c.closers, monitor.Stop)
 	}
 	return c, nil
 }

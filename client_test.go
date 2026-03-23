@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/tphakala/go-autotask/middleware"
 )
 
 func newTestServer(t *testing.T) *httptest.Server {
@@ -145,6 +147,26 @@ func TestClientWithMiddleware(t *testing.T) {
 	client.do(context.Background(), http.MethodGet, "/v1.0/Test/1", nil, nil)
 	if !middlewareCalled {
 		t.Fatal("middleware was not called")
+	}
+}
+
+func TestClientWithRateLimiter(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"item": map[string]any{"id": 1}})
+	}))
+	defer srv.Close()
+	auth := AuthConfig{Username: "u", Secret: "s", IntegrationCode: "c"}
+	client, err := NewClient(context.Background(), auth,
+		WithBaseURL(srv.URL),
+		WithRateLimiter(middleware.WithRequestsPerHour(1000)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	err = client.do(context.Background(), http.MethodGet, "/v1.0/Test/1", nil, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
