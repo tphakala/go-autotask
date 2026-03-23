@@ -52,6 +52,9 @@ func (c *ZoneCache) Get(username string) (*ZoneInfo, bool) {
 }
 
 func (c *ZoneCache) Set(username string, zone *ZoneInfo) {
+	if zone == nil {
+		return
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.entries[username] = cachedZone{

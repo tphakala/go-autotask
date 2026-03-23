@@ -1,6 +1,9 @@
 package autotask
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+)
 
 // Optional represents a three-state field: unset, null, or set to a value.
 // Use with the `omitzero` struct tag so unset fields are omitted from JSON.
@@ -53,7 +56,7 @@ func (o Optional[T]) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler.
 func (o *Optional[T]) UnmarshalJSON(data []byte) error {
 	o.set = true
-	if string(data) == "null" {
+	if bytes.Equal(data, []byte("null")) {
 		o.null = true
 		return nil
 	}

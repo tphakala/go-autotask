@@ -78,10 +78,9 @@ func (m *ThresholdMonitor) Start() {
 	}
 	m.running = true
 	m.done = make(chan struct{})
-	m.mu.Unlock()
-
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
+	m.mu.Unlock()
 	go func() {
 		defer close(m.done)
 		// Perform an immediate check on startup before entering the ticker loop.

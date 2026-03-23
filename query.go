@@ -105,16 +105,16 @@ func (q *Query) MaxRecords() int { return q.maxRecords }
 
 func (q *Query) MarshalJSON() ([]byte, error) {
 	m := make(map[string]any)
-	m["filter"] = q.conditions
+	if q.conditions != nil {
+		m["filter"] = q.conditions
+	} else {
+		m["filter"] = []Condition{}
+	}
 	if len(q.includeFields) > 0 {
 		m["IncludeFields"] = q.includeFields
 	}
 	if q.maxRecords > 0 {
-		limit := q.maxRecords
-		if limit > 500 {
-			limit = 500
-		}
-		m["MaxRecords"] = limit
+		m["MaxRecords"] = min(q.maxRecords, 500)
 	}
 	return json.Marshal(m)
 }

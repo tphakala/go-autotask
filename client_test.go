@@ -12,27 +12,6 @@ import (
 	"github.com/tphakala/go-autotask/middleware"
 )
 
-func newTestServer(t *testing.T) *httptest.Server {
-	t.Helper()
-	var srvURL string
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /atservicesrest/versioninformation", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"versions": []string{"1.0"}})
-	})
-	mux.HandleFunc("GET /atservicesrest/1.0/zoneInformation", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
-			"zoneName": "TestZone",
-			"url":      srvURL,
-			"webUrl":   "https://test.autotask.net",
-			"ci":       1,
-		})
-	})
-	srv := httptest.NewServer(mux)
-	srvURL = srv.URL
-	t.Cleanup(srv.Close)
-	return srv
-}
-
 func TestNewClientWithBaseURL(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
