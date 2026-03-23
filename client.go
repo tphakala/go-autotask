@@ -59,16 +59,19 @@ func NewClient(ctx context.Context, auth AuthConfig, opts ...ClientOption) (*Cli
 	for _, opt := range opts {
 		opt(c)
 	}
-	// Apply middlewares to the HTTP transport.
+	// Apply middlewares to the HTTP transport. Clone the http.Client
+	// to avoid mutating a user-provided or shared client (e.g., http.DefaultClient).
 	if len(c.middlewares) > 0 {
-		transport := c.httpClient.Transport
+		cloned := *c.httpClient
+		transport := cloned.Transport
 		if transport == nil {
 			transport = http.DefaultTransport
 		}
 		for i := len(c.middlewares) - 1; i >= 0; i-- {
 			transport = c.middlewares[i](transport)
 		}
-		c.httpClient.Transport = transport
+		cloned.Transport = transport
+		c.httpClient = &cloned
 	}
 	// If no base URL override, perform zone discovery.
 	if c.baseURL == "" {
@@ -80,7 +83,12 @@ func NewClient(ctx context.Context, auth AuthConfig, opts ...ClientOption) (*Cli
 	}
 	// Start threshold monitor if configured.
 	if len(c.thresholdMonitorOpts) > 0 {
-		monitor := middleware.NewThresholdMonitor(c.httpClient, c.baseURL, c.thresholdMonitorOpts...)
+		auth := middleware.AuthHeaders{
+			Username:        c.auth.Username,
+			Secret:          c.auth.Secret,
+			IntegrationCode: c.auth.IntegrationCode,
+		}
+		monitor := middleware.NewThresholdMonitor(c.httpClient, c.baseURL, auth, c.thresholdMonitorOpts...)
 		monitor.Start()
 		c.closers = append(c.closers, monitor.Stop)
 	}
@@ -120,27 +128,31 @@ func (c *Client) do(ctx context.Context, method, path string, body any, result a
 		}
 		bodyReader = bytes.NewBuffer(b)
 	}
-	url := path
+	requestURL := path
 	if !strings.HasPrefix(path, "http") {
-		url = c.baseURL + path
+		requestURL = c.baseURL + path
 	}
 	var req *http.Request
 	var err error
 	if bodyReader != nil {
-		req, err = http.NewRequestWithContext(ctx, method, url, bodyReader)
+		req, err = http.NewRequestWithContext(ctx, method, requestURL, bodyReader)
 	} else {
-		req, err = http.NewRequestWithContext(ctx, method, url, nil)
+		req, err = http.NewRequestWithContext(ctx, method, requestURL, nil)
 	}
 	if err != nil {
 		return fmt.Errorf("autotask: creating request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("UserName", c.auth.Username)
-	req.Header.Set("Secret", c.auth.Secret)
-	req.Header.Set("ApiIntegrationcode", c.auth.IntegrationCode)
 	req.Header.Set("User-Agent", c.userAgent)
-	if c.impersonationID != 0 {
-		req.Header.Set("ImpersonationResourceId", strconv.FormatInt(c.impersonationID, 10))
+	// Only attach credentials if the request targets our base URL to prevent
+	// credential leaks to external hosts (e.g., via a spoofed nextPageUrl).
+	if c.baseURL != "" && strings.HasPrefix(requestURL, c.baseURL) {
+		req.Header.Set("UserName", c.auth.Username)
+		req.Header.Set("Secret", c.auth.Secret)
+		req.Header.Set("ApiIntegrationcode", c.auth.IntegrationCode)
+		if c.impersonationID != 0 {
+			req.Header.Set("ImpersonationResourceId", strconv.FormatInt(c.impersonationID, 10))
+		}
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

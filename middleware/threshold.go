@@ -44,12 +44,20 @@ func WithCriticalCallback(fn func(ThresholdInfo)) ThresholdMonitorOption {
 	return func(c *thresholdMonitorConfig) { c.criticalCallback = fn }
 }
 
+// AuthHeaders holds the Autotask API credentials needed for authenticated requests.
+type AuthHeaders struct {
+	Username        string
+	Secret          string
+	IntegrationCode string
+}
+
 // ThresholdMonitor polls the Autotask ThresholdInformation endpoint in the
 // background and invokes callbacks when API usage crosses warning or critical
 // thresholds.
 type ThresholdMonitor struct {
 	httpClient *http.Client
 	baseURL    string
+	auth       AuthHeaders
 	config     thresholdMonitorConfig
 	cancel     context.CancelFunc
 	done       chan struct{}
@@ -59,13 +67,13 @@ type ThresholdMonitor struct {
 }
 
 // NewThresholdMonitor creates a new ThresholdMonitor. Call Start to begin polling.
-func NewThresholdMonitor(httpClient *http.Client, baseURL string, opts ...ThresholdMonitorOption) *ThresholdMonitor {
+func NewThresholdMonitor(httpClient *http.Client, baseURL string, auth AuthHeaders, opts ...ThresholdMonitorOption) *ThresholdMonitor {
 	cfg := thresholdMonitorConfig{checkInterval: 5 * time.Minute}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
 	return &ThresholdMonitor{
-		httpClient: httpClient, baseURL: baseURL, config: cfg, done: make(chan struct{}),
+		httpClient: httpClient, baseURL: baseURL, auth: auth, config: cfg, done: make(chan struct{}),
 	}
 }
 
@@ -116,11 +124,17 @@ func (m *ThresholdMonitor) Stop() error {
 }
 
 func (m *ThresholdMonitor) check(ctx context.Context) {
-	url := m.baseURL + "/v1.0/ThresholdInformation"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	checkURL := m.baseURL + "/v1.0/ThresholdInformation"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checkURL, nil)
 	if err != nil {
 		return
 	}
+	// Inject auth headers — threshold endpoint requires authentication.
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("UserName", m.auth.Username)
+	req.Header.Set("Secret", m.auth.Secret)
+	req.Header.Set("ApiIntegrationcode", m.auth.IntegrationCode)
+
 	resp, err := m.httpClient.Do(req)
 	if err != nil {
 		return

@@ -18,7 +18,7 @@ func TestThresholdMonitorCallsWarning(t *testing.T) {
 		})
 	}))
 	defer srv.Close()
-	m := NewThresholdMonitor(srv.Client(), srv.URL,
+	m := NewThresholdMonitor(srv.Client(), srv.URL, AuthHeaders{},
 		WithCheckInterval(10*time.Millisecond),
 		WithWarningCallback(func(info ThresholdInfo) { warningCalled.Store(true) }),
 	)
@@ -39,7 +39,7 @@ func TestThresholdMonitorCallsCritical(t *testing.T) {
 		})
 	}))
 	defer srv.Close()
-	m := NewThresholdMonitor(srv.Client(), srv.URL,
+	m := NewThresholdMonitor(srv.Client(), srv.URL, AuthHeaders{},
 		WithCheckInterval(10*time.Millisecond),
 		WithCriticalCallback(func(info ThresholdInfo) { criticalCalled.Store(true) }),
 	)
@@ -59,7 +59,7 @@ func TestThresholdMonitorStop(t *testing.T) {
 		})
 	}))
 	defer srv.Close()
-	m := NewThresholdMonitor(srv.Client(), srv.URL, WithCheckInterval(10*time.Millisecond))
+	m := NewThresholdMonitor(srv.Client(), srv.URL, AuthHeaders{}, WithCheckInterval(10*time.Millisecond))
 	m.Start()
 	err := m.Stop()
 	if err != nil {

@@ -139,6 +139,9 @@ func (cb *CircuitBreaker) recordFailure() {
 func (cb *CircuitBreaker) recordHalfOpenSuccess() {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
+	if cb.state != StateHalfOpen {
+		return
+	}
 	cb.halfOpenSuccesses++
 	if cb.halfOpenSuccesses >= cb.config.successThreshold {
 		cb.state = StateClosed
