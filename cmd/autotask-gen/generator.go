@@ -63,13 +63,24 @@ func (g *Generator) Generate(ctx context.Context) error {
 	return nil
 }
 
-// toSnakeCase converts PascalCase to snake_case.
+// toSnakeCase converts PascalCase to snake_case, handling acronyms.
+// "TicketNotes" -> "ticket_notes", "HTTPServer" -> "http_server", "APIKey" -> "api_key"
 func toSnakeCase(s string) string {
 	var result []byte
-	for i, r := range []byte(s) {
+	b := []byte(s)
+	for i, r := range b {
 		if r >= 'A' && r <= 'Z' {
-			if i > 0 && s[i-1] >= 'a' && s[i-1] <= 'z' {
-				result = append(result, '_')
+			if i > 0 {
+				prev := b[i-1]
+				// Insert underscore before uppercase that follows lowercase: "ticketN" -> "ticket_n"
+				if prev >= 'a' && prev <= 'z' {
+					result = append(result, '_')
+				} else if prev >= 'A' && prev <= 'Z' && i+1 < len(b) && b[i+1] >= 'a' && b[i+1] <= 'z' && i >= 2 && b[i-2] >= 'A' && b[i-2] <= 'Z' {
+					// Acronym boundary: 3+ uppercase run followed by lowercase.
+					// "HTTPServer" at S: b[i-2]=T(upper), prev=P(upper), next=e(lower) → underscore
+					// "IDs" at D: i<2 → no underscore → "ids" (correct)
+					result = append(result, '_')
+				}
 			}
 			result = append(result, r+('a'-'A'))
 		} else {
