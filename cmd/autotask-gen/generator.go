@@ -49,8 +49,27 @@ func (g *Generator) Generate(ctx context.Context) error {
 	return nil
 }
 
+// toSnakeCase converts PascalCase to snake_case.
+func toSnakeCase(s string) string {
+	var result []byte
+	for i, r := range []byte(s) {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			prev := s[i-1]
+			if prev >= 'a' && prev <= 'z' {
+				result = append(result, '_')
+			}
+		}
+		if r >= 'A' && r <= 'Z' {
+			result = append(result, r+32)
+		} else {
+			result = append(result, r)
+		}
+	}
+	return string(result)
+}
+
 func (g *Generator) generateEntity(name string, fields []metadata.FieldInfo, udfs []metadata.UDFInfo) error {
-	filename := strings.ToLower(name) + ".go"
+	filename := toSnakeCase(name) + ".go"
 	path := filepath.Join(g.OutputDir, filename)
 	var buf strings.Builder
 	if err := entityTemplate.Execute(&buf, entityData{Name: name, Fields: fields, UDFs: udfs}); err != nil {
