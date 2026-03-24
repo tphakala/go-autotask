@@ -11,6 +11,12 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatalf("Error: %v", err)
+	}
+}
+
+func run() error {
 	username := flag.String("username", "", "Autotask API username")
 	secret := flag.String("secret", "", "Autotask API secret")
 	integrationCode := flag.String("integration-code", "", "Autotask API integration code")
@@ -31,16 +37,17 @@ func main() {
 
 	client, err := autotask.NewClient(ctx, auth)
 	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
+		return fmt.Errorf("failed to create client: %w", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	gen := &Generator{
 		Client:    client,
 		OutputDir: *output,
 	}
 	if err := gen.Generate(ctx); err != nil {
-		log.Fatalf("Generation failed: %v", err)
+		return fmt.Errorf("generation failed: %w", err)
 	}
 	fmt.Println("Generation complete.")
+	return nil
 }

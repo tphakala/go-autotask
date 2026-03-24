@@ -17,20 +17,20 @@ func TestErrorImplementsError(t *testing.T) {
 }
 
 func TestTypedErrorsAsType(t *testing.T) {
-	base := Error{StatusCode: 404, Message: "not found"}
+	base := Error{StatusCode: http.StatusNotFound, Message: "not found"}
 	err := &NotFoundError{Err: base}
 	nf, ok := errors.AsType[*NotFoundError](err)
 	if !ok {
 		t.Fatal("errors.AsType should match NotFoundError")
 	}
-	if nf.Err.StatusCode != 404 {
-		t.Fatalf("StatusCode = %d; want 404", nf.Err.StatusCode)
+	if nf.Err.StatusCode != http.StatusNotFound {
+		t.Fatalf("StatusCode = %d; want %d", nf.Err.StatusCode, http.StatusNotFound)
 	}
 }
 
 func TestRateLimitErrorRetryAfter(t *testing.T) {
 	err := &RateLimitError{
-		Err:        Error{StatusCode: 429, Message: "too many requests"},
+		Err:        Error{StatusCode: http.StatusTooManyRequests, Message: "too many requests"},
 		RetryAfter: 60 * time.Second,
 	}
 	if err.RetryAfter != 60*time.Second {
@@ -41,33 +41,31 @@ func TestRateLimitErrorRetryAfter(t *testing.T) {
 func TestParseResponse400(t *testing.T) {
 	body := `{"errors":["Field Title is required"]}`
 	resp := &http.Response{
-		StatusCode: 400,
+		StatusCode: http.StatusBadRequest,
 		Body:       io.NopCloser(strings.NewReader(body)),
 		Header:     http.Header{},
 	}
 	err := parseResponse(resp, nil)
-	var ve *ValidationError
-	if !errors.As(err, &ve) {
+	if _, ok := errors.AsType[*ValidationError](err); !ok {
 		t.Fatalf("expected ValidationError, got %T: %v", err, err)
 	}
 }
 
 func TestParseResponse401(t *testing.T) {
 	resp := &http.Response{
-		StatusCode: 401,
+		StatusCode: http.StatusUnauthorized,
 		Body:       io.NopCloser(strings.NewReader(`{"errors":["Invalid credentials"]}`)),
 		Header:     http.Header{},
 	}
 	err := parseResponse(resp, nil)
-	var ae *AuthenticationError
-	if !errors.As(err, &ae) {
+	if _, ok := errors.AsType[*AuthenticationError](err); !ok {
 		t.Fatalf("expected AuthenticationError, got %T: %v", err, err)
 	}
 }
 
 func TestParseResponse429WithRetryAfter(t *testing.T) {
 	resp := &http.Response{
-		StatusCode: 429,
+		StatusCode: http.StatusTooManyRequests,
 		Body:       io.NopCloser(strings.NewReader(`{"errors":["Rate limit exceeded"]}`)),
 		Header:     http.Header{"Retry-After": []string{"120"}},
 	}
@@ -83,13 +81,12 @@ func TestParseResponse429WithRetryAfter(t *testing.T) {
 
 func TestParseResponse500(t *testing.T) {
 	resp := &http.Response{
-		StatusCode: 500,
+		StatusCode: http.StatusInternalServerError,
 		Body:       io.NopCloser(strings.NewReader(`{"errors":["Internal error"]}`)),
 		Header:     http.Header{},
 	}
 	err := parseResponse(resp, nil)
-	var se *ServerError
-	if !errors.As(err, &se) {
+	if _, ok := errors.AsType[*ServerError](err); !ok {
 		t.Fatalf("expected ServerError, got %T: %v", err, err)
 	}
 }
@@ -97,7 +94,7 @@ func TestParseResponse500(t *testing.T) {
 func TestParseResponse200Success(t *testing.T) {
 	body := `{"item":{"id":123}}`
 	resp := &http.Response{
-		StatusCode: 200,
+		StatusCode: http.StatusOK,
 		Body:       io.NopCloser(strings.NewReader(body)),
 		Header:     http.Header{},
 	}
@@ -118,7 +115,7 @@ func TestParseResponse200Success(t *testing.T) {
 func TestParseResponse200WithErrors(t *testing.T) {
 	body := `{"errors":["Something went wrong"]}`
 	resp := &http.Response{
-		StatusCode: 200,
+		StatusCode: http.StatusOK,
 		Body:       io.NopCloser(strings.NewReader(body)),
 		Header:     http.Header{},
 	}

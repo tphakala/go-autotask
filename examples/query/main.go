@@ -11,12 +11,18 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	ctx := context.Background()
 	username := os.Getenv("AUTOTASK_USERNAME")
 	secret := os.Getenv("AUTOTASK_SECRET")
 	integrationCode := os.Getenv("AUTOTASK_INTEGRATION_CODE")
 	if username == "" || secret == "" || integrationCode == "" {
-		log.Fatal("AUTOTASK_USERNAME, AUTOTASK_SECRET, and AUTOTASK_INTEGRATION_CODE must be set")
+		return fmt.Errorf("AUTOTASK_USERNAME, AUTOTASK_SECRET, and AUTOTASK_INTEGRATION_CODE must be set")
 	}
 	client, err := autotask.NewClient(ctx, autotask.AuthConfig{
 		Username:        username,
@@ -24,23 +30,23 @@ func main() {
 		IntegrationCode: integrationCode,
 	})
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	// Query open high-priority tickets.
 	tickets, err := autotask.List[entities.Ticket](ctx, client,
 		autotask.NewQuery().
 			Where("status", autotask.OpEq, 1).
 			Or(
-				autotask.Field("priority", autotask.OpEq, 1),
-				autotask.Field("priority", autotask.OpEq, 2),
+				autotask.Field("priority", autotask.OpEq, 1), //nolint:mnd // priority values for example
+				autotask.Field("priority", autotask.OpEq, 2), //nolint:mnd // priority values for example
 			).
 			Fields("id", "title", "status", "priority").
-			Limit(50),
+			Limit(50), //nolint:mnd // page size for example
 	)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	for _, t := range tickets {
 		id, _ := t.ID.Get()
@@ -52,9 +58,10 @@ func main() {
 	fmt.Println("\nAll tickets (iterator):")
 	for ticket, err := range autotask.ListIter[entities.Ticket](ctx, client, autotask.NewQuery()) {
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 		title, _ := ticket.Title.Get()
 		fmt.Printf("  %s\n", title)
 	}
+	return nil
 }
