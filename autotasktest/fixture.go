@@ -8,6 +8,13 @@ import (
 	"github.com/tphakala/go-autotask/entities"
 )
 
+// Fixture ID allocation starts at 1000 (via fixtureIDCounter) to avoid collisions
+// with IDs assigned by TestServer during create operations.
+//
+// Foreign-key IDs in fixtures (e.g., CompanyID: 1001, ContactID: 2001, TicketID: 3001,
+// ProjectID: 4001, ResourceID: 5001) are intentionally hardcoded placeholder values.
+// They do NOT reference other fixtures created by this package — they are realistic
+// but arbitrary values used to populate required FK fields for testing.
 var fixtureIDCounter atomic.Int64
 
 func init() {

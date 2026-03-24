@@ -11,7 +11,7 @@ import (
 )
 
 func (ts *TestServer) handleQuery(w http.ResponseWriter, r *http.Request) {
-	entityName, _, _ := parseEntityAndID(strings.TrimSuffix(r.URL.Path, "/query"))
+	entityName, _, _, _ := parseEntityAndID(strings.TrimSuffix(r.URL.Path, "/query"))
 	store, ok := ts.getStore(entityName)
 	if !ok {
 		writeJSON(w, map[string]any{
@@ -76,7 +76,7 @@ func (ts *TestServer) handleQuery(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ts *TestServer) handleCount(w http.ResponseWriter, r *http.Request) {
-	entityName, _, _ := parseEntityAndID(strings.TrimSuffix(r.URL.Path, "/query/count"))
+	entityName, _, _, _ := parseEntityAndID(strings.TrimSuffix(r.URL.Path, "/query/count"))
 	store, ok := ts.getStore(entityName)
 	if !ok {
 		writeJSON(w, map[string]any{"queryCount": 0})
@@ -101,8 +101,9 @@ func (ts *TestServer) handleCount(w http.ResponseWriter, r *http.Request) {
 }
 
 // filterItems applies basic in-memory filter matching.
-// For simplicity, it evaluates top-level "eq" and "contains" conditions.
-// This is not a full Autotask query engine — just enough for test validation.
+// It evaluates top-level conditions for all standard Autotask operators
+// (eq, noteq, gt, gte, lt, lte, beginsWith, endsWith, contains, exist, notExist, in, notIn).
+// This is not a full Autotask query engine — group conditions (and/or) are not evaluated.
 func filterItems(items []json.RawMessage, queryBody []byte) []json.RawMessage {
 	if len(queryBody) == 0 {
 		return items

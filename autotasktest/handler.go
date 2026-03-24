@@ -9,9 +9,13 @@ import (
 	"strings"
 )
 
-// parseEntityAndID extracts entity name and optional ID from path.
+// parseEntityAndID extracts entity name, optional ID, and parent info from path.
 // Paths: /v1.0/{entity}/{id} or /v1.0/{parent}/{parentID}/{child}
-func parseEntityAndID(path string) (entityName string, id int64, isChild bool) {
+//
+// For child paths, parentID is returned so callers can optionally filter by parent.
+// Currently the mock returns all children regardless of parentID — this is a known
+// simplification since the mock primarily validates path correctness, not FK relationships.
+func parseEntityAndID(path string) (entityName string, id int64, isChild bool, parentID int64) { //nolint:unparam // parentID is intentionally returned for future FK filtering
 	// Strip leading "/v1.0/"
 	trimmed := strings.TrimPrefix(path, "/v1.0/")
 	parts := strings.Split(trimmed, "/")
@@ -25,6 +29,7 @@ func parseEntityAndID(path string) (entityName string, id int64, isChild bool) {
 		id, _ = strconv.ParseInt(parts[1], 10, 64)
 	case 3: //nolint:mnd // path segment count
 		// /v1.0/{parent}/{parentID}/{child}
+		parentID, _ = strconv.ParseInt(parts[1], 10, 64)
 		entityName = parts[2]
 		isChild = true
 	default:
@@ -34,12 +39,14 @@ func parseEntityAndID(path string) (entityName string, id int64, isChild bool) {
 }
 
 func (ts *TestServer) getStore(entityName string) (*entityStore, bool) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
 	store, ok := ts.entities[entityName]
 	return store, ok
 }
 
 func (ts *TestServer) handleGet(w http.ResponseWriter, r *http.Request) {
-	entityName, id, isChild := parseEntityAndID(r.URL.Path)
+	entityName, id, isChild, _ := parseEntityAndID(r.URL.Path)
 	store, ok := ts.getStore(entityName)
 	if !ok {
 		writeErrorResponse(w, http.StatusNotFound, []string{fmt.Sprintf("Entity %q not found", entityName)})
@@ -80,7 +87,7 @@ func (ts *TestServer) handleGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ts *TestServer) handleCreate(w http.ResponseWriter, r *http.Request) {
-	entityName, _, isChild := parseEntityAndID(r.URL.Path)
+	entityName, _, isChild, _ := parseEntityAndID(r.URL.Path)
 	store, ok := ts.getStore(entityName)
 	if !ok {
 		// Auto-create store for unknown entities.
@@ -96,28 +103,22 @@ func (ts *TestServer) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate required fields.
-	if len(store.requiredFields) > 0 {
-		var m map[string]any
-		if err := json.Unmarshal(body, &m); err != nil {
-			writeErrorResponse(w, http.StatusBadRequest, []string{"Invalid JSON body"})
-			return
-		}
-		for _, field := range store.requiredFields {
-			if _, exists := m[field]; !exists {
-				writeErrorResponse(w, http.StatusBadRequest, []string{fmt.Sprintf("Required field %q is missing", field)})
-				return
-			}
-		}
-	}
-
-	// Assign ID and store.
-	newID := store.allocateID()
 	var m map[string]any
 	if err := json.Unmarshal(body, &m); err != nil {
 		writeErrorResponse(w, http.StatusBadRequest, []string{"Invalid JSON body"})
 		return
 	}
+
+	// Validate required fields.
+	for _, field := range store.requiredFields {
+		if _, exists := m[field]; !exists {
+			writeErrorResponse(w, http.StatusBadRequest, []string{fmt.Sprintf("Required field %q is missing", field)})
+			return
+		}
+	}
+
+	// Assign ID and store.
+	newID := store.allocateID()
 	m["id"] = newID
 	data, err := json.Marshal(m)
 	if err != nil {
@@ -131,7 +132,7 @@ func (ts *TestServer) handleCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ts *TestServer) handleUpdate(w http.ResponseWriter, r *http.Request) {
-	entityName, _, _ := parseEntityAndID(r.URL.Path)
+	entityName, _, _, _ := parseEntityAndID(r.URL.Path)
 	store, ok := ts.getStore(entityName)
 	if !ok {
 		writeErrorResponse(w, http.StatusNotFound, []string{fmt.Sprintf("Entity %q not found", entityName)})
@@ -156,7 +157,13 @@ func (ts *TestServer) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, found := store.getByID(id); !found {
+	// Replace the stored entity so follow-up GETs return updated data.
+	updated, err := json.Marshal(m)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, []string{"Failed to marshal updated entity"})
+		return
+	}
+	if !store.updateByID(id, updated) {
 		writeErrorResponse(w, http.StatusNotFound, []string{fmt.Sprintf("%s with ID %d not found", entityName, id)})
 		return
 	}
@@ -166,7 +173,7 @@ func (ts *TestServer) handleUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ts *TestServer) handleDelete(w http.ResponseWriter, r *http.Request) {
-	entityName, id, _ := parseEntityAndID(r.URL.Path)
+	entityName, id, _, _ := parseEntityAndID(r.URL.Path)
 	store, ok := ts.getStore(entityName)
 	if !ok {
 		writeErrorResponse(w, http.StatusNotFound, []string{fmt.Sprintf("Entity %q not found", entityName)})

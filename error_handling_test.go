@@ -113,9 +113,20 @@ func TestErrorMultipleMessages(t *testing.T) {
 	if !strings.Contains(errStr, "msg1") {
 		t.Fatalf("error should contain 'msg1': %v", err)
 	}
-	// Verify the underlying Error has both messages by unwrapping.
-	if _, ok := errors.AsType[*autotask.ValidationError](err); !ok {
+	// Verify msg2 is also captured in the parsed errors.
+	vErr, ok := errors.AsType[*autotask.ValidationError](err)
+	if !ok {
 		t.Fatalf("expected ValidationError for 400 response, got %T: %v", err, err)
+	}
+	found := false
+	for _, ae := range vErr.Err.Errors {
+		if ae.Message == "msg2" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected 'msg2' in error list, got errors: %+v", vErr.Err.Errors)
 	}
 }
 
@@ -132,6 +143,21 @@ func TestErrorMixedPayloadFormat(t *testing.T) {
 	errStr := err.Error()
 	if !strings.Contains(errStr, "structured error") {
 		t.Fatalf("error should contain 'structured error': %v", err)
+	}
+	// Verify the plain string error is also captured.
+	vErr, ok := errors.AsType[*autotask.ValidationError](err)
+	if !ok {
+		t.Fatalf("expected ValidationError for 400 response, got %T: %v", err, err)
+	}
+	found := false
+	for _, ae := range vErr.Err.Errors {
+		if ae.Message == "plain string error" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected 'plain string error' in error list, got errors: %+v", vErr.Err.Errors)
 	}
 }
 
@@ -153,11 +179,12 @@ func TestErrorEmptyBody(t *testing.T) {
 		autotasktest.WithFixture("GET", "/v1.0/Companies/1", http.StatusOK, nil),
 	)
 	// A 200 response with an empty body should not panic.
-	// Get expects {"item": ...}, so an empty body yields an unmarshaling error.
+	// Get expects {"item": ...}, so an empty body yields an unmarshaling error
+	// because the client tries to unmarshal empty JSON into the item envelope.
 	_, err := autotask.Get[entities.Company](t.Context(), client, 1)
-	// Whether this returns an error or nil depends on implementation;
-	// the key assertion is that it does not panic.
-	_ = err
+	if err == nil {
+		t.Fatal("expected error when 200 response has empty body (client cannot unmarshal empty JSON)")
+	}
 }
 
 func TestErrorNetworkTimeout(t *testing.T) {

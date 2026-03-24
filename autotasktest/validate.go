@@ -6,6 +6,10 @@ import (
 	"net/http"
 )
 
+// maxRecordsLimit is the Autotask API maximum for the MaxRecords query parameter.
+// This mirrors the unexported constant in the main autotask package.
+const maxRecordsLimit = 500
+
 // validOperators is the set of valid Autotask query filter operators.
 var validOperators = map[string]bool{
 	"eq": true, "noteq": true,
@@ -70,8 +74,8 @@ func validateFilter(body []byte) error {
 		if err := json.Unmarshal(maxRaw, &maxRecords); err != nil {
 			return fmt.Errorf("MaxRecords must be an integer: %w", err)
 		}
-		if maxRecords < 1 || maxRecords > 500 {
-			return fmt.Errorf("MaxRecords must be 1-500, got %d", maxRecords)
+		if maxRecords < 1 || maxRecords > maxRecordsLimit {
+			return fmt.Errorf("MaxRecords must be 1-%d, got %d", maxRecordsLimit, maxRecords)
 		}
 	}
 	return nil

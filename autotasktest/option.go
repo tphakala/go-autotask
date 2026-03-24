@@ -54,6 +54,22 @@ func (s *entityStore) getByID(id int64) (json.RawMessage, bool) {
 	return nil, false
 }
 
+func (s *entityStore) updateByID(id int64, data json.RawMessage) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, item := range s.items {
+		var m map[string]any
+		if err := json.Unmarshal(item, &m); err != nil {
+			continue
+		}
+		if extractID(m) == id {
+			s.items[i] = data
+			return true
+		}
+	}
+	return false
+}
+
 func (s *entityStore) deleteByID(id int64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -109,8 +125,7 @@ func WithEntity[T autotask.Entity](items ...T) ServerOption {
 		if len(items) == 0 {
 			return
 		}
-		var zero T
-		name := zero.EntityName()
+		name := items[0].EntityName()
 		store, ok := ts.entities[name]
 		if !ok {
 			store = newEntityStore(name)
