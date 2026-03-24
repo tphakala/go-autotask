@@ -59,3 +59,9 @@ func WithThresholdMonitor(opts ...middleware.ThresholdMonitorOption) ClientOptio
 		c.thresholdMonitorOpts = opts
 	}
 }
+
+// WithZoneBaseURL overrides the base URL used for zone discovery.
+// This is primarily useful for testing.
+func WithZoneBaseURL(url string) ClientOption {
+	return func(c *Client) { c.zoneBaseURL = url }
+}
