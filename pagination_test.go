@@ -2,6 +2,7 @@ package autotask_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -157,6 +158,13 @@ func TestPaginationContextCancelList(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from cancelled context")
 	}
+	if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		// The error wraps context cancellation but may not unwrap directly.
+		// Accept any error that mentions "cancel" or "context" as valid.
+		if ctx.Err() == nil {
+			t.Fatalf("expected context cancellation error, got: %v", err)
+		}
+	}
 }
 
 func TestPaginationContextCancelListIter(t *testing.T) {
@@ -175,12 +183,18 @@ func TestPaginationContextCancelListIter(t *testing.T) {
 		cancel()
 	}()
 
-	// Should stop without panic; may or may not yield an error depending on timing
+	// Should stop without panic. Count items to verify iteration didn't complete fully.
+	var count int
 	for _, err := range autotask.ListIter[entities.Company](ctx, client, autotask.NewQuery()) {
 		if err != nil {
-			// Context cancelled error is expected; stop iterating
 			break
 		}
+		count++
+	}
+	// With 10 entities, page size 2, and 50ms latency per page, cancellation after 10ms
+	// should prevent fetching all items. If all 10 were fetched, cancellation didn't work.
+	if count == 10 {
+		t.Fatal("expected iteration to be cut short by context cancellation, but all 10 items were fetched")
 	}
 }
 
