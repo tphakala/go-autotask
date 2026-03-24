@@ -1,7 +1,6 @@
 package autotask
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -19,12 +18,12 @@ func newTypedTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1.0/TestEntities/{id}", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"item": map[string]any{"id": 42, "title": "Hello"},
 		})
 	})
 	mux.HandleFunc("POST /v1.0/TestEntities/query", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"items": []any{
 				map[string]any{"id": 1, "title": "First"},
 				map[string]any{"id": 2, "title": "Second"},
@@ -33,18 +32,18 @@ func newTypedTestServer(t *testing.T) *httptest.Server {
 		})
 	})
 	mux.HandleFunc("POST /v1.0/TestEntities/query/count", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"queryCount": 42})
+		_ = json.NewEncoder(w).Encode(map[string]any{"queryCount": 42})
 	})
 	mux.HandleFunc("POST /v1.0/TestEntities", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"itemId": 99})
+		_ = json.NewEncoder(w).Encode(map[string]any{"itemId": 99})
 	})
 	mux.HandleFunc("PATCH /v1.0/TestEntities", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"item": map[string]any{"id": 42, "title": "Updated"},
 		})
 	})
 	mux.HandleFunc("DELETE /v1.0/TestEntities/{id}", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -54,7 +53,7 @@ func newTypedTestServer(t *testing.T) *httptest.Server {
 func TestGet(t *testing.T) {
 	srv := newTypedTestServer(t)
 	client := testClient(t, srv)
-	entity, err := Get[testEntity](context.Background(), client, 42)
+	entity, err := Get[testEntity](t.Context(), client, 42)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +68,7 @@ func TestGet(t *testing.T) {
 func TestList(t *testing.T) {
 	srv := newTypedTestServer(t)
 	client := testClient(t, srv)
-	entities, err := List[testEntity](context.Background(), client, NewQuery().Where("status", OpEq, 1))
+	entities, err := List[testEntity](t.Context(), client, NewQuery().Where("status", OpEq, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +80,7 @@ func TestList(t *testing.T) {
 func TestCount(t *testing.T) {
 	srv := newTypedTestServer(t)
 	client := testClient(t, srv)
-	count, err := Count[testEntity](context.Background(), client, NewQuery())
+	count, err := Count[testEntity](t.Context(), client, NewQuery())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +93,7 @@ func TestCreate(t *testing.T) {
 	srv := newTypedTestServer(t)
 	client := testClient(t, srv)
 	entity := &testEntity{Title: Set("New")}
-	result, err := Create(context.Background(), client, entity)
+	result, err := Create(t.Context(), client, entity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +106,7 @@ func TestUpdate(t *testing.T) {
 	srv := newTypedTestServer(t)
 	client := testClient(t, srv)
 	entity := &testEntity{ID: Set(int64(42)), Title: Set("Updated")}
-	result, err := Update(context.Background(), client, entity)
+	result, err := Update(t.Context(), client, entity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +118,7 @@ func TestUpdate(t *testing.T) {
 func TestDelete(t *testing.T) {
 	srv := newTypedTestServer(t)
 	client := testClient(t, srv)
-	err := Delete[testEntity](context.Background(), client, 42)
+	err := Delete[testEntity](t.Context(), client, 42)
 	if err != nil {
 		t.Fatal(err)
 	}

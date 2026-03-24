@@ -13,13 +13,18 @@ import (
 	"github.com/tphakala/go-autotask/metadata"
 )
 
+const (
+	dirPerm  = 0o755
+	filePerm = 0o644
+)
+
 type Generator struct {
 	Client    *autotask.Client
 	OutputDir string
 }
 
 func (g *Generator) Generate(ctx context.Context) error {
-	if err := os.MkdirAll(g.OutputDir, 0o755); err != nil {
+	if err := os.MkdirAll(g.OutputDir, dirPerm); err != nil {
 		return fmt.Errorf("creating output dir: %w", err)
 	}
 	entities := []string{
@@ -53,10 +58,10 @@ func (g *Generator) generateEntity(name string, fields []metadata.FieldInfo, udf
 	}
 	formatted, err := format.Source([]byte(buf.String()))
 	if err != nil {
-		_ = os.WriteFile(path, []byte(buf.String()), 0o644)
+		_ = os.WriteFile(path, []byte(buf.String()), filePerm)
 		return fmt.Errorf("formatting generated code for %s: %w", name, err)
 	}
-	return os.WriteFile(path, formatted, 0o644)
+	return os.WriteFile(path, formatted, filePerm)
 }
 
 type entityData struct {
@@ -107,7 +112,7 @@ func goType(atType string) string {
 }
 
 func goName(s string) string {
-	if len(s) == 0 {
+	if s == "" {
 		return s
 	}
 	return strings.ToUpper(s[:1]) + s[1:]

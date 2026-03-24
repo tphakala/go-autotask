@@ -11,13 +11,17 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/tphakala/go-autotask/middleware"
 )
 
-const version = "0.1.0"
+const (
+	version                = "0.1.0"
+	defaultHTTPTimeout     = 30 * time.Second
+)
 
 var _ interface{ Close() error } = (*Client)(nil)
 
@@ -45,7 +49,7 @@ type Middleware func(next http.RoundTripper) http.RoundTripper
 func NewClient(ctx context.Context, auth AuthConfig, opts ...ClientOption) (*Client, error) {
 	c := &Client{
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: defaultHTTPTimeout,
 			Transport: &http.Transport{
 				TLSClientConfig: &tls.Config{
 					MinVersion: tls.VersionTLS12,
@@ -68,8 +72,8 @@ func NewClient(ctx context.Context, auth AuthConfig, opts ...ClientOption) (*Cli
 		if transport == nil {
 			transport = http.DefaultTransport
 		}
-		for i := len(c.middlewares) - 1; i >= 0; i-- {
-			transport = c.middlewares[i](transport)
+		for _, mw := range slices.Backward(c.middlewares) {
+			transport = mw(transport)
 		}
 		cloned.Transport = transport
 		c.httpClient = &cloned
@@ -90,7 +94,7 @@ func NewClient(ctx context.Context, auth AuthConfig, opts ...ClientOption) (*Cli
 			IntegrationCode: c.auth.IntegrationCode,
 		}
 		monitor := middleware.NewThresholdMonitor(c.httpClient, c.baseURL, auth, c.thresholdMonitorOpts...)
-		monitor.Start()
+		monitor.Start(ctx)
 		c.closers = append(c.closers, monitor.Stop)
 	}
 	return c, nil
@@ -120,7 +124,7 @@ func (c *Client) resolveZone(ctx context.Context) (*ZoneInfo, error) {
 
 // do executes an HTTP request. path is appended to baseURL unless it starts
 // with "http" (absolute URL from pagination nextPageUrl).
-func (c *Client) do(ctx context.Context, method, path string, body any, result any) error {
+func (c *Client) do(ctx context.Context, method, path string, body, result any) error {
 	var bodyReader *bytes.Buffer
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -138,7 +142,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any, result a
 	if bodyReader != nil {
 		req, err = http.NewRequestWithContext(ctx, method, requestURL, bodyReader)
 	} else {
-		req, err = http.NewRequestWithContext(ctx, method, requestURL, nil)
+		req, err = http.NewRequestWithContext(ctx, method, requestURL, http.NoBody)
 	}
 	if err != nil {
 		return fmt.Errorf("autotask: creating request: %w", err)
@@ -160,12 +164,12 @@ func (c *Client) do(ctx context.Context, method, path string, body any, result a
 	if err != nil {
 		return fmt.Errorf("autotask: request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // error ignored in defer, nothing useful to do with it
 	return parseResponse(resp, result)
 }
 
 // Do is the exported version of do for sub-packages (metadata, autotasktest).
-func (c *Client) Do(ctx context.Context, method, path string, body any, result any) error {
+func (c *Client) Do(ctx context.Context, method, path string, body, result any) error {
 	return c.do(ctx, method, path, body, result)
 }
 

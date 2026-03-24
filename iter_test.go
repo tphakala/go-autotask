@@ -1,7 +1,6 @@
 package autotask
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,12 +13,12 @@ func TestListIter(t *testing.T) {
 	mux.HandleFunc("POST /v1.0/TestEntities/query", func(w http.ResponseWriter, r *http.Request) {
 		page++
 		if page == 1 {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items":       []any{map[string]any{"id": 1}, map[string]any{"id": 2}},
 				"pageDetails": map[string]any{"count": 2, "nextPageUrl": "/v1.0/TestEntities/query?page=2"},
 			})
 		} else {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items":       []any{map[string]any{"id": 3}},
 				"pageDetails": map[string]any{"count": 1},
 			})
@@ -28,8 +27,8 @@ func TestListIter(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	client := testClient(t, srv)
-	var ids []int64
-	for entity, err := range ListIter[testEntity](context.Background(), client, NewQuery()) {
+	ids := make([]int64, 0, 3)
+	for entity, err := range ListIter[testEntity](t.Context(), client, NewQuery()) {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -46,7 +45,7 @@ func TestListIterBreakEarly(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1.0/TestEntities/query", func(w http.ResponseWriter, r *http.Request) {
 		reqs++
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"items":       []any{map[string]any{"id": 1}, map[string]any{"id": 2}, map[string]any{"id": 3}},
 			"pageDetails": map[string]any{"count": 3, "nextPageUrl": "/v1.0/TestEntities/query?page=2"},
 		})
@@ -55,7 +54,7 @@ func TestListIterBreakEarly(t *testing.T) {
 	defer srv.Close()
 	client := testClient(t, srv)
 	count := 0
-	for _, err := range ListIter[testEntity](context.Background(), client, NewQuery()) {
+	for _, err := range ListIter[testEntity](t.Context(), client, NewQuery()) {
 		if err != nil {
 			t.Fatal(err)
 		}

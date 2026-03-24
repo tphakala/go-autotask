@@ -1,7 +1,6 @@
 package autotask
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -56,17 +55,17 @@ func TestZoneCacheReturnsCopy(t *testing.T) {
 func TestDiscoverZone(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /atservicesrest/versioninformation", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"versions": []string{"1.0"},
 		})
 	})
 	mux.HandleFunc("GET /atservicesrest/1.0/zoneInformation", func(w http.ResponseWriter, r *http.Request) {
 		user := r.URL.Query().Get("user")
 		if user != "test@example.com" {
-			http.Error(w, "bad user", 400)
+			http.Error(w, "bad user", http.StatusBadRequest)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"zoneName": "Zone 5",
 			"url":      "https://webservices5.autotask.net/atservicesrest",
 			"webUrl":   "https://ww5.autotask.net",
@@ -75,7 +74,7 @@ func TestDiscoverZone(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	zone, err := discoverZone(context.Background(), srv.Client(), srv.URL, "test@example.com")
+	zone, err := discoverZone(t.Context(), srv.Client(), srv.URL, "test@example.com")
 	if err != nil {
 		t.Fatalf("discoverZone: %v", err)
 	}
