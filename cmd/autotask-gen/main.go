@@ -26,7 +26,7 @@ func run() error {
 	flag.Parse()
 
 	if *username == "" || *secret == "" || *integrationCode == "" {
-		fmt.Fprintln(os.Stderr, "usage: autotask-gen -username USER -secret SECRET -integration-code CODE [-output DIR]")
+		fmt.Fprintln(os.Stderr, "usage: autotask-gen -username USER -secret SECRET -integration-code CODE [-output DIR] [-entities NAMES]")
 		os.Exit(1)
 	}
 
