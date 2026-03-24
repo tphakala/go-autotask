@@ -57,6 +57,7 @@ func TestCreateChild(t *testing.T) {
 
 func TestListChild(t *testing.T) {
 	page := 0
+	const nextPath = "/v1.0/TestEntities/42/Notes?page=2"
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1.0/TestEntities/{parentID}/Notes", func(w http.ResponseWriter, r *http.Request) {
 		page++
@@ -66,16 +67,19 @@ func TestListChild(t *testing.T) {
 					map[string]any{"id": 10, "message": "note 1"},
 					map[string]any{"id": 11, "message": "note 2"},
 				},
-				"pageDetails": map[string]any{"count": 2, "nextPageUrl": "/v1.0/TestEntities/42/Notes?page=2"},
+				"pageDetails": map[string]any{"count": 2, "nextPageUrl": nextPath},
 			})
-		} else {
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"items": []any{
-					map[string]any{"id": 12, "message": "note 3"},
-				},
-				"pageDetails": map[string]any{"count": 1},
-			})
+			return
 		}
+		if got := r.URL.RequestURI(); got != nextPath {
+			t.Fatalf("request URI = %q; want %q", got, nextPath)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": []any{
+				map[string]any{"id": 12, "message": "note 3"},
+			},
+			"pageDetails": map[string]any{"count": 1},
+		})
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
