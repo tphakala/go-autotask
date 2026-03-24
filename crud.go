@@ -32,7 +32,12 @@ func List[T Entity](ctx context.Context, c *Client, q *Query) ([]*T, error) {
 	}
 	var allItems []*T
 	var queryBody any = q
+	pages := 0
 	for {
+		pages++
+		if pages > maxPages {
+			return nil, &ErrMaxPagesExceeded{EntityName: zero.EntityName(), MaxPages: maxPages}
+		}
 		var resp struct {
 			Items       []json.RawMessage `json:"items"`
 			PageDetails struct {

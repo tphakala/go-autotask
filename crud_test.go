@@ -2,6 +2,7 @@ package autotask
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -121,5 +122,26 @@ func TestDelete(t *testing.T) {
 	err := Delete[testEntity](t.Context(), client, 42)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestListMaxPagesGuard(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1.0/TestEntities/query", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items":       []any{map[string]any{"id": 1}},
+			"pageDetails": map[string]any{"count": 1, "nextPageUrl": "/v1.0/TestEntities/query?page=next"},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := testClient(t, srv)
+	_, err := List[testEntity](t.Context(), client, NewQuery())
+	if err == nil {
+		t.Fatal("expected ErrMaxPagesExceeded")
+	}
+	var maxErr *ErrMaxPagesExceeded
+	if !errors.As(err, &maxErr) {
+		t.Fatalf("expected ErrMaxPagesExceeded, got: %v", err)
 	}
 }
