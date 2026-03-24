@@ -20,6 +20,7 @@ A `TestServer` struct wrapping `httptest.Server`:
 ```go
 type TestServer struct {
     *httptest.Server
+    mu       sync.Mutex               // protects requests slice from concurrent handler access
     entities map[string]*entityStore  // in-memory entity storage
     auth     authConfig               // expected credentials
     requests []RecordedRequest        // request log for assertions
@@ -109,7 +110,8 @@ Handlers operate on the in-memory entity store:
 **Update (PATCH):**
 - Validate `id` present in body
 - Look up entity, merge fields
-- Return `{"itemId": N}`
+- Return `{"itemId": N}` (matching real Autotask behavior — the client's `Update` function
+  falls back to returning the input entity when `resp.Item` is nil)
 
 **Delete:**
 - Check entity supports deletion (Contacts, Tasks, etc.)
@@ -224,6 +226,10 @@ Each entity gets a table-driven test function exercising all supported operation
 
 ### CRUD test structure (example for Company):
 
+Note: All entity fields use `autotask.Optional[T]` (three-state type). `Get` takes `int64`,
+`Create`/`Update` return `(*T, error)` not `(int64, error)`. `Create` returns the input entity
+unchanged (Autotask only returns `{"itemId": N}`).
+
 ```go
 func TestCompanyCRUD(t *testing.T) {
     company := autotasktest.CompanyFixture()
@@ -232,7 +238,8 @@ func TestCompanyCRUD(t *testing.T) {
     )
 
     t.Run("Get", func(t *testing.T) {
-        got, err := autotask.Get[entities.Company](ctx, client, company.ID)
+        id, _ := company.ID.Get() // unwrap Optional[int64]
+        got, err := autotask.Get[entities.Company](ctx, client, id)
         // assert no error, fields match fixture
     })
 
@@ -244,28 +251,29 @@ func TestCompanyCRUD(t *testing.T) {
 
     t.Run("Create", func(t *testing.T) {
         newCo := autotasktest.CompanyFixture(func(c *entities.Company) {
-            c.ID = 0
-            c.CompanyName = "New Corp"
+            c.ID = autotask.Optional[int64]{} // leave unset for create
+            c.CompanyName = autotask.Set("New Corp")
         })
-        id, err := autotask.Create(ctx, client, &newCo)
-        // assert no error, ID returned
-        // assert request body had required fields
+        result, err := autotask.Create(ctx, client, &newCo)
+        // assert no error, result is the input entity (not a server-assigned entity)
+        // assert request body had required fields via srv.LastRequest()
     })
 
     t.Run("Update", func(t *testing.T) {
         company.Phone = autotask.Set("555-1234")
-        id, err := autotask.Update(ctx, client, &company)
+        result, err := autotask.Update(ctx, client, &company)
         // assert PATCH method used, id in body
+        // result is original entity (since Autotask returns {"itemId": N})
     })
 
     t.Run("CreateWithUDF", func(t *testing.T) {
         co := autotasktest.CompanyFixture(func(c *entities.Company) {
-            c.ID = 0
+            c.ID = autotask.Optional[int64]{} // leave unset for create
             c.UserDefinedFields = []autotask.UDF{
                 {Name: "CustomerRanking", Value: "Gold"},
             }
         })
-        id, err := autotask.Create(ctx, client, &co)
+        result, err := autotask.Create(ctx, client, &co)
         // assert UDF serialized in request body
     })
 }
@@ -304,32 +312,56 @@ func TestQueryIncludeFields(t *testing.T) {
 func TestQueryMaxRecords(t *testing.T) {
     // Verify MaxRecords value in query body
 }
+
+func TestQueryMaxRecordsTruncation(t *testing.T) {
+    // Verify Limit(1000) serializes MaxRecords as 500 (hard cap in query.go)
+}
 ```
 
 ## Pagination Tests
 
+Both `List` (eager, buffers all pages) and `ListIter` (lazy, yields via iter.Seq2) must be
+tested for each scenario since they have different pagination code paths.
+
 ```go
-func TestPaginationMultiPage(t *testing.T) {
+func TestPaginationMultiPageList(t *testing.T) {
     // Seed 5 entities, page size 2 -> 3 pages
-    // Verify ListIter fetches all 5
+    // Verify List returns all 5
     // Verify nextPageUrl followed correctly
+}
+
+func TestPaginationMultiPageListIter(t *testing.T) {
+    // Same setup as above but using ListIter
+    // Verify iterator yields all 5 entities
 }
 
 func TestPaginationSinglePage(t *testing.T) {
     // Seed 3 entities, page size 500 -> 1 page
+    // Test both List and ListIter
     // Verify no nextPageUrl followed
 }
 
 func TestPaginationEmpty(t *testing.T) {
     // No matching entities -> empty items array
+    // Test both List and ListIter
 }
 
-func TestPaginationContextCancel(t *testing.T) {
+func TestPaginationContextCancelList(t *testing.T) {
+    // Cancel context mid-pagination -> List returns error
+}
+
+func TestPaginationContextCancelListIter(t *testing.T) {
     // Cancel context mid-iteration -> iterator stops, no panic
 }
 
 func TestPaginationExactPageSize(t *testing.T) {
     // Seed exactly pageSize entities -> verify handles ambiguity
+    // Test both List and ListIter
+}
+
+func TestPaginationListWithMaxRecords(t *testing.T) {
+    // Seed 10 entities, Limit(3) -> List returns exactly 3
+    // Verify early termination (does not fetch all pages)
 }
 ```
 
@@ -358,6 +390,11 @@ func TestErrorServerError(t *testing.T) {
 
 func TestErrorMultipleMessages(t *testing.T) {
     // {"errors": ["msg1", "msg2"]} -> error contains both messages
+}
+
+func TestErrorMixedPayloadFormat(t *testing.T) {
+    // {"errors": [{"message": "structured error"}, "plain string error"]}
+    // Validates both extractErrors branches: JSON object and plain string
 }
 
 func TestErrorMalformedJSON(t *testing.T) {
@@ -405,6 +442,10 @@ func TestProjectTaskChild(t *testing.T) {
     // GetChild[Project, Task] -> correct path /Projects/{id}/Tasks
     // CreateChild[Project, Task] -> correct path and body
 }
+
+func TestCreateChildNilEntity(t *testing.T) {
+    // CreateChild with nil child -> returns error "child entity must not be nil"
+}
 ```
 
 ## Metadata Tests
@@ -446,13 +487,21 @@ func TestThresholdMonitorWithMockServer(t *testing.T) {
 
 ## Zone Discovery Tests
 
+**Prerequisite:** The client currently hardcodes `defaultZoneBaseURL` and only performs discovery
+when `baseURL` is empty. To test zone discovery against the mock server, we need to add a
+`WithZoneBaseURL(url string)` client option that overrides the zone discovery endpoint URL.
+This is a small, targeted change to `option.go` and `zone.go`.
+
 ```go
 func TestZoneDiscovery(t *testing.T) {
-    // Mock zoneInformation endpoint -> correct zone URL used
+    // Use WithZoneBaseURL to point discovery at mock server
+    // Mock versioninformation + zoneInformation endpoints
+    // Verify client uses the zone URL for subsequent API calls
 }
 
 func TestZoneCaching(t *testing.T) {
     // Second request uses cached zone, no second lookup
+    // Verify only one zone discovery request was made via srv.RequestCount()
 }
 
 func TestZoneDiscoveryFailure(t *testing.T) {
@@ -487,24 +536,45 @@ func TestOptionalRoundTrip(t *testing.T) {
 - No `time.Sleep` — use `WithLatency` + context deadlines for timing tests
 - Mock server assigns auto-incrementing IDs starting from 1
 - Pagination URLs are relative paths that the server can resolve
-- The `RecordedRequest` log is goroutine-safe
+- The `RecordedRequest` log is goroutine-safe (protected by sync.Mutex)
 
 ## Test Count Estimate
 
 - ~10 entity CRUD tests x 5 operations = ~50 subtests
-- ~15 query/filter tests
-- ~10 pagination tests
-- ~10 error handling tests
+- ~16 query/filter tests (including MaxRecords truncation)
+- ~13 pagination tests (List + ListIter for each scenario)
+- ~11 error handling tests (including mixed payload format)
 - ~5 auth tests
-- ~5 child entity tests
+- ~6 child entity tests (including nil child validation)
 - ~5 metadata tests
 - ~5 middleware integration tests
 - ~5 zone discovery tests
 - ~5 optional field tests
 
-**Total: ~115 test cases**
+**Total: ~121 test cases**
+
+## Library Changes Required
+
+### `WithZoneBaseURL` client option
+
+To make zone discovery testable against the mock server, add a new `ClientOption`:
+
+```go
+// option.go
+func WithZoneBaseURL(url string) ClientOption
+```
+
+This overrides `defaultZoneBaseURL` in the client, allowing tests to point zone discovery
+at the mock server instead of `https://webservices2.autotask.net`.
+
+This is the only change to the library's public API.
 
 ## Files Changed
+
+### Modified files:
+- `option.go` — Add `WithZoneBaseURL` option
+- `zone.go` — Accept configurable zone base URL instead of hardcoded constant
+- `client.go` — Wire `zoneBaseURL` field through client initialization
 
 ### New files:
 - `autotasktest/server.go`
