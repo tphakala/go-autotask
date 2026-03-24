@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-type testEntity struct {
+type testEntity struct { //nolint:recvcheck // EntityName uses value receiver (Entity interface), SetID uses pointer receiver (EntityWithID)
 	ID    Optional[int64]  `json:"id,omitzero"`
 	Title Optional[string] `json:"title,omitzero"`
 }
@@ -154,10 +154,9 @@ func TestListMaxPagesGuard(t *testing.T) {
 	client := testClient(t, srv)
 	_, err := List[testEntity](t.Context(), client, NewQuery())
 	if err == nil {
-		t.Fatal("expected ErrMaxPagesExceeded")
+		t.Fatal("expected MaxPagesExceededError")
 	}
-	var maxErr *ErrMaxPagesExceeded
-	if !errors.As(err, &maxErr) {
-		t.Fatalf("expected ErrMaxPagesExceeded, got: %v", err)
+	if _, ok := errors.AsType[*MaxPagesExceededError](err); !ok {
+		t.Fatalf("expected MaxPagesExceededError, got: %v", err)
 	}
 }

@@ -86,15 +86,14 @@ func TestListIterMaxPagesGuard(t *testing.T) {
 	var gotError bool
 	for _, err := range ListIter[testEntity](t.Context(), client, NewQuery()) {
 		if err != nil {
-			var maxErr *ErrMaxPagesExceeded
-			if !errors.As(err, &maxErr) {
-				t.Fatalf("expected ErrMaxPagesExceeded, got: %v", err)
+			if _, ok := errors.AsType[*MaxPagesExceededError](err); !ok {
+				t.Fatalf("expected MaxPagesExceededError, got: %v", err)
 			}
 			gotError = true
 			break
 		}
 	}
 	if !gotError {
-		t.Fatal("expected ErrMaxPagesExceeded from iterator")
+		t.Fatal("expected MaxPagesExceededError from iterator")
 	}
 }

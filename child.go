@@ -46,7 +46,7 @@ func ListChild[P Entity, C Entity](ctx context.Context, c *Client, parentID int6
 	for {
 		pages++
 		if pages > maxPages {
-			return nil, &ErrMaxPagesExceeded{EntityName: zeroC.EntityName(), MaxPages: maxPages}
+			return nil, &MaxPagesExceededError{EntityName: zeroC.EntityName(), MaxPages: maxPages}
 		}
 		var resp childPageResponse
 		if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
@@ -77,7 +77,7 @@ func ListChildIter[P Entity, C Entity](ctx context.Context, c *Client, parentID 
 		for {
 			pages++
 			if pages > maxPages {
-				yield(nil, &ErrMaxPagesExceeded{EntityName: zeroC.EntityName(), MaxPages: maxPages})
+				yield(nil, &MaxPagesExceededError{EntityName: zeroC.EntityName(), MaxPages: maxPages})
 				return
 			}
 			nextPath, shouldContinue := fetchAndYieldChildPage(ctx, c, &zeroC, path, yield)
@@ -118,7 +118,7 @@ func ListChildRaw(ctx context.Context, c *Client, parentEntityName string, paren
 	for {
 		pages++
 		if pages > maxPages {
-			return nil, &ErrMaxPagesExceeded{EntityName: childEntityName, MaxPages: maxPages}
+			return nil, &MaxPagesExceededError{EntityName: childEntityName, MaxPages: maxPages}
 		}
 		var resp struct {
 			Items       []map[string]any `json:"items"`

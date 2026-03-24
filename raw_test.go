@@ -119,10 +119,9 @@ func TestListRawMaxPagesGuard(t *testing.T) {
 	client := testClient(t, srv)
 	_, err := ListRaw(t.Context(), client, "Tickets", NewQuery())
 	if err == nil {
-		t.Fatal("expected ErrMaxPagesExceeded")
+		t.Fatal("expected MaxPagesExceededError")
 	}
-	var maxErr *ErrMaxPagesExceeded
-	if !errors.As(err, &maxErr) {
-		t.Fatalf("expected ErrMaxPagesExceeded, got: %v", err)
+	if _, ok := errors.AsType[*MaxPagesExceededError](err); !ok {
+		t.Fatalf("expected MaxPagesExceededError, got: %v", err)
 	}
 }
