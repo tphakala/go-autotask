@@ -63,12 +63,17 @@ func (g *Generator) Generate(ctx context.Context) error {
 	return nil
 }
 
-// toSnakeCase converts PascalCase to snake_case.
+func isUpper(c byte) bool { return c >= 'A' && c <= 'Z' }
+func isLower(c byte) bool { return c >= 'a' && c <= 'z' }
+
+// toSnakeCase converts PascalCase to snake_case, handling acronyms.
+// "TicketNotes" -> "ticket_notes", "HTTPServer" -> "http_server", "APIKey" -> "api_key"
 func toSnakeCase(s string) string {
 	var result []byte
-	for i, r := range []byte(s) {
-		if r >= 'A' && r <= 'Z' {
-			if i > 0 && s[i-1] >= 'a' && s[i-1] <= 'z' {
+	b := []byte(s)
+	for i, r := range b {
+		if isUpper(r) {
+			if i > 0 && needsUnderscore(b, i) {
 				result = append(result, '_')
 			}
 			result = append(result, r+('a'-'A'))
@@ -77,6 +82,17 @@ func toSnakeCase(s string) string {
 		}
 	}
 	return string(result)
+}
+
+// needsUnderscore reports whether an underscore should be inserted before b[i].
+func needsUnderscore(b []byte, i int) bool {
+	prev := b[i-1]
+	if isLower(prev) {
+		return true // lower→upper: "ticketN" → "ticket_n"
+	}
+	// Acronym boundary: 3+ uppercase run then lowercase.
+	// "HTTPServer" at S → true, "IDs" at D → false (run too short).
+	return isUpper(prev) && i >= 2 && isUpper(b[i-2]) && i+1 < len(b) && isLower(b[i+1])
 }
 
 func (g *Generator) generateEntity(name string, fields []metadata.FieldInfo, udfs []metadata.UDFInfo) error {

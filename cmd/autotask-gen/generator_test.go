@@ -15,6 +15,10 @@ func TestToSnakeCase(t *testing.T) {
 		{"ServiceBundles", "service_bundles"},
 		{"QuoteItems", "quote_items"},
 		{"IDs", "ids"},
+		{"HTTPServer", "http_server"},
+		{"APIKey", "api_key"},
+		{"HTMLParser", "html_parser"},
+		{"SimpleURL", "simple_url"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {

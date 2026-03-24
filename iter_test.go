@@ -2,6 +2,7 @@ package autotask
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -68,5 +69,31 @@ func TestListIterBreakEarly(t *testing.T) {
 	}
 	if reqs != 1 {
 		t.Fatalf("requests = %d; want 1 when breaking early", reqs)
+	}
+}
+
+func TestListIterMaxPagesGuard(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1.0/TestEntities/query", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items":       []any{map[string]any{"id": 1}},
+			"pageDetails": map[string]any{"count": 1, "nextPageUrl": "/v1.0/TestEntities/query?page=next"},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := testClient(t, srv)
+	var gotError bool
+	for _, err := range ListIter[testEntity](t.Context(), client, NewQuery()) {
+		if err != nil {
+			if _, ok := errors.AsType[*MaxPagesExceededError](err); !ok {
+				t.Fatalf("expected MaxPagesExceededError, got: %v", err)
+			}
+			gotError = true
+			break
+		}
+	}
+	if !gotError {
+		t.Fatal("expected MaxPagesExceededError from iterator")
 	}
 }
