@@ -18,18 +18,32 @@ const (
 	filePerm = 0o644
 )
 
+// DefaultEntities is the full set of entities generated when no -entities flag is provided.
+var DefaultEntities = []string{
+	"Tickets", "Companies", "Contacts", "Projects", "Tasks",
+	"Contracts", "ConfigurationItems", "Resources", "TimeEntries",
+	"ProjectNotes", "CompanyNotes",
+	"TicketAttachments",
+	"Quotes", "QuoteItems", "Opportunities",
+	"Invoices", "BillingItems", "BillingItemApprovalLevels", "BillingCodes",
+	"ExpenseReports", "ExpenseItems",
+	"Products", "Services", "ServiceBundles",
+	"Departments",
+}
+
 type Generator struct {
 	Client    *autotask.Client
 	OutputDir string
+	Entities  []string // if empty, uses DefaultEntities
 }
 
 func (g *Generator) Generate(ctx context.Context) error {
 	if err := os.MkdirAll(g.OutputDir, dirPerm); err != nil {
 		return fmt.Errorf("creating output dir: %w", err)
 	}
-	entities := []string{
-		"Tickets", "Companies", "Contacts", "Projects", "Tasks",
-		"Contracts", "ConfigurationItems", "Resources", "TimeEntries",
+	entities := g.Entities
+	if len(entities) == 0 {
+		entities = DefaultEntities
 	}
 	for _, entityName := range entities {
 		fields, err := metadata.GetFields(ctx, g.Client, entityName)

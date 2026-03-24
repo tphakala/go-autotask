@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	autotask "github.com/tphakala/go-autotask"
 )
@@ -21,6 +22,7 @@ func run() error {
 	secret := flag.String("secret", "", "Autotask API secret")
 	integrationCode := flag.String("integration-code", "", "Autotask API integration code")
 	output := flag.String("output", "./entities", "Output directory for generated files")
+	entitiesFlag := flag.String("entities", "", "Comma-separated entity names to generate (default: all)")
 	flag.Parse()
 
 	if *username == "" || *secret == "" || *integrationCode == "" {
@@ -44,6 +46,9 @@ func run() error {
 	gen := &Generator{
 		Client:    client,
 		OutputDir: *output,
+	}
+	if *entitiesFlag != "" {
+		gen.Entities = strings.Split(*entitiesFlag, ",")
 	}
 	if err := gen.Generate(ctx); err != nil {
 		return fmt.Errorf("generation failed: %w", err)
