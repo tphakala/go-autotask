@@ -72,34 +72,39 @@ func ListChildIter[P Entity, C Entity](ctx context.Context, c *Client, parentID 
 		var zeroC C
 		path := fmt.Sprintf("/v1.0/%s/%d/%s", zeroP.EntityName(), parentID, zeroC.EntityName())
 		for {
-			var resp struct {
-				Items       []json.RawMessage `json:"items"`
-				PageDetails struct {
-					NextPageURL string `json:"nextPageUrl"`
-				} `json:"pageDetails"`
-			}
-			if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
-				yield(nil, err)
+			nextPath, shouldContinue := fetchAndYieldChildPage(ctx, c, &zeroC, path, yield)
+			if !shouldContinue || nextPath == "" {
 				return
 			}
-			for _, raw := range resp.Items {
-				var entity C
-				if err := json.Unmarshal(raw, &entity); err != nil {
-					if !yield(nil, fmt.Errorf("autotask: decoding %s child: %w", zeroC.EntityName(), err)) {
-						return
-					}
-					continue
-				}
-				if !yield(&entity, nil) {
-					return
-				}
-			}
-			if resp.PageDetails.NextPageURL == "" {
-				return
-			}
-			path = resp.PageDetails.NextPageURL
+			path = nextPath
 		}
 	}
+}
+
+func fetchAndYieldChildPage[C Entity](ctx context.Context, c *Client, entityZero *C, path string, yield func(*C, error) bool) (string, bool) {
+	var resp struct {
+		Items       []json.RawMessage `json:"items"`
+		PageDetails struct {
+			NextPageURL string `json:"nextPageUrl"`
+		} `json:"pageDetails"`
+	}
+	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+		yield(nil, err)
+		return "", false
+	}
+	for _, raw := range resp.Items {
+		var entity C
+		if err := json.Unmarshal(raw, &entity); err != nil {
+			if !yield(nil, fmt.Errorf("autotask: decoding %s child: %w", (*entityZero).EntityName(), err)) {
+				return "", false
+			}
+			continue
+		}
+		if !yield(&entity, nil) {
+			return "", false
+		}
+	}
+	return resp.PageDetails.NextPageURL, true
 }
 
 // CreateChild creates a child entity under a parent.

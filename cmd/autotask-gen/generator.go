@@ -74,7 +74,7 @@ func toSnakeCase(s string) string {
 			}
 		}
 		if r >= 'A' && r <= 'Z' {
-			result = append(result, r+32)
+			result = append(result, r+('a'-'A'))
 		} else {
 			result = append(result, r)
 		}
