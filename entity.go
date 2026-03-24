@@ -12,3 +12,10 @@ type UDF struct {
 	Name  string `json:"name"`
 	Value any    `json:"value"`
 }
+
+// EntityWithID is an optional interface that entities can implement
+// to receive the server-generated ID from Create operations.
+// The Autotask API returns {"itemId": N} on successful creates.
+type EntityWithID interface {
+	SetID(id int64)
+}

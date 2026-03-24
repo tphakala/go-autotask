@@ -15,6 +15,8 @@ type testEntity struct {
 
 func (testEntity) EntityName() string { return "TestEntities" }
 
+func (e *testEntity) SetID(id int64) { e.ID = Set(id) }
+
 func newTypedTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
@@ -122,6 +124,20 @@ func TestDelete(t *testing.T) {
 	err := Delete[testEntity](t.Context(), client, 42)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCreateSetsItemID(t *testing.T) {
+	srv := newTypedTestServer(t)
+	client := testClient(t, srv)
+	entity := &testEntity{Title: Set("New")}
+	result, err := Create(t.Context(), client, entity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, ok := result.ID.Get()
+	if !ok || id != 99 {
+		t.Fatalf("ID = %v, %v; want 99, true", id, ok)
 	}
 }
 
