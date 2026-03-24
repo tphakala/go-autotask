@@ -34,6 +34,7 @@ type Client struct {
 	thresholdMonitorOpts []middleware.ThresholdMonitorOption
 	logger               *slog.Logger
 	userAgent            string
+	zoneBaseURL          string
 	impersonationID      int64
 	closers              []func() error
 }
@@ -114,7 +115,11 @@ func (c *Client) resolveZone(ctx context.Context) (*ZoneInfo, error) {
 	if zone, ok := c.zoneCache.Get(c.auth.Username); ok {
 		return zone, nil
 	}
-	zone, err := discoverZone(ctx, c.httpClient, defaultZoneBaseURL, c.auth.Username)
+	base := c.zoneBaseURL
+	if base == "" {
+		base = defaultZoneBaseURL
+	}
+	zone, err := discoverZone(ctx, c.httpClient, base, c.auth.Username)
 	if err != nil {
 		return nil, err
 	}
