@@ -357,3 +357,54 @@ func TestListChildIterErrorOnSecondPage(t *testing.T) {
 		t.Fatal("expected error on second page")
 	}
 }
+
+func TestListChildRaw(t *testing.T) {
+	page := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1.0/Tickets/42/TicketNotes", func(w http.ResponseWriter, r *http.Request) {
+		page++
+		if page == 1 {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []any{
+					map[string]any{"id": 10, "message": "note 1"},
+				},
+				"pageDetails": map[string]any{"count": 1, "nextPageUrl": "/v1.0/Tickets/42/TicketNotes?page=2"},
+			})
+		} else {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []any{
+					map[string]any{"id": 11, "message": "note 2"},
+				},
+				"pageDetails": map[string]any{"count": 1},
+			})
+		}
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := testClient(t, srv)
+	items, err := ListChildRaw(t.Context(), client, "Tickets", 42, "TicketNotes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("len = %d; want 2", len(items))
+	}
+}
+
+func TestCreateChildRaw(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1.0/Tickets/42/TicketNotes", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"itemId": 99})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := testClient(t, srv)
+	data := map[string]any{"message": "new note"}
+	result, err := CreateChildRaw(t.Context(), client, "Tickets", 42, "TicketNotes", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+}
