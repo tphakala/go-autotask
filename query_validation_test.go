@@ -108,7 +108,7 @@ func TestQueryFilterOperators(t *testing.T) {
 			if entry["op"] != string(tt.op) {
 				t.Fatalf("op = %v; want %v", entry["op"], tt.op)
 			}
-			if entry["field"] != "companyName" {
+			if entry["field"] != "companyName" { //nolint:goconst // test assertion
 				t.Fatalf("field = %v; want companyName", entry["field"])
 			}
 			// For operators that take a value, verify it is present.

@@ -162,25 +162,11 @@ func TestContactCRUD(t *testing.T) {
 	})
 
 	t.Run("Delete", func(t *testing.T) {
-		// Create a contact to delete so we don't affect other subtests.
-		toDelete := autotasktest.ContactFixture(func(c *entities.Contact) {
-			c.ID = autotask.Optional[int64]{}
-		})
-		created, err := autotask.Create(t.Context(), client, &toDelete)
-		if err != nil {
-			t.Fatal(err)
-		}
-		// The mock server assigned an ID; use the original fixture ID for delete
-		// since Create returns the input entity. We need the server-assigned ID.
-		// Actually, Create returns the input entity, and the mock store assigned
-		// a new ID. We should use Get to find it, but the simplest approach is
-		// to delete the original seeded contact by its known ID.
 		id, _ := contact.ID.Get()
-		err = autotask.Delete[entities.Contact](t.Context(), client, id)
+		err := autotask.Delete[entities.Contact](t.Context(), client, id)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_ = created // ensure created is used
 	})
 
 	t.Run("CreateWithUDF", func(t *testing.T) {

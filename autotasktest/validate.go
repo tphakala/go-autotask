@@ -27,13 +27,13 @@ var groupOperators = map[string]bool{
 
 func (ts *TestServer) validateAuth(r *http.Request) error {
 	if got := r.Header.Get("UserName"); got != ts.auth.username {
-		return fmt.Errorf("UserName header = %q, want %q", got, ts.auth.username)
+		return fmt.Errorf("username header mismatch: got %q", got)
 	}
 	if got := r.Header.Get("Secret"); got != ts.auth.secret {
-		return fmt.Errorf("secret header = %q, want %q", got, ts.auth.secret)
+		return fmt.Errorf("secret header mismatch")
 	}
 	if got := r.Header.Get("ApiIntegrationCode"); got != ts.auth.integrationCode {
-		return fmt.Errorf("ApiIntegrationCode header = %q, want %q", got, ts.auth.integrationCode)
+		return fmt.Errorf("integration code header mismatch: got %q", got)
 	}
 	return nil
 }

@@ -50,9 +50,10 @@ func (ts *TestServer) handleGet(w http.ResponseWriter, r *http.Request) {
 		// Child entity listing or bare entity GET — return all items.
 		items := store.all()
 		pageSize := ts.opts.pageSize
-		if pageSize > len(items) {
+		if pageSize <= 0 {
 			pageSize = len(items)
 		}
+		pageSize = min(pageSize, len(items))
 		page := items[:pageSize]
 		var nextPageURL string
 		if len(items) > pageSize {
@@ -83,8 +84,10 @@ func (ts *TestServer) handleCreate(w http.ResponseWriter, r *http.Request) {
 	store, ok := ts.getStore(entityName)
 	if !ok {
 		// Auto-create store for unknown entities.
+		ts.mu.Lock()
 		store = newEntityStore(entityName)
 		ts.entities[entityName] = store
+		ts.mu.Unlock()
 	}
 
 	body, err := io.ReadAll(r.Body)

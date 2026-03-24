@@ -235,9 +235,8 @@ func TestPaginationListWithMaxRecords(t *testing.T) {
 }
 
 func TestPaginationListIterWithMaxRecords(t *testing.T) {
-	t.Skip("known gap: ListIter does not enforce MaxRecords client-side")
-
 	t.Parallel()
+	t.Skip("known gap: ListIter does not enforce MaxRecords client-side")
 
 	companies := makeCompanies(10)
 	_, client := autotasktest.NewServer(t,

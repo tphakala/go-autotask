@@ -43,7 +43,7 @@ func (ts *TestServer) handleQuery(w http.ResponseWriter, r *http.Request) {
 	// Determine page from query param.
 	pageNum := 1
 	if p := r.URL.Query().Get("page"); p != "" {
-		if n, err := strconv.Atoi(p); err == nil {
+		if n, err := strconv.Atoi(p); err == nil && n > 0 {
 			pageNum = n
 		}
 	}
@@ -210,7 +210,7 @@ func matchesNumericOp(val any, c filterCond) bool {
 	case "lte":
 		return toFloat(val) <= toFloat(c.value)
 	default:
-		return true
+		return false
 	}
 }
 
