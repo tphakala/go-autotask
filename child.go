@@ -42,7 +42,12 @@ func ListChild[P Entity, C Entity](ctx context.Context, c *Client, parentID int6
 	var zeroC C
 	path := fmt.Sprintf("/v1.0/%s/%d/%s", zeroP.EntityName(), parentID, zeroC.EntityName())
 	var allItems []*C
+	pages := 0
 	for {
+		pages++
+		if pages > maxPages {
+			return nil, &MaxPagesExceededError{EntityName: zeroC.EntityName(), MaxPages: maxPages}
+		}
 		var resp childPageResponse
 		if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
 			return nil, err
@@ -68,7 +73,13 @@ func ListChildIter[P Entity, C Entity](ctx context.Context, c *Client, parentID 
 		var zeroP P
 		var zeroC C
 		path := fmt.Sprintf("/v1.0/%s/%d/%s", zeroP.EntityName(), parentID, zeroC.EntityName())
+		pages := 0
 		for {
+			pages++
+			if pages > maxPages {
+				yield(nil, &MaxPagesExceededError{EntityName: zeroC.EntityName(), MaxPages: maxPages})
+				return
+			}
 			nextPath, shouldContinue := fetchAndYieldChildPage(ctx, c, &zeroC, path, yield)
 			if !shouldContinue || nextPath == "" {
 				return
@@ -99,6 +110,44 @@ func fetchAndYieldChildPage[C Entity](ctx context.Context, c *Client, entityZero
 	return resp.PageDetails.NextPageURL, true
 }
 
+// ListChildRaw fetches all child entities (untyped) for a parent, with automatic pagination.
+func ListChildRaw(ctx context.Context, c *Client, parentEntityName string, parentID int64, childEntityName string) ([]map[string]any, error) {
+	path := fmt.Sprintf("/v1.0/%s/%d/%s", parentEntityName, parentID, childEntityName)
+	var allItems []map[string]any
+	pages := 0
+	for {
+		pages++
+		if pages > maxPages {
+			return nil, &MaxPagesExceededError{EntityName: childEntityName, MaxPages: maxPages}
+		}
+		var resp struct {
+			Items       []map[string]any `json:"items"`
+			PageDetails struct {
+				NextPageURL string `json:"nextPageUrl"`
+			} `json:"pageDetails"`
+		}
+		if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+			return nil, err
+		}
+		allItems = append(allItems, resp.Items...)
+		if resp.PageDetails.NextPageURL == "" {
+			break
+		}
+		path = resp.PageDetails.NextPageURL
+	}
+	return allItems, nil
+}
+
+// CreateChildRaw creates a child entity (untyped) under a parent.
+func CreateChildRaw(ctx context.Context, c *Client, parentEntityName string, parentID int64, childEntityName string, data map[string]any) (map[string]any, error) {
+	path := fmt.Sprintf("/v1.0/%s/%d/%s", parentEntityName, parentID, childEntityName)
+	var resp map[string]any
+	if err := c.do(ctx, http.MethodPost, path, data, &resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
 // CreateChild creates a child entity under a parent.
 func CreateChild[P Entity, C Entity](ctx context.Context, c *Client, parentID int64, child *C) (*C, error) {
 	if child == nil {
@@ -106,9 +155,16 @@ func CreateChild[P Entity, C Entity](ctx context.Context, c *Client, parentID in
 	}
 	var parent P
 	path := fmt.Sprintf("/v1.0/%s/%d/%s", parent.EntityName(), parentID, (*child).EntityName())
-	var resp json.RawMessage
+	var resp struct {
+		ItemID *int64 `json:"itemId"`
+	}
 	if err := c.do(ctx, http.MethodPost, path, child, &resp); err != nil {
 		return nil, err
+	}
+	if resp.ItemID != nil {
+		if setter, ok := any(child).(EntityWithID); ok {
+			setter.SetID(*resp.ItemID)
+		}
 	}
 	return child, nil
 }

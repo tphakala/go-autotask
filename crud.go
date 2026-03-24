@@ -32,7 +32,12 @@ func List[T Entity](ctx context.Context, c *Client, q *Query) ([]*T, error) {
 	}
 	var allItems []*T
 	var queryBody any = q
+	pages := 0
 	for {
+		pages++
+		if pages > maxPages {
+			return nil, &MaxPagesExceededError{EntityName: zero.EntityName(), MaxPages: maxPages}
+		}
 		var resp struct {
 			Items       []json.RawMessage `json:"items"`
 			PageDetails struct {
@@ -77,11 +82,16 @@ func Count[T Entity](ctx context.Context, c *Client, q *Query) (int64, error) {
 
 func Create[T Entity](ctx context.Context, c *Client, entity *T) (*T, error) {
 	path := fmt.Sprintf("/v1.0/%s", (*entity).EntityName())
-	// Autotask returns {"itemId": N} for creates, not the full entity,
-	// so we cannot unmarshal a T from the response. Return the input entity.
-	var resp json.RawMessage
+	var resp struct {
+		ItemID *int64 `json:"itemId"`
+	}
 	if err := c.do(ctx, http.MethodPost, path, entity, &resp); err != nil {
 		return nil, err
+	}
+	if resp.ItemID != nil {
+		if setter, ok := any(entity).(EntityWithID); ok {
+			setter.SetID(*resp.ItemID)
+		}
 	}
 	return entity, nil
 }

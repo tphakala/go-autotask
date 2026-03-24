@@ -2,17 +2,20 @@ package autotask
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
-type testChildEntity struct {
+type testChildEntity struct { //nolint:recvcheck // EntityName uses value receiver (Entity interface), SetID uses pointer receiver (EntityWithID)
 	ID      Optional[int64]  `json:"id,omitzero"`
 	Message Optional[string] `json:"message,omitzero"`
 }
 
 func (testChildEntity) EntityName() string { return "Notes" }
+
+func (e *testChildEntity) SetID(id int64) { e.ID = Set(id) }
 
 func TestGetChild(t *testing.T) {
 	mux := http.NewServeMux()
@@ -249,6 +252,71 @@ func TestListChildIterAPIError(t *testing.T) {
 	t.Fatal("iterator should have yielded an error")
 }
 
+func TestListChildMaxPagesGuard(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1.0/TestEntities/{parentID}/Notes", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items":       []any{map[string]any{"id": 1, "message": "note"}},
+			"pageDetails": map[string]any{"count": 1, "nextPageUrl": "/v1.0/TestEntities/42/Notes?page=next"},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := testClient(t, srv)
+	_, err := ListChild[testEntity, testChildEntity](t.Context(), client, 42)
+	if err == nil {
+		t.Fatal("expected MaxPagesExceededError")
+	}
+	if _, ok := errors.AsType[*MaxPagesExceededError](err); !ok {
+		t.Fatalf("expected MaxPagesExceededError, got: %v", err)
+	}
+}
+
+func TestListChildIterMaxPagesGuard(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1.0/TestEntities/{parentID}/Notes", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items":       []any{map[string]any{"id": 1, "message": "note"}},
+			"pageDetails": map[string]any{"count": 1, "nextPageUrl": "/v1.0/TestEntities/42/Notes?page=next"},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := testClient(t, srv)
+	var gotError bool
+	for _, err := range ListChildIter[testEntity, testChildEntity](t.Context(), client, 42) {
+		if err != nil {
+			if _, ok := errors.AsType[*MaxPagesExceededError](err); !ok {
+				t.Fatalf("expected MaxPagesExceededError, got: %v", err)
+			}
+			gotError = true
+			break
+		}
+	}
+	if !gotError {
+		t.Fatal("expected MaxPagesExceededError from iterator")
+	}
+}
+
+func TestCreateChildSetsItemID(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1.0/TestEntities/{parentID}/Notes", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"itemId": 55})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := testClient(t, srv)
+	child := &testChildEntity{Message: Set("new note")}
+	result, err := CreateChild[testEntity](t.Context(), client, 42, child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, ok := result.ID.Get()
+	if !ok || id != 55 {
+		t.Fatalf("ID = %v, %v; want 55, true", id, ok)
+	}
+}
+
 func TestListChildIterErrorOnSecondPage(t *testing.T) {
 	page := 0
 	mux := http.NewServeMux()
@@ -285,5 +353,59 @@ func TestListChildIterErrorOnSecondPage(t *testing.T) {
 	}
 	if !gotError {
 		t.Fatal("expected error on second page")
+	}
+}
+
+func TestListChildRaw(t *testing.T) {
+	page := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1.0/Tickets/42/TicketNotes", func(w http.ResponseWriter, r *http.Request) {
+		page++
+		if page == 1 {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []any{
+					map[string]any{"id": 10, "message": "note 1"},
+				},
+				"pageDetails": map[string]any{"count": 1, "nextPageUrl": "/v1.0/Tickets/42/TicketNotes?page=2"},
+			})
+		} else {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []any{
+					map[string]any{"id": 11, "message": "note 2"},
+				},
+				"pageDetails": map[string]any{"count": 1},
+			})
+		}
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := testClient(t, srv)
+	items, err := ListChildRaw(t.Context(), client, "Tickets", 42, "TicketNotes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("len = %d; want 2", len(items))
+	}
+}
+
+func TestCreateChildRaw(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1.0/Tickets/42/TicketNotes", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"itemId": 99})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := testClient(t, srv)
+	data := map[string]any{"message": "new note"}
+	result, err := CreateChildRaw(t.Context(), client, "Tickets", 42, "TicketNotes", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result["itemId"] != float64(99) {
+		t.Fatalf("itemId = %v; want 99", result["itemId"])
 	}
 }

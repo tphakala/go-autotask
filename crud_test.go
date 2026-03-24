@@ -2,17 +2,20 @@ package autotask
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
-type testEntity struct {
+type testEntity struct { //nolint:recvcheck // EntityName uses value receiver (Entity interface), SetID uses pointer receiver (EntityWithID)
 	ID    Optional[int64]  `json:"id,omitzero"`
 	Title Optional[string] `json:"title,omitzero"`
 }
 
 func (testEntity) EntityName() string { return "TestEntities" }
+
+func (e *testEntity) SetID(id int64) { e.ID = Set(id) }
 
 func newTypedTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
@@ -121,5 +124,39 @@ func TestDelete(t *testing.T) {
 	err := Delete[testEntity](t.Context(), client, 42)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCreateSetsItemID(t *testing.T) {
+	srv := newTypedTestServer(t)
+	client := testClient(t, srv)
+	entity := &testEntity{Title: Set("New")}
+	result, err := Create(t.Context(), client, entity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, ok := result.ID.Get()
+	if !ok || id != 99 {
+		t.Fatalf("ID = %v, %v; want 99, true", id, ok)
+	}
+}
+
+func TestListMaxPagesGuard(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1.0/TestEntities/query", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items":       []any{map[string]any{"id": 1}},
+			"pageDetails": map[string]any{"count": 1, "nextPageUrl": "/v1.0/TestEntities/query?page=next"},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := testClient(t, srv)
+	_, err := List[testEntity](t.Context(), client, NewQuery())
+	if err == nil {
+		t.Fatal("expected MaxPagesExceededError")
+	}
+	if _, ok := errors.AsType[*MaxPagesExceededError](err); !ok {
+		t.Fatalf("expected MaxPagesExceededError, got: %v", err)
 	}
 }
