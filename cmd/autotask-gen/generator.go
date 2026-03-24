@@ -75,11 +75,15 @@ func toSnakeCase(s string) string {
 				// Insert underscore before uppercase that follows lowercase: "ticketN" -> "ticket_n"
 				if prev >= 'a' && prev <= 'z' {
 					result = append(result, '_')
-				} else if prev >= 'A' && prev <= 'Z' && i+1 < len(b) && b[i+1] >= 'a' && b[i+1] <= 'z' && i >= 2 && b[i-2] >= 'A' && b[i-2] <= 'Z' {
+				} else if prev >= 'A' && prev <= 'Z' {
 					// Acronym boundary: 3+ uppercase run followed by lowercase.
 					// "HTTPServer" at S: b[i-2]=T(upper), prev=P(upper), next=e(lower) → underscore
 					// "IDs" at D: i<2 → no underscore → "ids" (correct)
-					result = append(result, '_')
+					nextIsLower := i+1 < len(b) && b[i+1] >= 'a' && b[i+1] <= 'z'
+					runIsLong := i >= 2 && b[i-2] >= 'A' && b[i-2] <= 'Z'
+					if nextIsLower && runIsLong {
+						result = append(result, '_')
+					}
 				}
 			}
 			result = append(result, r+('a'-'A'))
