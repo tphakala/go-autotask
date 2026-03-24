@@ -15,6 +15,8 @@ type testChildEntity struct {
 
 func (testChildEntity) EntityName() string { return "Notes" }
 
+func (e *testChildEntity) SetID(id int64) { e.ID = Set(id) }
+
 func TestGetChild(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1.0/TestEntities/{parentID}/Notes", func(w http.ResponseWriter, r *http.Request) {
@@ -295,6 +297,25 @@ func TestListChildIterMaxPagesGuard(t *testing.T) {
 	}
 	if !gotError {
 		t.Fatal("expected ErrMaxPagesExceeded from iterator")
+	}
+}
+
+func TestCreateChildSetsItemID(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1.0/TestEntities/{parentID}/Notes", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"itemId": 55})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := testClient(t, srv)
+	child := &testChildEntity{Message: Set("new note")}
+	result, err := CreateChild[testEntity](t.Context(), client, 42, child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, ok := result.ID.Get()
+	if !ok || id != 55 {
+		t.Fatalf("ID = %v, %v; want 55, true", id, ok)
 	}
 }
 
