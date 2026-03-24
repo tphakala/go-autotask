@@ -13,7 +13,13 @@ func ListIter[T Entity](ctx context.Context, c *Client, q *Query) iter.Seq2[*T, 
 		var zero T
 		path := fmt.Sprintf("/v1.0/%s/query", zero.EntityName())
 		var queryBody any = q
+		pages := 0
 		for {
+			pages++
+			if pages > maxPages {
+				yield(nil, &ErrMaxPagesExceeded{EntityName: zero.EntityName(), MaxPages: maxPages})
+				return
+			}
 			nextPath, shouldContinue := fetchAndYieldPage(ctx, c, &zero, path, queryBody, yield)
 			if !shouldContinue {
 				return
