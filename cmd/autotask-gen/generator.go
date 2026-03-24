@@ -67,13 +67,10 @@ func (g *Generator) Generate(ctx context.Context) error {
 func toSnakeCase(s string) string {
 	var result []byte
 	for i, r := range []byte(s) {
-		if i > 0 && r >= 'A' && r <= 'Z' {
-			prev := s[i-1]
-			if prev >= 'a' && prev <= 'z' {
+		if r >= 'A' && r <= 'Z' {
+			if i > 0 && s[i-1] >= 'a' && s[i-1] <= 'z' {
 				result = append(result, '_')
 			}
-		}
-		if r >= 'A' && r <= 'Z' {
 			result = append(result, r+('a'-'A'))
 		} else {
 			result = append(result, r)

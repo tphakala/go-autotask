@@ -8,18 +8,20 @@ import (
 	"net/http"
 )
 
+type childPageResponse struct {
+	Items       []json.RawMessage `json:"items"`
+	PageDetails struct {
+		NextPageURL string `json:"nextPageUrl"`
+	} `json:"pageDetails"`
+}
+
 // Deprecated: Use ListChild which provides automatic pagination.
 // GetChild fetches child entities for a parent entity (first page only).
 func GetChild[P Entity, C Entity](ctx context.Context, c *Client, parentID int64) ([]*C, error) {
 	var parent P
 	var child C
 	path := fmt.Sprintf("/v1.0/%s/%d/%s", parent.EntityName(), parentID, child.EntityName())
-	var resp struct {
-		Items       []json.RawMessage `json:"items"`
-		PageDetails struct {
-			NextPageURL string `json:"nextPageUrl"`
-		} `json:"pageDetails"`
-	}
+	var resp childPageResponse
 	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
 		return nil, err
 	}
@@ -41,12 +43,7 @@ func ListChild[P Entity, C Entity](ctx context.Context, c *Client, parentID int6
 	path := fmt.Sprintf("/v1.0/%s/%d/%s", zeroP.EntityName(), parentID, zeroC.EntityName())
 	var allItems []*C
 	for {
-		var resp struct {
-			Items       []json.RawMessage `json:"items"`
-			PageDetails struct {
-				NextPageURL string `json:"nextPageUrl"`
-			} `json:"pageDetails"`
-		}
+		var resp childPageResponse
 		if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
 			return nil, err
 		}
@@ -82,12 +79,7 @@ func ListChildIter[P Entity, C Entity](ctx context.Context, c *Client, parentID 
 }
 
 func fetchAndYieldChildPage[C Entity](ctx context.Context, c *Client, entityZero *C, path string, yield func(*C, error) bool) (string, bool) {
-	var resp struct {
-		Items       []json.RawMessage `json:"items"`
-		PageDetails struct {
-			NextPageURL string `json:"nextPageUrl"`
-		} `json:"pageDetails"`
-	}
+	var resp childPageResponse
 	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
 		yield(nil, err)
 		return "", false
