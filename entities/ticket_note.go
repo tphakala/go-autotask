@@ -21,5 +21,4 @@ type TicketNote struct {
 }
 
 // EntityName returns the Autotask API entity name for ticket notes.
-// For child access under Tickets, use ChildEntityName().
 func (TicketNote) EntityName() string { return "TicketNotes" }

@@ -18,18 +18,32 @@ const (
 	filePerm = 0o644
 )
 
+// DefaultEntities is the full set of entities generated when no -entities flag is provided.
+var DefaultEntities = []string{
+	"Tickets", "Companies", "Contacts", "Projects", "Tasks",
+	"Contracts", "ConfigurationItems", "Resources", "TimeEntries",
+	"ProjectNotes", "CompanyNotes",
+	"TicketAttachments",
+	"Quotes", "QuoteItems", "Opportunities",
+	"Invoices", "BillingItems", "BillingItemApprovalLevels", "BillingCodes",
+	"ExpenseReports", "ExpenseItems",
+	"Products", "Services", "ServiceBundles",
+	"Departments",
+}
+
 type Generator struct {
 	Client    *autotask.Client
 	OutputDir string
+	Entities  []string // if empty, uses DefaultEntities
 }
 
 func (g *Generator) Generate(ctx context.Context) error {
 	if err := os.MkdirAll(g.OutputDir, dirPerm); err != nil {
 		return fmt.Errorf("creating output dir: %w", err)
 	}
-	entities := []string{
-		"Tickets", "Companies", "Contacts", "Projects", "Tasks",
-		"Contracts", "ConfigurationItems", "Resources", "TimeEntries",
+	entities := g.Entities
+	if len(entities) == 0 {
+		entities = DefaultEntities
 	}
 	for _, entityName := range entities {
 		fields, err := metadata.GetFields(ctx, g.Client, entityName)
@@ -49,8 +63,24 @@ func (g *Generator) Generate(ctx context.Context) error {
 	return nil
 }
 
+// toSnakeCase converts PascalCase to snake_case.
+func toSnakeCase(s string) string {
+	var result []byte
+	for i, r := range []byte(s) {
+		if r >= 'A' && r <= 'Z' {
+			if i > 0 && s[i-1] >= 'a' && s[i-1] <= 'z' {
+				result = append(result, '_')
+			}
+			result = append(result, r+('a'-'A'))
+		} else {
+			result = append(result, r)
+		}
+	}
+	return string(result)
+}
+
 func (g *Generator) generateEntity(name string, fields []metadata.FieldInfo, udfs []metadata.UDFInfo) error {
-	filename := strings.ToLower(name) + ".go"
+	filename := toSnakeCase(name) + ".go"
 	path := filepath.Join(g.OutputDir, filename)
 	var buf strings.Builder
 	if err := entityTemplate.Execute(&buf, entityData{Name: name, Fields: fields, UDFs: udfs}); err != nil {
@@ -118,7 +148,17 @@ func goName(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
+// irregularPlurals maps entity names whose pluralization cannot be handled
+// by simple suffix rules without producing incorrect results.
+var irregularPlurals = map[string]string{
+	"Statuses":  "Status",
+	"Addresses": "Address",
+}
+
 func singular(s string) string {
+	if v, ok := irregularPlurals[s]; ok {
+		return v
+	}
 	if strings.HasSuffix(s, "ies") {
 		return s[:len(s)-3] + "y"
 	}
