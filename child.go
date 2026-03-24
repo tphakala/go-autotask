@@ -156,14 +156,14 @@ func CreateChild[P Entity, C Entity](ctx context.Context, c *Client, parentID in
 	var parent P
 	path := fmt.Sprintf("/v1.0/%s/%d/%s", parent.EntityName(), parentID, (*child).EntityName())
 	var resp struct {
-		ItemID int64 `json:"itemId"`
+		ItemID *int64 `json:"itemId"`
 	}
 	if err := c.do(ctx, http.MethodPost, path, child, &resp); err != nil {
 		return nil, err
 	}
-	if resp.ItemID != 0 {
+	if resp.ItemID != nil {
 		if setter, ok := any(child).(EntityWithID); ok {
-			setter.SetID(resp.ItemID)
+			setter.SetID(*resp.ItemID)
 		}
 	}
 	return child, nil

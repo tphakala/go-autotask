@@ -405,4 +405,7 @@ func TestCreateChildRaw(t *testing.T) {
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
+	if result["itemId"] != float64(99) {
+		t.Fatalf("itemId = %v; want 99", result["itemId"])
+	}
 }

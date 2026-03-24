@@ -83,14 +83,14 @@ func Count[T Entity](ctx context.Context, c *Client, q *Query) (int64, error) {
 func Create[T Entity](ctx context.Context, c *Client, entity *T) (*T, error) {
 	path := fmt.Sprintf("/v1.0/%s", (*entity).EntityName())
 	var resp struct {
-		ItemID int64 `json:"itemId"`
+		ItemID *int64 `json:"itemId"`
 	}
 	if err := c.do(ctx, http.MethodPost, path, entity, &resp); err != nil {
 		return nil, err
 	}
-	if resp.ItemID != 0 {
+	if resp.ItemID != nil {
 		if setter, ok := any(entity).(EntityWithID); ok {
-			setter.SetID(resp.ItemID)
+			setter.SetID(*resp.ItemID)
 		}
 	}
 	return entity, nil
