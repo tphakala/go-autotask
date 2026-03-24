@@ -141,5 +141,12 @@ func singular(s string) string {
 	if strings.HasSuffix(s, "ies") {
 		return s[:len(s)-3] + "y"
 	}
+	// Handle -ses, -xes, -zes, -ches, -shes → strip "es"
+	// e.g. "Statuses" → "Status", "Addresses" → "Address"
+	if strings.HasSuffix(s, "ses") || strings.HasSuffix(s, "xes") ||
+		strings.HasSuffix(s, "zes") || strings.HasSuffix(s, "ches") ||
+		strings.HasSuffix(s, "shes") {
+		return s[:len(s)-2]
+	}
 	return strings.TrimSuffix(s, "s")
 }
