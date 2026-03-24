@@ -30,7 +30,7 @@ client, err := autotask.NewClient(ctx, autotask.AuthConfig{
 go get github.com/tphakala/go-autotask
 ```
 
-Requires Go 1.23 or later.
+Requires Go 1.26 or later.
 
 ## Quick start
 
@@ -313,4 +313,4 @@ if nf, ok := errors.AsType[*autotask.NotFoundError](err); ok {
 
 ## License
 
-MIT
+Apache-2.0
