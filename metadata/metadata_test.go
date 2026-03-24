@@ -99,3 +99,52 @@ func TestGetEntityInfo(t *testing.T) {
 		t.Fatal("expected CanCreate=true")
 	}
 }
+
+func TestGetPickList(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{ //nolint:errchkjson // test handler, encoding any is intentional
+			"fields": []any{
+				map[string]any{
+					"name": "title", "label": "Title", "dataType": "string",
+					"isRequired": true, "isReadOnly": false, "isPickList": false,
+				},
+				map[string]any{
+					"name": "status", "label": "Status", "dataType": "integer",
+					"isRequired": true, "isReadOnly": false, "isPickList": true,
+					"picklistValues": []any{
+						map[string]any{"value": 1, "label": "New", "isActive": true},
+						map[string]any{"value": 5, "label": "Complete", "isActive": true},
+					},
+				},
+			},
+		})
+	})
+	client := testClient(t, handler)
+
+	t.Run("valid picklist field", func(t *testing.T) {
+		values, err := GetPickList(t.Context(), client, "Tickets", "status")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(values) != 2 {
+			t.Fatalf("values = %d; want 2", len(values))
+		}
+		if values[0].Label != "New" {
+			t.Fatalf("label = %q; want New", values[0].Label)
+		}
+	})
+
+	t.Run("non-picklist field", func(t *testing.T) {
+		_, err := GetPickList(t.Context(), client, "Tickets", "title")
+		if err == nil {
+			t.Fatal("expected error for non-picklist field")
+		}
+	})
+
+	t.Run("unknown field", func(t *testing.T) {
+		_, err := GetPickList(t.Context(), client, "Tickets", "nonexistent")
+		if err == nil {
+			t.Fatal("expected error for unknown field")
+		}
+	})
+}
