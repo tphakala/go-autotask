@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"iter"
 	"net/http"
 )
 
@@ -62,6 +63,43 @@ func ListChild[P Entity, C Entity](ctx context.Context, c *Client, parentID int6
 		path = resp.PageDetails.NextPageURL
 	}
 	return allItems, nil
+}
+
+// ListChildIter returns an iterator over child entities with lazy pagination.
+func ListChildIter[P Entity, C Entity](ctx context.Context, c *Client, parentID int64) iter.Seq2[*C, error] {
+	return func(yield func(*C, error) bool) {
+		var zeroP P
+		var zeroC C
+		path := fmt.Sprintf("/v1.0/%s/%d/%s", zeroP.EntityName(), parentID, zeroC.EntityName())
+		for {
+			var resp struct {
+				Items       []json.RawMessage `json:"items"`
+				PageDetails struct {
+					NextPageURL string `json:"nextPageUrl"`
+				} `json:"pageDetails"`
+			}
+			if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+				yield(nil, err)
+				return
+			}
+			for _, raw := range resp.Items {
+				var entity C
+				if err := json.Unmarshal(raw, &entity); err != nil {
+					if !yield(nil, fmt.Errorf("autotask: decoding %s child: %w", zeroC.EntityName(), err)) {
+						return
+					}
+					continue
+				}
+				if !yield(&entity, nil) {
+					return
+				}
+			}
+			if resp.PageDetails.NextPageURL == "" {
+				return
+			}
+			path = resp.PageDetails.NextPageURL
+		}
+	}
 }
 
 // CreateChild creates a child entity under a parent.
