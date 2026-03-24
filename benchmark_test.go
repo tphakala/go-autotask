@@ -18,7 +18,7 @@ func BenchmarkQueryMarshal(b *testing.B) {
 		Fields("id", "title", "status").
 		Limit(100)
 	for b.Loop() {
-		benchSink, _ = json.Marshal(q)
+		benchSink, _ = json.Marshal(q) //nolint:errchkjson // benchmark intentionally discards marshal error
 	}
 }
 
@@ -26,7 +26,7 @@ func BenchmarkParseResponseSuccess(b *testing.B) {
 	body := `{"item":{"id":123,"title":"Test Ticket","status":1}}`
 	for b.Loop() {
 		resp := &http.Response{
-			StatusCode: 200,
+			StatusCode: http.StatusOK,
 			Body:       io.NopCloser(strings.NewReader(body)),
 			Header:     http.Header{},
 		}
@@ -39,7 +39,7 @@ func BenchmarkParseResponseError(b *testing.B) {
 	body := `{"errors":["Not found"]}`
 	for b.Loop() {
 		resp := &http.Response{
-			StatusCode: 404,
+			StatusCode: http.StatusNotFound,
 			Body:       io.NopCloser(strings.NewReader(body)),
 			Header:     http.Header{},
 		}
@@ -55,6 +55,6 @@ func BenchmarkOptionalMarshal(b *testing.B) {
 	}
 	s := S{Name: Set("test"), Clear: Null[string]()}
 	for b.Loop() {
-		benchSink, _ = json.Marshal(s)
+		benchSink, _ = json.Marshal(s) //nolint:errchkjson // benchmark intentionally discards marshal error
 	}
 }

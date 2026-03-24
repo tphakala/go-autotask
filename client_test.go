@@ -1,7 +1,6 @@
 package autotask
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -14,15 +13,15 @@ import (
 
 func TestNewClientWithBaseURL(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 	auth := AuthConfig{Username: "user", Secret: "secret", IntegrationCode: "code"}
-	client, err := NewClient(context.Background(), auth, WithBaseURL(srv.URL))
+	client, err := NewClient(t.Context(), auth, WithBaseURL(srv.URL))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	if client.baseURL != srv.URL {
 		t.Fatalf("baseURL = %q; want %q", client.baseURL, srv.URL)
 	}
@@ -32,16 +31,16 @@ func TestClientAuthHeaders(t *testing.T) {
 	var gotHeaders http.Header
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotHeaders = r.Header
-		json.NewEncoder(w).Encode(map[string]any{"item": map[string]any{"id": 1}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"item": map[string]any{"id": 1}})
 	}))
 	defer srv.Close()
 	auth := AuthConfig{Username: "user@test.com", Secret: "s3cret", IntegrationCode: "INT123"}
-	client, err := NewClient(context.Background(), auth, WithBaseURL(srv.URL))
+	client, err := NewClient(t.Context(), auth, WithBaseURL(srv.URL))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
-	if err := client.do(context.Background(), http.MethodGet, "/v1.0/Tickets/1", nil, nil); err != nil {
+	defer func() { _ = client.Close() }()
+	if err := client.do(t.Context(), http.MethodGet, "/v1.0/Tickets/1", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if gotHeaders.Get("UserName") != "user@test.com" {
@@ -62,16 +61,16 @@ func TestClientImpersonation(t *testing.T) {
 	var gotHeaders http.Header
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotHeaders = r.Header
-		json.NewEncoder(w).Encode(map[string]any{"item": map[string]any{"id": 1}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"item": map[string]any{"id": 1}})
 	}))
 	defer srv.Close()
 	auth := AuthConfig{Username: "user", Secret: "secret", IntegrationCode: "code"}
-	client, err := NewClient(context.Background(), auth, WithBaseURL(srv.URL), WithImpersonation(12345))
+	client, err := NewClient(t.Context(), auth, WithBaseURL(srv.URL), WithImpersonation(12345))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
-	if err := client.do(context.Background(), http.MethodGet, "/v1.0/Tickets/1", nil, nil); err != nil {
+	defer func() { _ = client.Close() }()
+	if err := client.do(t.Context(), http.MethodGet, "/v1.0/Tickets/1", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if gotHeaders.Get("ImpersonationResourceId") != "12345" {
@@ -83,7 +82,7 @@ func TestClientClose(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer srv.Close()
 	auth := AuthConfig{Username: "user", Secret: "secret", IntegrationCode: "code"}
-	client, err := NewClient(context.Background(), auth, WithBaseURL(srv.URL))
+	client, err := NewClient(t.Context(), auth, WithBaseURL(srv.URL))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,18 +97,18 @@ func TestClientDoPost(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotBody, _ = io.ReadAll(r.Body)
-		json.NewEncoder(w).Encode(map[string]any{"itemId": 1})
+		_ = json.NewEncoder(w).Encode(map[string]any{"itemId": 1})
 	}))
 	defer srv.Close()
 	auth := AuthConfig{Username: "user", Secret: "secret", IntegrationCode: "code"}
-	client, err := NewClient(context.Background(), auth, WithBaseURL(srv.URL))
+	client, err := NewClient(t.Context(), auth, WithBaseURL(srv.URL))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	payload := map[string]any{"title": "test"}
 	var result map[string]any
-	err = client.do(context.Background(), http.MethodPost, "/v1.0/Tickets", payload, &result)
+	err = client.do(t.Context(), http.MethodPost, "/v1.0/Tickets", payload, &result)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,16 +129,16 @@ func TestClientWithMiddleware(t *testing.T) {
 		})
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"item": map[string]any{"id": 1}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"item": map[string]any{"id": 1}})
 	}))
 	defer srv.Close()
 	auth := AuthConfig{Username: "u", Secret: "s", IntegrationCode: "c"}
-	client, err := NewClient(context.Background(), auth, WithBaseURL(srv.URL), WithMiddleware(customMiddleware))
+	client, err := NewClient(t.Context(), auth, WithBaseURL(srv.URL), WithMiddleware(customMiddleware))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
-	if err := client.do(context.Background(), http.MethodGet, "/v1.0/Test/1", nil, nil); err != nil {
+	defer func() { _ = client.Close() }()
+	if err := client.do(t.Context(), http.MethodGet, "/v1.0/Test/1", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !middlewareCalled {
@@ -149,19 +148,19 @@ func TestClientWithMiddleware(t *testing.T) {
 
 func TestClientWithRateLimiter(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"item": map[string]any{"id": 1}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"item": map[string]any{"id": 1}})
 	}))
 	defer srv.Close()
 	auth := AuthConfig{Username: "u", Secret: "s", IntegrationCode: "c"}
-	client, err := NewClient(context.Background(), auth,
+	client, err := NewClient(t.Context(), auth,
 		WithBaseURL(srv.URL),
 		WithRateLimiter(middleware.WithRequestsPerHour(1000)),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
-	err = client.do(context.Background(), http.MethodGet, "/v1.0/Test/1", nil, nil)
+	defer func() { _ = client.Close() }()
+	err = client.do(t.Context(), http.MethodGet, "/v1.0/Test/1", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

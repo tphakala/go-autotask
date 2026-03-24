@@ -4,6 +4,8 @@ import "encoding/json"
 
 type Operator string
 
+const maxRecordsLimit = 500
+
 const (
 	OpEq         Operator = "eq"
 	OpNotEq      Operator = "noteq"
@@ -114,7 +116,7 @@ func (q *Query) MarshalJSON() ([]byte, error) {
 		m["IncludeFields"] = q.includeFields
 	}
 	if q.maxRecords > 0 {
-		m["MaxRecords"] = min(q.maxRecords, 500)
+		m["MaxRecords"] = min(q.maxRecords, maxRecordsLimit)
 	}
 	return json.Marshal(m)
 }

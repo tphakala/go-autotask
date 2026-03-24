@@ -12,6 +12,11 @@ const (
 	StateClosed   CircuitState = "closed"
 	StateOpen     CircuitState = "open"
 	StateHalfOpen CircuitState = "half-open"
+
+	defaultFailureThreshold = 5
+	defaultFailureWindow    = 10 * time.Second
+	defaultOpenTimeout      = 30 * time.Second
+	defaultSuccessThreshold = 2
 )
 
 type CircuitBreakerOption func(*circuitBreakerConfig)
@@ -77,8 +82,8 @@ type CircuitBreaker struct {
 
 func NewCircuitBreaker(next http.RoundTripper, opts ...CircuitBreakerOption) *CircuitBreaker {
 	cfg := circuitBreakerConfig{
-		failureThreshold: 5, failureWindow: 10 * time.Second,
-		openTimeout: 30 * time.Second, successThreshold: 2,
+		failureThreshold: defaultFailureThreshold, failureWindow: defaultFailureWindow,
+		openTimeout: defaultOpenTimeout, successThreshold: defaultSuccessThreshold,
 	}
 	for _, opt := range opts {
 		opt(&cfg)
@@ -112,6 +117,8 @@ func (cb *CircuitBreaker) RoundTrip(req *http.Request) (*http.Response, error) {
 	switch state {
 	case StateOpen:
 		return nil, &CircuitBreakerOpenError{}
+	case StateClosed, StateHalfOpen:
+		// Circuit is closed or half-open; proceed with request
 	}
 	resp, err := cb.next.RoundTrip(req)
 	if err != nil {
@@ -127,7 +134,7 @@ func (cb *CircuitBreaker) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func (cb *CircuitBreaker) isFailure(resp *http.Response) bool {
-	return resp.StatusCode >= 500 || resp.StatusCode == 429
+	return resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests
 }
 
 func (cb *CircuitBreaker) recordFailure() {

@@ -9,6 +9,16 @@ import (
 	"golang.org/x/time/rate"
 )
 
+const (
+	defaultRequestsPerHour  = 5000
+	defaultBurstSize        = 20
+	secondsPerHour          = 3600.0
+	usageWarnThreshold      = 0.75
+	usageLowThreshold       = 0.50
+	rateLimitBackoffShort   = 500 * time.Millisecond
+	rateLimitBackoffLong    = 60 * time.Second
+)
+
 // RateLimitOption configures a RateLimiter.
 type RateLimitOption func(*rateLimitConfig)
 
@@ -59,14 +69,14 @@ type RateLimiter struct {
 // Default: 5000 requests/hour, burst of 20, adaptive delay enabled.
 func NewRateLimiter(next http.RoundTripper, opts ...RateLimitOption) *RateLimiter {
 	cfg := rateLimitConfig{
-		requestsPerHour: 5000,
-		burstSize:       20,
+		requestsPerHour: defaultRequestsPerHour,
+		burstSize:       defaultBurstSize,
 		adaptiveDelay:   true,
 	}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	rps := rate.Limit(float64(cfg.requestsPerHour) / 3600.0)
+	rps := rate.Limit(float64(cfg.requestsPerHour) / secondsPerHour)
 	return &RateLimiter{
 		next:        next,
 		limiter:     rate.NewLimiter(rps, cfg.burstSize),
@@ -117,7 +127,7 @@ func (rl *RateLimiter) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	// If the server tells us to back off, record the deadline.
-	if resp.StatusCode == 429 {
+	if resp.StatusCode == http.StatusTooManyRequests {
 		if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
 			if d := parseRetryAfterHeader(retryAfter); d > 0 {
 				rl.mu.Lock()
@@ -148,10 +158,10 @@ func (rl *RateLimiter) adaptiveDelay() time.Duration {
 	defer rl.mu.Unlock()
 	usage := float64(rl.requestsInWindow) / float64(rl.config.requestsPerHour)
 	switch {
-	case usage >= 0.75:
+	case usage >= usageWarnThreshold:
 		return 1 * time.Second
-	case usage >= 0.50:
-		return 500 * time.Millisecond
+	case usage >= usageLowThreshold:
+		return rateLimitBackoffShort
 	default:
 		return 0
 	}
@@ -160,7 +170,7 @@ func (rl *RateLimiter) adaptiveDelay() time.Duration {
 // parseRetryAfterHeader parses the Retry-After header as seconds or HTTP-date.
 func parseRetryAfterHeader(header string) time.Duration {
 	if header == "" {
-		return 60 * time.Second
+		return rateLimitBackoffLong
 	}
 	// Try as seconds first.
 	var seconds int
@@ -173,5 +183,5 @@ func parseRetryAfterHeader(header string) time.Duration {
 			return d
 		}
 	}
-	return 60 * time.Second
+	return rateLimitBackoffLong
 }

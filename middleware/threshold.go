@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+const (
+	defaultCheckInterval = 5 * time.Minute
+	percentMultiplier    = 100
+)
+
 // ThresholdInfo holds current API usage information relative to the threshold.
 type ThresholdInfo struct {
 	CurrentUsage int
@@ -68,7 +73,7 @@ type ThresholdMonitor struct {
 
 // NewThresholdMonitor creates a new ThresholdMonitor. Call Start to begin polling.
 func NewThresholdMonitor(httpClient *http.Client, baseURL string, auth AuthHeaders, opts ...ThresholdMonitorOption) *ThresholdMonitor {
-	cfg := thresholdMonitorConfig{checkInterval: 5 * time.Minute}
+	cfg := thresholdMonitorConfig{checkInterval: defaultCheckInterval}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
@@ -78,7 +83,7 @@ func NewThresholdMonitor(httpClient *http.Client, baseURL string, auth AuthHeade
 }
 
 // Start begins the background polling loop.
-func (m *ThresholdMonitor) Start() {
+func (m *ThresholdMonitor) Start(ctx context.Context) {
 	m.mu.Lock()
 	if m.running {
 		m.mu.Unlock()
@@ -86,7 +91,7 @@ func (m *ThresholdMonitor) Start() {
 	}
 	m.running = true
 	m.done = make(chan struct{})
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 	m.cancel = cancel
 	m.mu.Unlock()
 	go func() {
@@ -125,7 +130,7 @@ func (m *ThresholdMonitor) Stop() error {
 
 func (m *ThresholdMonitor) check(ctx context.Context) {
 	checkURL := m.baseURL + "/v1.0/ThresholdInformation"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checkURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checkURL, http.NoBody)
 	if err != nil {
 		return
 	}
@@ -139,7 +144,7 @@ func (m *ThresholdMonitor) check(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return
 	}
@@ -156,7 +161,7 @@ func (m *ThresholdMonitor) check(ctx context.Context) {
 	info := ThresholdInfo{
 		CurrentUsage: data.CurrentCount,
 		Threshold:    data.Threshold,
-		UsagePercent: float64(data.CurrentCount) / float64(data.Threshold) * 100,
+		UsagePercent: float64(data.CurrentCount) / float64(data.Threshold) * percentMultiplier,
 	}
 	if info.UsagePercent >= 90 && m.config.criticalCallback != nil {
 		m.config.criticalCallback(info)

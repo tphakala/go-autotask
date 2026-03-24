@@ -43,7 +43,6 @@ func NewMockClient(t *testing.T, opts ...MockOption) *autotask.Client {
 	}
 	mux := http.NewServeMux()
 	for _, f := range cfg.fixtures {
-		f := f
 		pattern := f.method + " " + f.path
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 			if cfg.latency > 0 {
@@ -53,7 +52,7 @@ func NewMockClient(t *testing.T, opts ...MockOption) *autotask.Client {
 			w.WriteHeader(f.status)
 			if f.body != nil {
 				if err := json.NewEncoder(w).Encode(f.body); err != nil {
-					http.Error(w, "mock encode error: "+err.Error(), 500)
+					http.Error(w, "mock encode error: "+err.Error(), http.StatusInternalServerError)
 				}
 			}
 		})
@@ -65,6 +64,6 @@ func NewMockClient(t *testing.T, opts ...MockOption) *autotask.Client {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { client.Close() })
+	t.Cleanup(func() { _ = client.Close() })
 	return client
 }

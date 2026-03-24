@@ -26,7 +26,7 @@ func integrationClient(t *testing.T) *autotask.Client {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { client.Close() })
+	t.Cleanup(func() { _ = client.Close() })
 	return client
 }
 

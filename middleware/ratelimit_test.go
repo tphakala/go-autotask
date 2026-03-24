@@ -16,13 +16,13 @@ func (m *mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if idx < len(m.responses) {
 		return m.responses[idx], nil
 	}
-	return &http.Response{StatusCode: 200, Body: http.NoBody}, nil
+	return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
 }
 
 func TestRateLimiterAllowsRequests(t *testing.T) {
 	inner := &mockTransport{}
 	rl := NewRateLimiter(inner)
-	req, err := http.NewRequest("GET", "https://example.com/test", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://example.com/test", http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,19 +30,20 @@ func TestRateLimiterAllowsRequests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.StatusCode != 200 {
-		t.Fatalf("status = %d; want 200", resp.StatusCode)
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d; want %d", resp.StatusCode, http.StatusOK)
 	}
 }
 
 func TestRateLimiterRespectsRetryAfter(t *testing.T) {
 	inner := &mockTransport{
 		responses: []*http.Response{
-			{StatusCode: 429, Header: http.Header{"Retry-After": []string{"1"}}, Body: http.NoBody},
+			{StatusCode: http.StatusTooManyRequests, Header: http.Header{"Retry-After": []string{"1"}}, Body: http.NoBody},
 		},
 	}
 	rl := NewRateLimiter(inner)
-	req, err := http.NewRequest("GET", "https://example.com/test", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://example.com/test", http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,8 +51,9 @@ func TestRateLimiterRespectsRetryAfter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.StatusCode != 429 {
-		t.Fatalf("status = %d; want 429", resp.StatusCode)
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status = %d; want %d", resp.StatusCode, http.StatusTooManyRequests)
 	}
 	// Verify the retry-after was recorded
 	rl.mu.Lock()
@@ -65,14 +67,15 @@ func TestRateLimiterRespectsRetryAfter(t *testing.T) {
 func TestRateLimiterCustomConfig(t *testing.T) {
 	inner := &mockTransport{}
 	rl := NewRateLimiter(inner, WithRequestsPerHour(1000), WithBurstSize(5))
-	req, err := http.NewRequest("GET", "https://example.com/test", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://example.com/test", http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = rl.RoundTrip(req)
+	resp, err := rl.RoundTrip(req)
 	if err != nil {
 		t.Fatal(err)
 	}
+	_ = resp.Body.Close()
 	if rl.config.requestsPerHour != 1000 {
 		t.Fatalf("requestsPerHour = %d; want 1000", rl.config.requestsPerHour)
 	}

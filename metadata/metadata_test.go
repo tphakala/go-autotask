@@ -1,7 +1,6 @@
 package metadata
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -15,11 +14,11 @@ func testClient(t *testing.T, handler http.Handler) *autotask.Client {
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 	auth := autotask.AuthConfig{Username: "u", Secret: "s", IntegrationCode: "c"}
-	client, err := autotask.NewClient(context.Background(), auth, autotask.WithBaseURL(srv.URL))
+	client, err := autotask.NewClient(t.Context(), auth, autotask.WithBaseURL(srv.URL))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { client.Close() })
+	t.Cleanup(func() { _ = client.Close() })
 	return client
 }
 
@@ -28,7 +27,7 @@ func TestGetFields(t *testing.T) {
 		if r.URL.Path != "/v1.0/Tickets/entityInformation/fields" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{ //nolint:errchkjson // test handler, encoding any is intentional
 			"fields": []any{
 				map[string]any{
 					"name": "status", "label": "Status", "dataType": "integer",
@@ -42,7 +41,7 @@ func TestGetFields(t *testing.T) {
 		})
 	})
 	client := testClient(t, handler)
-	fields, err := GetFields(context.Background(), client, "Tickets")
+	fields, err := GetFields(t.Context(), client, "Tickets")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +58,7 @@ func TestGetFields(t *testing.T) {
 
 func TestGetUDFs(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{ //nolint:errchkjson // test handler, encoding any is intentional
 			"fields": []any{
 				map[string]any{
 					"name": "CustomField1", "label": "Custom Field 1",
@@ -69,7 +68,7 @@ func TestGetUDFs(t *testing.T) {
 		})
 	})
 	client := testClient(t, handler)
-	udfs, err := GetUDFs(context.Background(), client, "Tickets")
+	udfs, err := GetUDFs(t.Context(), client, "Tickets")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,13 +82,13 @@ func TestGetUDFs(t *testing.T) {
 
 func TestGetEntityInfo(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{ //nolint:errchkjson // test handler, encoding any is intentional
 			"name": "Tickets", "canCreate": true, "canUpdate": true,
 			"canDelete": false, "canQuery": true, "hasUserDefinedFields": true,
 		})
 	})
 	client := testClient(t, handler)
-	info, err := GetEntityInfo(context.Background(), client, "Tickets")
+	info, err := GetEntityInfo(t.Context(), client, "Tickets")
 	if err != nil {
 		t.Fatal(err)
 	}

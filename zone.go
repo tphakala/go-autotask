@@ -65,7 +65,7 @@ func (c *ZoneCache) Set(username string, zone *ZoneInfo) {
 
 func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, username string) (*ZoneInfo, error) {
 	versionsURL := baseURL + "/atservicesrest/versioninformation"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, versionsURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, versionsURL, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("autotask: creating version request: %w", err)
 	}
@@ -73,7 +73,7 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 	if err != nil {
 		return nil, fmt.Errorf("autotask: zone discovery version request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // error ignored in defer, nothing useful to do with it
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("autotask: version request returned %d", resp.StatusCode)
 	}
@@ -91,7 +91,7 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 	// future, implement explicit version comparison (e.g., semver parsing).
 	version := versionResp.Versions[len(versionResp.Versions)-1]
 	zoneURL := fmt.Sprintf("%s/atservicesrest/%s/zoneInformation?user=%s", baseURL, version, url.QueryEscape(username))
-	req, err = http.NewRequestWithContext(ctx, http.MethodGet, zoneURL, nil)
+	req, err = http.NewRequestWithContext(ctx, http.MethodGet, zoneURL, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("autotask: creating zone request: %w", err)
 	}
@@ -99,7 +99,7 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 	if err != nil {
 		return nil, fmt.Errorf("autotask: zone discovery request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // error ignored in defer, nothing useful to do with it
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("autotask: zone discovery returned %d", resp.StatusCode)
 	}

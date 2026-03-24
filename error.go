@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const retryAfterDefault = 60 * time.Second
+
 type Error struct {
 	StatusCode int
 	Message    string
@@ -70,6 +72,29 @@ type ServerError struct{ Err Error }
 func (e *ServerError) Error() string { return e.Err.Error() }
 func (e *ServerError) Unwrap() error { return &e.Err }
 
+func statusToError(resp *http.Response, base Error) error {
+	switch {
+	case resp.StatusCode == http.StatusBadRequest:
+		return &ValidationError{Err: base}
+	case resp.StatusCode == http.StatusUnauthorized:
+		return &AuthenticationError{Err: base}
+	case resp.StatusCode == http.StatusForbidden:
+		return &AuthorizationError{Err: base}
+	case resp.StatusCode == http.StatusNotFound:
+		return &NotFoundError{Err: base}
+	case resp.StatusCode == http.StatusConflict:
+		return &ConflictError{Err: base}
+	case resp.StatusCode == http.StatusUnprocessableEntity:
+		return &BusinessLogicError{Err: base}
+	case resp.StatusCode == http.StatusTooManyRequests:
+		return &RateLimitError{Err: base, RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"))}
+	case resp.StatusCode >= http.StatusInternalServerError:
+		return &ServerError{Err: base}
+	default:
+		return &base
+	}
+}
+
 func parseResponse(resp *http.Response, result any) error {
 	if resp == nil || resp.Body == nil {
 		return fmt.Errorf("autotask: nil HTTP response or body")
@@ -79,7 +104,7 @@ func parseResponse(resp *http.Response, result any) error {
 		return fmt.Errorf("autotask: reading response body: %w", err)
 	}
 	apiErrors := extractErrors(body)
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
 		if len(apiErrors) > 0 {
 			return &Error{StatusCode: resp.StatusCode, Message: "unexpected error in success response", Errors: apiErrors}
 		}
@@ -91,26 +116,7 @@ func parseResponse(resp *http.Response, result any) error {
 		return nil
 	}
 	base := Error{StatusCode: resp.StatusCode, Message: http.StatusText(resp.StatusCode), Errors: apiErrors}
-	switch {
-	case resp.StatusCode == 400:
-		return &ValidationError{Err: base}
-	case resp.StatusCode == 401:
-		return &AuthenticationError{Err: base}
-	case resp.StatusCode == 403:
-		return &AuthorizationError{Err: base}
-	case resp.StatusCode == 404:
-		return &NotFoundError{Err: base}
-	case resp.StatusCode == 409:
-		return &ConflictError{Err: base}
-	case resp.StatusCode == 422:
-		return &BusinessLogicError{Err: base}
-	case resp.StatusCode == 429:
-		return &RateLimitError{Err: base, RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"))}
-	case resp.StatusCode >= 500:
-		return &ServerError{Err: base}
-	default:
-		return &base
-	}
+	return statusToError(resp, base)
 }
 
 func extractErrors(body []byte) []APIError {
@@ -139,7 +145,7 @@ func extractErrors(body []byte) []APIError {
 
 func parseRetryAfter(header string) time.Duration {
 	if header == "" {
-		return 60 * time.Second
+		return retryAfterDefault
 	}
 	if seconds, err := strconv.Atoi(header); err == nil && seconds > 0 {
 		return time.Duration(seconds) * time.Second
@@ -150,5 +156,5 @@ func parseRetryAfter(header string) time.Duration {
 			return d
 		}
 	}
-	return 60 * time.Second
+	return retryAfterDefault
 }

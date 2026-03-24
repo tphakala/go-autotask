@@ -13,6 +13,12 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	ctx := context.Background()
 	client, err := autotask.NewClient(ctx,
 		autotask.AuthConfig{
@@ -22,11 +28,11 @@ func main() {
 		},
 		autotask.WithLogger(slog.Default()),
 		autotask.WithRateLimiter(
-			middleware.WithRequestsPerHour(8000),
-			middleware.WithBurstSize(10),
+			middleware.WithRequestsPerHour(8000),         //nolint:mnd // configuration values for example
+			middleware.WithBurstSize(10),                //nolint:mnd // configuration values for example
 		),
 		autotask.WithCircuitBreaker(
-			middleware.WithFailureThreshold(5),
+			middleware.WithFailureThreshold(5), //nolint:mnd // configuration values for example
 		),
 		autotask.WithThresholdMonitor(
 			middleware.WithCriticalCallback(func(info middleware.ThresholdInfo) {
@@ -37,21 +43,22 @@ func main() {
 				)
 			}),
 		),
-		autotask.WithImpersonation(12345),
+		autotask.WithImpersonation(12345), //nolint:mnd // configuration values for example
 	)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ticket, err := autotask.Get[entities.Ticket](ctx, client, 1)
 	if err != nil {
 		log.Println("Failed to get ticket:", err)
-		return
+		return nil
 	}
 	if title, ok := ticket.Title.Get(); ok {
 		fmt.Printf("Ticket: %s\n", title)
 	} else {
 		fmt.Println("Ticket title not set")
 	}
+	return nil
 }
