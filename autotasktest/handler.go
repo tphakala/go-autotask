@@ -11,7 +11,7 @@ import (
 
 // parseEntityAndID extracts entity name and optional ID from path.
 // Paths: /v1.0/{entity}/{id} or /v1.0/{parent}/{parentID}/{child}
-func parseEntityAndID(path string) (entityName string, id int64, isChild bool, parentEntity string, parentID int64) {
+func parseEntityAndID(path string) (entityName string, id int64, isChild bool) {
 	// Strip leading "/v1.0/"
 	trimmed := strings.TrimPrefix(path, "/v1.0/")
 	parts := strings.Split(trimmed, "/")
@@ -19,14 +19,12 @@ func parseEntityAndID(path string) (entityName string, id int64, isChild bool, p
 	case 1:
 		// /v1.0/{entity}
 		entityName = parts[0]
-	case 2:
+	case 2: //nolint:mnd // path segment count
 		// /v1.0/{entity}/{id}
 		entityName = parts[0]
 		id, _ = strconv.ParseInt(parts[1], 10, 64)
-	case 3:
+	case 3: //nolint:mnd // path segment count
 		// /v1.0/{parent}/{parentID}/{child}
-		parentEntity = parts[0]
-		parentID, _ = strconv.ParseInt(parts[1], 10, 64)
 		entityName = parts[2]
 		isChild = true
 	default:
@@ -41,7 +39,7 @@ func (ts *TestServer) getStore(entityName string) (*entityStore, bool) {
 }
 
 func (ts *TestServer) handleGet(w http.ResponseWriter, r *http.Request) {
-	entityName, id, isChild, _, _ := parseEntityAndID(r.URL.Path)
+	entityName, id, isChild := parseEntityAndID(r.URL.Path)
 	store, ok := ts.getStore(entityName)
 	if !ok {
 		writeErrorResponse(w, http.StatusNotFound, []string{fmt.Sprintf("Entity %q not found", entityName)})
@@ -77,11 +75,11 @@ func (ts *TestServer) handleGet(w http.ResponseWriter, r *http.Request) {
 		writeErrorResponse(w, http.StatusNotFound, []string{fmt.Sprintf("%s with ID %d not found", entityName, id)})
 		return
 	}
-	writeJSON(w, map[string]any{"item": json.RawMessage(item)})
+	writeJSON(w, map[string]any{"item": item})
 }
 
 func (ts *TestServer) handleCreate(w http.ResponseWriter, r *http.Request) {
-	entityName, _, isChild, _, _ := parseEntityAndID(r.URL.Path)
+	entityName, _, isChild := parseEntityAndID(r.URL.Path)
 	store, ok := ts.getStore(entityName)
 	if !ok {
 		// Auto-create store for unknown entities.
@@ -118,7 +116,11 @@ func (ts *TestServer) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m["id"] = newID
-	data, _ := json.Marshal(m)
+	data, err := json.Marshal(m)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, []string{"Failed to marshal entity"})
+		return
+	}
 	store.add(data)
 
 	_ = isChild // child creates work the same way
@@ -126,7 +128,7 @@ func (ts *TestServer) handleCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ts *TestServer) handleUpdate(w http.ResponseWriter, r *http.Request) {
-	entityName, _, _, _, _ := parseEntityAndID(r.URL.Path)
+	entityName, _, _ := parseEntityAndID(r.URL.Path)
 	store, ok := ts.getStore(entityName)
 	if !ok {
 		writeErrorResponse(w, http.StatusNotFound, []string{fmt.Sprintf("Entity %q not found", entityName)})
@@ -161,7 +163,7 @@ func (ts *TestServer) handleUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ts *TestServer) handleDelete(w http.ResponseWriter, r *http.Request) {
-	entityName, id, _, _, _ := parseEntityAndID(r.URL.Path)
+	entityName, id, _ := parseEntityAndID(r.URL.Path)
 	store, ok := ts.getStore(entityName)
 	if !ok {
 		writeErrorResponse(w, http.StatusNotFound, []string{fmt.Sprintf("Entity %q not found", entityName)})
@@ -186,7 +188,7 @@ func (ts *TestServer) handleDelete(w http.ResponseWriter, r *http.Request) {
 func (ts *TestServer) handleEntityInfo(w http.ResponseWriter, r *http.Request) {
 	// Extract entity name from path like /v1.0/Companies/entityInformation
 	trimmed := strings.TrimPrefix(r.URL.Path, "/v1.0/")
-	parts := strings.SplitN(trimmed, "/", 2)
+	parts := strings.SplitN(trimmed, "/", 2) //nolint:mnd // split into at most 2 parts
 	entityName := parts[0]
 
 	md, ok := ts.opts.metadata[entityName]
@@ -199,7 +201,7 @@ func (ts *TestServer) handleEntityInfo(w http.ResponseWriter, r *http.Request) {
 
 func (ts *TestServer) handleEntityFields(w http.ResponseWriter, r *http.Request) {
 	trimmed := strings.TrimPrefix(r.URL.Path, "/v1.0/")
-	parts := strings.SplitN(trimmed, "/", 2)
+	parts := strings.SplitN(trimmed, "/", 2) //nolint:mnd // split into at most 2 parts
 	entityName := parts[0]
 
 	md, ok := ts.opts.metadata[entityName]
@@ -212,7 +214,7 @@ func (ts *TestServer) handleEntityFields(w http.ResponseWriter, r *http.Request)
 
 func (ts *TestServer) handleEntityUDFs(w http.ResponseWriter, r *http.Request) {
 	trimmed := strings.TrimPrefix(r.URL.Path, "/v1.0/")
-	parts := strings.SplitN(trimmed, "/", 2)
+	parts := strings.SplitN(trimmed, "/", 2) //nolint:mnd // split into at most 2 parts
 	entityName := parts[0]
 
 	md, ok := ts.opts.metadata[entityName]
@@ -223,6 +225,7 @@ func (ts *TestServer) handleEntityUDFs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"fields": md.udfs})
 }
 
+//nolint:unparam // r is required by http.Handler signature
 func (ts *TestServer) handleZoneInfo(w http.ResponseWriter, r *http.Request) {
 	zone := ts.opts.zoneInfo
 	if zone == nil {
@@ -242,15 +245,25 @@ func (ts *TestServer) handleZoneInfo(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+//nolint:unparam // r is required by http.Handler signature
 func (ts *TestServer) handleVersionInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"versions": []string{"1.0"}})
 }
 
+// Threshold request count constants for test responses.
+const (
+	thresholdExternalCurrentCount = 100
+	thresholdExternalLimit        = 10000
+	thresholdInternalCurrentCount = 50
+	thresholdInternalLimit        = 10000
+)
+
+//nolint:unparam // r is required by http.Handler signature
 func (ts *TestServer) handleThresholdInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
-		"currentTimeframeExternalCrossDomainRequestCount": 100,
-		"externalCrossDomainRequestThreshold":             10000,
-		"currentTimeframeInternalCrossDomainRequestCount": 50,
-		"internalCrossDomainRequestThreshold":             10000,
+		"currentTimeframeExternalCrossDomainRequestCount": thresholdExternalCurrentCount,
+		"externalCrossDomainRequestThreshold":             thresholdExternalLimit,
+		"currentTimeframeInternalCrossDomainRequestCount": thresholdInternalCurrentCount,
+		"internalCrossDomainRequestThreshold":             thresholdInternalLimit,
 	})
 }

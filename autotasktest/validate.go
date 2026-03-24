@@ -30,7 +30,7 @@ func (ts *TestServer) validateAuth(r *http.Request) error {
 		return fmt.Errorf("UserName header = %q, want %q", got, ts.auth.username)
 	}
 	if got := r.Header.Get("Secret"); got != ts.auth.secret {
-		return fmt.Errorf("Secret header = %q, want %q", got, ts.auth.secret)
+		return fmt.Errorf("secret header = %q, want %q", got, ts.auth.secret)
 	}
 	if got := r.Header.Get("ApiIntegrationCode"); got != ts.auth.integrationCode {
 		return fmt.Errorf("ApiIntegrationCode header = %q, want %q", got, ts.auth.integrationCode)

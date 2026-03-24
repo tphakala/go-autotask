@@ -14,6 +14,9 @@ import (
 	autotask "github.com/tphakala/go-autotask"
 )
 
+// defaultPageSize is the default maximum number of items per page.
+const defaultPageSize = 500
+
 // RecordedRequest captures details of an HTTP request for test assertions.
 type RecordedRequest struct {
 	Method  string
@@ -97,8 +100,8 @@ type UDFInfoResponse struct {
 
 // NewServer creates a new TestServer and a Client pointed at it.
 // The server is cleaned up automatically when the test finishes.
-func NewServer(t testing.TB, opts ...ServerOption) (*TestServer, *autotask.Client) {
-	t.Helper()
+func NewServer(tb testing.TB, opts ...ServerOption) (*TestServer, *autotask.Client) {
+	tb.Helper()
 	ts := &TestServer{
 		entities: make(map[string]*entityStore),
 		auth: authConfig{
@@ -107,17 +110,17 @@ func NewServer(t testing.TB, opts ...ServerOption) (*TestServer, *autotask.Clien
 			integrationCode: "test-code",
 		},
 		opts: serverOptions{
-			pageSize: 500,
+			pageSize: defaultPageSize,
 			metadata: make(map[string]*entityMetadata),
 		},
-		t:      t,
+		t:      tb,
 		nextID: 1,
 	}
 	for _, opt := range opts {
 		opt(ts)
 	}
 	ts.Server = httptest.NewServer(ts.handler())
-	t.Cleanup(ts.Close)
+	tb.Cleanup(ts.Close)
 
 	auth := autotask.AuthConfig{
 		Username:        ts.auth.username,
@@ -126,9 +129,9 @@ func NewServer(t testing.TB, opts ...ServerOption) (*TestServer, *autotask.Clien
 	}
 	client, err := autotask.NewClient(context.Background(), auth, autotask.WithBaseURL(ts.URL))
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
-	t.Cleanup(func() { _ = client.Close() })
+	tb.Cleanup(func() { _ = client.Close() })
 	return ts, client
 }
 
@@ -251,11 +254,12 @@ func (ts *TestServer) route(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		ts.handleGet(w, r)
 	case http.MethodPost:
-		if strings.HasSuffix(path, "/query/count") {
+		switch {
+		case strings.HasSuffix(path, "/query/count"):
 			ts.handleCount(w, r)
-		} else if strings.HasSuffix(path, "/query") {
+		case strings.HasSuffix(path, "/query"):
 			ts.handleQuery(w, r)
-		} else {
+		default:
 			ts.handleCreate(w, r)
 		}
 	case http.MethodPatch:
@@ -270,10 +274,10 @@ func (ts *TestServer) route(w http.ResponseWriter, r *http.Request) {
 func writeErrorResponse(w http.ResponseWriter, status int, errors []string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"errors": errors})
+	_ = json.NewEncoder(w).Encode(map[string]any{"errors": errors}) //nolint:errchkjson // test helper
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v) //nolint:errchkjson // test helper
 }

@@ -3,6 +3,7 @@ package autotasktest
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strconv"
 	"sync"
 	"time"
@@ -210,7 +211,7 @@ func WithRetryAfterError(pathSuffix string, retryAfterSeconds int) ServerOption 
 		ts.opts.errorRules = append(ts.opts.errorRules, errorRule{
 			method:     "",
 			pathSuffix: pathSuffix,
-			status:     429,
+			status:     http.StatusTooManyRequests,
 			errors:     []string{fmt.Sprintf("Rate limit exceeded. Retry after %d seconds.", retryAfterSeconds)},
 			headers:    map[string]string{"Retry-After": strconv.Itoa(retryAfterSeconds)},
 		})

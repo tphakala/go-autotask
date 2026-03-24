@@ -6,11 +6,12 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
 func (ts *TestServer) handleQuery(w http.ResponseWriter, r *http.Request) {
-	entityName, _, _, _, _ := parseEntityAndID(strings.TrimSuffix(r.URL.Path, "/query"))
+	entityName, _, _ := parseEntityAndID(strings.TrimSuffix(r.URL.Path, "/query"))
 	store, ok := ts.getStore(entityName)
 	if !ok {
 		writeJSON(w, map[string]any{
@@ -42,18 +43,16 @@ func (ts *TestServer) handleQuery(w http.ResponseWriter, r *http.Request) {
 	// Determine page from query param.
 	pageNum := 1
 	if p := r.URL.Query().Get("page"); p != "" {
-		fmt.Sscanf(p, "%d", &pageNum)
+		if n, err := strconv.Atoi(p); err == nil {
+			pageNum = n
+		}
 	}
 
 	pageSize := ts.opts.pageSize
 	start := (pageNum - 1) * pageSize
-	if start > len(matched) {
-		start = len(matched)
-	}
+	start = min(start, len(matched))
 	end := start + pageSize
-	if end > len(matched) {
-		end = len(matched)
-	}
+	end = min(end, len(matched))
 	page := matched[start:end]
 
 	var nextPageURL any
@@ -77,7 +76,7 @@ func (ts *TestServer) handleQuery(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ts *TestServer) handleCount(w http.ResponseWriter, r *http.Request) {
-	entityName, _, _, _, _ := parseEntityAndID(strings.TrimSuffix(r.URL.Path, "/query/count"))
+	entityName, _, _ := parseEntityAndID(strings.TrimSuffix(r.URL.Path, "/query/count"))
 	store, ok := ts.getStore(entityName)
 	if !ok {
 		writeJSON(w, map[string]any{"queryCount": 0})
@@ -176,12 +175,32 @@ func matchesCond(m map[string]any, c filterCond) bool {
 		return fmt.Sprintf("%v", val) == fmt.Sprintf("%v", c.value)
 	case "noteq":
 		return fmt.Sprintf("%v", val) != fmt.Sprintf("%v", c.value)
+	case "in":
+		return inSlice(val, c.value)
+	case "notIn":
+		return !inSlice(val, c.value)
+	default:
+		return matchesStringOp(val, c) || matchesNumericOp(val, c)
+	}
+}
+
+// matchesStringOp handles string comparison operators.
+func matchesStringOp(val any, c filterCond) bool {
+	switch c.op {
 	case "contains":
 		return strings.Contains(fmt.Sprintf("%v", val), fmt.Sprintf("%v", c.value))
 	case "beginsWith":
 		return strings.HasPrefix(fmt.Sprintf("%v", val), fmt.Sprintf("%v", c.value))
 	case "endsWith":
 		return strings.HasSuffix(fmt.Sprintf("%v", val), fmt.Sprintf("%v", c.value))
+	default:
+		return false
+	}
+}
+
+// matchesNumericOp handles numeric comparison operators.
+func matchesNumericOp(val any, c filterCond) bool {
+	switch c.op {
 	case "gt":
 		return toFloat(val) > toFloat(c.value)
 	case "gte":
@@ -190,10 +209,6 @@ func matchesCond(m map[string]any, c filterCond) bool {
 		return toFloat(val) < toFloat(c.value)
 	case "lte":
 		return toFloat(val) <= toFloat(c.value)
-	case "in":
-		return inSlice(val, c.value)
-	case "notIn":
-		return !inSlice(val, c.value)
 	default:
 		return true
 	}
@@ -214,7 +229,7 @@ func toFloat(v any) float64 {
 	return math.NaN()
 }
 
-func inSlice(val any, sliceVal any) bool {
+func inSlice(val, sliceVal any) bool {
 	arr, ok := sliceVal.([]any)
 	if !ok {
 		return false
