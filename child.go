@@ -42,7 +42,12 @@ func ListChild[P Entity, C Entity](ctx context.Context, c *Client, parentID int6
 	var zeroC C
 	path := fmt.Sprintf("/v1.0/%s/%d/%s", zeroP.EntityName(), parentID, zeroC.EntityName())
 	var allItems []*C
+	pages := 0
 	for {
+		pages++
+		if pages > maxPages {
+			return nil, &ErrMaxPagesExceeded{EntityName: zeroC.EntityName(), MaxPages: maxPages}
+		}
 		var resp childPageResponse
 		if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
 			return nil, err
@@ -68,7 +73,13 @@ func ListChildIter[P Entity, C Entity](ctx context.Context, c *Client, parentID 
 		var zeroP P
 		var zeroC C
 		path := fmt.Sprintf("/v1.0/%s/%d/%s", zeroP.EntityName(), parentID, zeroC.EntityName())
+		pages := 0
 		for {
+			pages++
+			if pages > maxPages {
+				yield(nil, &ErrMaxPagesExceeded{EntityName: zeroC.EntityName(), MaxPages: maxPages})
+				return
+			}
 			nextPath, shouldContinue := fetchAndYieldChildPage(ctx, c, &zeroC, path, yield)
 			if !shouldContinue || nextPath == "" {
 				return

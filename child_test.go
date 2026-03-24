@@ -2,6 +2,7 @@ package autotask
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -247,6 +248,54 @@ func TestListChildIterAPIError(t *testing.T) {
 		return
 	}
 	t.Fatal("iterator should have yielded an error")
+}
+
+func TestListChildMaxPagesGuard(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1.0/TestEntities/{parentID}/Notes", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items":       []any{map[string]any{"id": 1, "message": "note"}},
+			"pageDetails": map[string]any{"count": 1, "nextPageUrl": "/v1.0/TestEntities/42/Notes?page=next"},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := testClient(t, srv)
+	_, err := ListChild[testEntity, testChildEntity](t.Context(), client, 42)
+	if err == nil {
+		t.Fatal("expected ErrMaxPagesExceeded")
+	}
+	var maxErr *ErrMaxPagesExceeded
+	if !errors.As(err, &maxErr) {
+		t.Fatalf("expected ErrMaxPagesExceeded, got: %v", err)
+	}
+}
+
+func TestListChildIterMaxPagesGuard(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1.0/TestEntities/{parentID}/Notes", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items":       []any{map[string]any{"id": 1, "message": "note"}},
+			"pageDetails": map[string]any{"count": 1, "nextPageUrl": "/v1.0/TestEntities/42/Notes?page=next"},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := testClient(t, srv)
+	var gotError bool
+	for _, err := range ListChildIter[testEntity, testChildEntity](t.Context(), client, 42) {
+		if err != nil {
+			var maxErr *ErrMaxPagesExceeded
+			if !errors.As(err, &maxErr) {
+				t.Fatalf("expected ErrMaxPagesExceeded, got: %v", err)
+			}
+			gotError = true
+			break
+		}
+	}
+	if !gotError {
+		t.Fatal("expected ErrMaxPagesExceeded from iterator")
+	}
 }
 
 func TestListChildIterErrorOnSecondPage(t *testing.T) {
