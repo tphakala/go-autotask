@@ -25,7 +25,12 @@ func ListRaw(ctx context.Context, c *Client, entityName string, q *Query) ([]map
 	}
 	var allItems []map[string]any
 	var queryBody any = q
+	pages := 0
 	for {
+		pages++
+		if pages > maxPages {
+			return nil, &ErrMaxPagesExceeded{EntityName: entityName, MaxPages: maxPages}
+		}
 		var resp struct {
 			Items       []map[string]any `json:"items"`
 			PageDetails struct {
