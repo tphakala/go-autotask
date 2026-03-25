@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	version                = "0.1.0"
+	version                = "1.3.0"
 	defaultHTTPTimeout     = 30 * time.Second
 )
 

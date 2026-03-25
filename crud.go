@@ -16,6 +16,9 @@ func Get[T Entity](ctx context.Context, c *Client, id int64) (*T, error) {
 	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
 		return nil, err
 	}
+	if resp.Item == nil || string(resp.Item) == "null" {
+		return nil, fmt.Errorf("autotask: %s %d returned no item", zero.EntityName(), id)
+	}
 	var entity T
 	if err := json.Unmarshal(resp.Item, &entity); err != nil {
 		return nil, fmt.Errorf("autotask: decoding %s: %w", zero.EntityName(), err)
@@ -81,6 +84,9 @@ func Count[T Entity](ctx context.Context, c *Client, q *Query) (int64, error) {
 }
 
 func Create[T Entity](ctx context.Context, c *Client, entity *T) (*T, error) {
+	if entity == nil {
+		return nil, fmt.Errorf("autotask: entity must not be nil")
+	}
 	path := fmt.Sprintf("/v1.0/%s", (*entity).EntityName())
 	var resp struct {
 		ItemID *int64 `json:"itemId"`
@@ -97,6 +103,9 @@ func Create[T Entity](ctx context.Context, c *Client, entity *T) (*T, error) {
 }
 
 func Update[T Entity](ctx context.Context, c *Client, entity *T) (*T, error) {
+	if entity == nil {
+		return nil, fmt.Errorf("autotask: entity must not be nil")
+	}
 	path := fmt.Sprintf("/v1.0/%s", (*entity).EntityName())
 	var resp struct {
 		Item json.RawMessage `json:"item"`

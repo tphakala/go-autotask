@@ -69,42 +69,42 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 	if err != nil {
 		return nil, fmt.Errorf("autotask: creating version request: %w", err)
 	}
-	resp, err := httpClient.Do(req)
+	versionResp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("autotask: zone discovery version request: %w", err)
 	}
-	defer resp.Body.Close() //nolint:errcheck // error ignored in defer, nothing useful to do with it
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("autotask: version request returned %d", resp.StatusCode)
+	defer versionResp.Body.Close() //nolint:errcheck // error ignored in defer
+	if versionResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("autotask: version request returned %d", versionResp.StatusCode)
 	}
-	var versionResp struct {
+	var versions struct {
 		Versions []string `json:"apiVersions"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&versionResp); err != nil {
+	if err := json.NewDecoder(versionResp.Body).Decode(&versions); err != nil {
 		return nil, fmt.Errorf("autotask: decoding version response: %w", err)
 	}
-	if len(versionResp.Versions) == 0 {
+	if len(versions.Versions) == 0 {
 		return nil, fmt.Errorf("autotask: no API versions available")
 	}
 	// The Autotask API currently only has version "1.0". We select the last
 	// element assuming ascending order. If multiple versions exist in the
 	// future, implement explicit version comparison (e.g., semver parsing).
-	version := versionResp.Versions[len(versionResp.Versions)-1]
-	zoneURL := fmt.Sprintf("%s/atservicesrest/%s/zoneInformation?user=%s", baseURL, version, url.QueryEscape(username))
+	apiVersion := versions.Versions[len(versions.Versions)-1]
+	zoneURL := fmt.Sprintf("%s/atservicesrest/%s/zoneInformation?user=%s", baseURL, apiVersion, url.QueryEscape(username))
 	req, err = http.NewRequestWithContext(ctx, http.MethodGet, zoneURL, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("autotask: creating zone request: %w", err)
 	}
-	resp, err = httpClient.Do(req)
+	zoneResp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("autotask: zone discovery request: %w", err)
 	}
-	defer resp.Body.Close() //nolint:errcheck // error ignored in defer, nothing useful to do with it
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("autotask: zone discovery returned %d", resp.StatusCode)
+	defer zoneResp.Body.Close() //nolint:errcheck // error ignored in defer
+	if zoneResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("autotask: zone discovery returned %d", zoneResp.StatusCode)
 	}
 	var zone ZoneInfo
-	if err := json.NewDecoder(resp.Body).Decode(&zone); err != nil {
+	if err := json.NewDecoder(zoneResp.Body).Decode(&zone); err != nil {
 		return nil, fmt.Errorf("autotask: decoding zone response: %w", err)
 	}
 	if zone.URL == "" {
