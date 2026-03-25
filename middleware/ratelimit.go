@@ -1,8 +1,8 @@
 package middleware
 
 import (
-	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -95,9 +95,11 @@ func (rl *RateLimiter) RoundTrip(req *http.Request) (*http.Response, error) {
 	rl.mu.Unlock()
 
 	if wait := time.Until(retryUntil); wait > 0 {
+		timer := time.NewTimer(wait)
 		select {
-		case <-time.After(wait):
+		case <-timer.C:
 		case <-ctx.Done():
+			timer.Stop()
 			return nil, ctx.Err()
 		}
 	}
@@ -111,9 +113,11 @@ func (rl *RateLimiter) RoundTrip(req *http.Request) (*http.Response, error) {
 	if rl.config.adaptiveDelay {
 		delay := rl.adaptiveDelay()
 		if delay > 0 {
+			timer := time.NewTimer(delay)
 			select {
-			case <-time.After(delay):
+			case <-timer.C:
 			case <-ctx.Done():
+				timer.Stop()
 				return nil, ctx.Err()
 			}
 		}
@@ -172,12 +176,9 @@ func parseRetryAfterHeader(header string) time.Duration {
 	if header == "" {
 		return rateLimitBackoffLong
 	}
-	// Try as seconds first.
-	var seconds int
-	if _, err := fmt.Sscanf(header, "%d", &seconds); err == nil && seconds > 0 {
+	if seconds, err := strconv.Atoi(header); err == nil && seconds > 0 {
 		return time.Duration(seconds) * time.Second
 	}
-	// Try as HTTP-date (RFC 7231).
 	if t, err := http.ParseTime(header); err == nil {
 		if d := time.Until(t); d > 0 {
 			return d

@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -27,6 +28,7 @@ type thresholdMonitorConfig struct {
 	checkInterval    time.Duration
 	warningCallback  func(ThresholdInfo)
 	criticalCallback func(ThresholdInfo)
+	errorCallback    func(error)
 }
 
 // WithCheckInterval sets how often the monitor polls the threshold endpoint.
@@ -47,6 +49,11 @@ func WithWarningCallback(fn func(ThresholdInfo)) ThresholdMonitorOption {
 // WithCriticalCallback sets the function called when usage reaches the critical level (>=90%).
 func WithCriticalCallback(fn func(ThresholdInfo)) ThresholdMonitorOption {
 	return func(c *thresholdMonitorConfig) { c.criticalCallback = fn }
+}
+
+// WithErrorCallback sets the function called when the threshold check fails.
+func WithErrorCallback(fn func(error)) ThresholdMonitorOption {
+	return func(c *thresholdMonitorConfig) { c.errorCallback = fn }
 }
 
 // AuthHeaders holds the Autotask API credentials needed for authenticated requests.
@@ -128,10 +135,17 @@ func (m *ThresholdMonitor) Stop() error {
 	return nil
 }
 
+func (m *ThresholdMonitor) reportError(err error) {
+	if m.config.errorCallback != nil {
+		m.config.errorCallback(err)
+	}
+}
+
 func (m *ThresholdMonitor) check(ctx context.Context) {
 	checkURL := m.baseURL + "/v1.0/ThresholdInformation"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checkURL, http.NoBody)
 	if err != nil {
+		m.reportError(fmt.Errorf("threshold monitor: creating request: %w", err))
 		return
 	}
 	// Inject auth headers — threshold endpoint requires authentication.
@@ -142,10 +156,12 @@ func (m *ThresholdMonitor) check(ctx context.Context) {
 
 	resp, err := m.httpClient.Do(req)
 	if err != nil {
+		m.reportError(fmt.Errorf("threshold monitor: request failed: %w", err))
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
+		m.reportError(fmt.Errorf("threshold monitor: unexpected status %d", resp.StatusCode))
 		return
 	}
 	var data struct {
@@ -153,6 +169,7 @@ func (m *ThresholdMonitor) check(ctx context.Context) {
 		Threshold    int `json:"externalRequestThreshold"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		m.reportError(fmt.Errorf("threshold monitor: decoding response: %w", err))
 		return
 	}
 	if data.Threshold == 0 {

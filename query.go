@@ -65,6 +65,9 @@ func Or(conditions ...Condition) GroupCondition {
 	return GroupCondition{Op: GroupOr, Items: conditions}
 }
 
+// Query builds an Autotask API query. Methods mutate the receiver and return
+// it for chaining. A Query should not be shared across goroutines or reused
+// as a base for multiple divergent queries.
 type Query struct {
 	conditions    []Condition
 	includeFields []string
