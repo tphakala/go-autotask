@@ -34,7 +34,7 @@ type Product struct {
 	PriceCostMethod                   autotask.Optional[int64]     `json:"priceCostMethod,omitzero"`
 	ProductBillingCodeID              autotask.Optional[int64]     `json:"productBillingCodeID,omitzero"`
 	ProductCategory                   autotask.Optional[int64]     `json:"productCategory,omitzero"`
-	Sku                               autotask.Optional[string]    `json:"sku,omitzero"`
+	SKU                               autotask.Optional[string]    `json:"sku,omitzero"`
 	UnitCost                          autotask.Optional[float64]   `json:"unitCost,omitzero"`
 	UnitPrice                         autotask.Optional[float64]   `json:"unitPrice,omitzero"`
 	VendorProductNumber               autotask.Optional[string]    `json:"vendorProductNumber,omitzero"`

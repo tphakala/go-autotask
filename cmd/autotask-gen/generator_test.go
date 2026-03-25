@@ -70,6 +70,7 @@ func TestGoName(t *testing.T) {
 		{"ip", "IP"},
 		{"ssl", "SSL"},
 		{"cpu", "CPU"},
+		{"sku", "SKU"},
 		// Compound fields with acronyms already correct from API
 		{"companyID", "CompanyID"},
 		{"ticketID", "TicketID"},

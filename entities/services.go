@@ -26,7 +26,7 @@ type Service struct {
 	Name                                     autotask.Optional[string]    `json:"name,omitzero"`
 	PeriodType                               autotask.Optional[int64]     `json:"periodType,omitzero"`
 	ServiceLevelAgreementID                  autotask.Optional[int64]     `json:"serviceLevelAgreementID,omitzero"`
-	Sku                                      autotask.Optional[string]    `json:"sku,omitzero"`
+	SKU                                      autotask.Optional[string]    `json:"sku,omitzero"`
 	UnitCost                                 autotask.Optional[float64]   `json:"unitCost,omitzero"`
 	UnitPrice                                autotask.Optional[float64]   `json:"unitPrice,omitzero"`
 	UpdateResourceID                         autotask.Optional[int64]     `json:"updateResourceID,omitzero"`

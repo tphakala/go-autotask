@@ -174,7 +174,7 @@ var knownAcronyms = map[string]string{
 	"id": "ID", "url": "URL", "api": "API", "html": "HTML",
 	"sql": "SQL", "ip": "IP", "ssl": "SSL", "cpu": "CPU",
 	"http": "HTTP", "tcp": "TCP", "udp": "UDP", "uri": "URI",
-	"uid": "UID", "uuid": "UUID", "ssh": "SSH",
+	"uid": "UID", "uuid": "UUID", "ssh": "SSH", "sku": "SKU",
 }
 
 func goName(s string) string {

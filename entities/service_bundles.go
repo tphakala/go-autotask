@@ -26,7 +26,7 @@ type ServiceBundle struct {
 	PercentageDiscount                       autotask.Optional[float64]   `json:"percentageDiscount,omitzero"`
 	PeriodType                               autotask.Optional[int64]     `json:"periodType,omitzero"`
 	ServiceLevelAgreementID                  autotask.Optional[int64]     `json:"serviceLevelAgreementID,omitzero"`
-	Sku                                      autotask.Optional[string]    `json:"sku,omitzero"`
+	SKU                                      autotask.Optional[string]    `json:"sku,omitzero"`
 	UnitCost                                 autotask.Optional[float64]   `json:"unitCost,omitzero"`
 	UnitDiscount                             autotask.Optional[float64]   `json:"unitDiscount,omitzero"`
 	UnitPrice                                autotask.Optional[float64]   `json:"unitPrice,omitzero"`
