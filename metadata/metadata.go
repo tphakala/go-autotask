@@ -67,11 +67,13 @@ func GetUDFs(ctx context.Context, c *autotask.Client, entityName string) ([]UDFI
 
 func GetEntityInfo(ctx context.Context, c *autotask.Client, entityName string) (*EntityInfo, error) {
 	path := fmt.Sprintf("/v1.0/%s/entityInformation", entityName)
-	var info EntityInfo
-	if err := c.Do(ctx, http.MethodGet, path, nil, &info); err != nil {
+	var resp struct {
+		Info EntityInfo `json:"info"`
+	}
+	if err := c.Do(ctx, http.MethodGet, path, nil, &resp); err != nil {
 		return nil, err
 	}
-	return &info, nil
+	return &resp.Info, nil
 }
 
 // GetPickList returns the picklist values for a specific field on an entity.

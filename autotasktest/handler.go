@@ -203,10 +203,10 @@ func (ts *TestServer) handleEntityInfo(w http.ResponseWriter, r *http.Request) {
 
 	md, ok := ts.opts.metadata[entityName]
 	if !ok || md.info == nil {
-		writeJSON(w, EntityInfoResponse{Name: entityName, CanCreate: true, CanUpdate: true, CanQuery: true})
+		writeJSON(w, map[string]any{"info": EntityInfoResponse{Name: entityName, CanCreate: true, CanUpdate: true, CanQuery: true}})
 		return
 	}
-	writeJSON(w, md.info)
+	writeJSON(w, map[string]any{"info": md.info})
 }
 
 func (ts *TestServer) handleEntityFields(w http.ResponseWriter, r *http.Request) {
