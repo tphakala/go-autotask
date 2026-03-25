@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-03-25
+
+### Added
+
+- **16 new entity types:** ProjectNotes, CompanyNotes, TicketAttachments, Quotes, QuoteItems, Opportunities, Invoices, BillingItems, BillingItemApprovalLevels, BillingCodes, ExpenseReports, ExpenseItems, Products, Services, ServiceBundles, Departments
+- **Generator: acronym normalization** — `goName()` recognizes 16 Go acronyms (ID, URL, API, SKU, etc.), producing idiomatic field names
+- **Generator: conditional `time` import** — template only imports `"time"` when datetime fields are present, preventing build failures on entities without time fields
+- **Generator: configurable entity list** — `-entities` flag accepts comma-separated names; defaults expanded from 9 to 25
+- **Generator: idiomatic filenames** — `toSnakeCase()` produces `ticket_notes.go` instead of `ticketnotes.go`, with acronym handling (`HTTPServer` → `http_server`)
+- **Generator: smarter pluralization** — `singular()` handles irregular plurals like `Statuses` → `Status`
+- **`ListChild` and `ListChildIter`** — automatic pagination for child entities, replacing first-page-only `GetChild`
+- **`ListChildRaw` and `CreateChildRaw`** — untyped child entity operations
+- **`metadata.GetPickList`** — convenience function to fetch picklist values for a single field
+- **`EntityWithID` interface** — `Create` and `CreateChild` parse `{"itemId": N}` from API responses and populate the entity's ID via optional `SetID()` method
+- **Pagination safety guards** — all pagination functions (`List`, `ListRaw`, `ListChild`, `ListChildIter`, `ListIter`) enforce a `maxPages` (1000) limit with `MaxPagesExceededError`
+
+### Fixed
+
+- **Zone discovery:** API returns `apiVersions` not `versions` — fixed field tag in `zone.go`
+- **Picklist values:** `PickListValue.Value` changed from `int` to `string` to match actual API responses; added `SortOrder`, `ParentValue`, `IsSystem` fields
+
+### Deprecated
+
+- `GetChild` — use `ListChild` which provides automatic pagination
+
+## [1.1.0] - 2026-03-24
+
+### Added
+
+- Generator: configurable `-entities` flag, expanded default entity list (25 entities)
+- Generator: idiomatic `toSnakeCase()` filenames, improved `singular()` pluralization
+- `ListChild` and `ListChildIter` for child entity pagination
+- `metadata.GetPickList` convenience function
+- Pagination safety guards (`MaxPagesExceededError`) on all pagination functions
+- `EntityWithID` interface for parsing `itemId` from `Create`/`CreateChild` responses
+- `ListChildRaw` and `CreateChildRaw` for untyped child operations
+- `toSnakeCase` acronym handling (`HTTPServer` → `http_server`)
+
+### Deprecated
+
+- `GetChild` — use `ListChild`
+
 ## [1.0.0] - 2026-03-24
 
 ### Added
@@ -24,4 +66,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Entity types: Company, Contact, Ticket, Resource, Contract, Project, Task, ConfigurationItem, TicketNote, TimeEntry
 - GitHub Actions: CI (test + lint), CodeQL, govulncheck, Dependabot, automated releases, stale issue cleanup
 
+[1.2.0]: https://github.com/tphakala/go-autotask/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/tphakala/go-autotask/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/tphakala/go-autotask/releases/tag/v1.0.0
