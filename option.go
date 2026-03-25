@@ -63,6 +63,17 @@ func WithThresholdMonitor(opts ...middleware.ThresholdMonitorOption) ClientOptio
 // WithMaxConcurrency limits the number of concurrent in-flight API requests.
 // Autotask enforces a per-integration-code thread limit (default 3).
 // If n <= 0, the default of 3 is used.
+//
+// Middleware ordering matters: options are applied in the order specified, with
+// the last middleware wrapping closest to the transport. For best performance,
+// place fast-fail middleware (circuit breaker) first and resource-consuming
+// middleware (concurrency, rate limiter) last:
+//
+//	autotask.NewClient(ctx, auth,
+//	    autotask.WithCircuitBreaker(),   // fail fast if circuit open
+//	    autotask.WithRateLimiter(),      // then enforce rate limit
+//	    autotask.WithMaxConcurrency(3),  // then limit concurrency
+//	)
 func WithMaxConcurrency(n int) ClientOption {
 	return func(c *Client) {
 		c.middlewares = append(c.middlewares, func(next http.RoundTripper) http.RoundTripper {
