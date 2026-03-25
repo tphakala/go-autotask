@@ -53,3 +53,40 @@ func TestSingular(t *testing.T) {
 		})
 	}
 }
+
+func TestGoName(t *testing.T) {
+	tests := []struct {
+		input, want string
+	}{
+		// Basic uppercasing
+		{"title", "Title"},
+		{"companyName", "CompanyName"},
+		// Standalone acronyms
+		{"id", "ID"},
+		{"url", "URL"},
+		{"api", "API"},
+		{"html", "HTML"},
+		{"sql", "SQL"},
+		{"ip", "IP"},
+		{"ssl", "SSL"},
+		{"cpu", "CPU"},
+		{"sku", "SKU"},
+		// Compound fields with acronyms already correct from API
+		{"companyID", "CompanyID"},
+		{"ticketID", "TicketID"},
+		{"nextPageUrl", "NextPageUrl"},
+		// Already uppercase acronyms pass through
+		{"URL", "URL"},
+		{"ID", "ID"},
+		// Edge cases
+		{"", ""},
+		{"a", "A"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			if got := goName(tt.input); got != tt.want {
+				t.Errorf("goName(%q) = %q; want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}

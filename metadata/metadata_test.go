@@ -33,8 +33,8 @@ func TestGetFields(t *testing.T) {
 					"name": "status", "label": "Status", "dataType": "integer",
 					"isRequired": true, "isReadOnly": false, "isPickList": true,
 					"picklistValues": []any{
-						map[string]any{"value": 1, "label": "New", "isActive": true},
-						map[string]any{"value": 5, "label": "Complete", "isActive": true},
+						map[string]any{"value": "1", "label": "New", "isActive": true},
+						map[string]any{"value": "5", "label": "Complete", "isActive": true},
 					},
 				},
 			},
@@ -112,8 +112,8 @@ func TestGetPickList(t *testing.T) {
 					"name": "status", "label": "Status", "dataType": "integer",
 					"isRequired": true, "isReadOnly": false, "isPickList": true,
 					"picklistValues": []any{
-						map[string]any{"value": 1, "label": "New", "isActive": true},
-						map[string]any{"value": 5, "label": "Complete", "isActive": true},
+						map[string]any{"value": "1", "label": "New", "isActive": true},
+						map[string]any{"value": "5", "label": "Complete", "isActive": true},
 					},
 				},
 			},

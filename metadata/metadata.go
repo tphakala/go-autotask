@@ -19,9 +19,12 @@ type FieldInfo struct {
 }
 
 type PickListValue struct {
-	Value    int    `json:"value"`
-	Label    string `json:"label"`
-	IsActive bool   `json:"isActive"`
+	Value       string `json:"value"`
+	Label       string `json:"label"`
+	IsActive    bool   `json:"isActive"`
+	SortOrder   int    `json:"sortOrder,omitempty"`
+	ParentValue string `json:"parentValue,omitempty"`
+	IsSystem    bool   `json:"isSystem,omitempty"`
 }
 
 type UDFInfo struct {
