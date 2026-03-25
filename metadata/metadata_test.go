@@ -83,8 +83,10 @@ func TestGetUDFs(t *testing.T) {
 func TestGetEntityInfo(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{ //nolint:errchkjson // test handler, encoding any is intentional
-			"name": "Tickets", "canCreate": true, "canUpdate": true,
-			"canDelete": false, "canQuery": true, "hasUserDefinedFields": true,
+			"info": map[string]any{
+				"name": "Tickets", "canCreate": true, "canUpdate": true,
+				"canDelete": false, "canQuery": true, "hasUserDefinedFields": true,
+			},
 		})
 	})
 	client := testClient(t, handler)
