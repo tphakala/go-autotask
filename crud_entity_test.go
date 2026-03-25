@@ -241,7 +241,7 @@ func TestTicketCRUD(t *testing.T) {
 
 	t.Run("Update", func(t *testing.T) {
 		updated := ticket
-		updated.Priority = autotask.Set(3)
+		updated.Priority = autotask.Set(int64(3))
 		result, err := autotask.Update(t.Context(), client, &updated)
 		if err != nil {
 			t.Fatal(err)

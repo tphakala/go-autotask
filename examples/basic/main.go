@@ -41,8 +41,8 @@ func run() error {
 	newTicket := &entities.Ticket{
 		Title:     autotask.Set("Server unreachable"),
 		CompanyID: autotask.Set(int64(0)), // TODO: Replace with a valid company ID
-		Status:    autotask.Set(1),
-		Priority:  autotask.Set(2), //nolint:mnd // ticket priority value for example
+		Status:    autotask.Set(int64(1)),
+		Priority:  autotask.Set(int64(2)), //nolint:mnd // ticket priority value for example
 	}
 	created, err := autotask.Create(ctx, client, newTicket)
 	if err != nil {

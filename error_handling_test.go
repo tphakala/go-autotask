@@ -72,7 +72,7 @@ func TestErrorValidation(t *testing.T) {
 	)
 	// Create a company without the required companyName field.
 	company := &entities.Company{
-		CompanyType: autotask.Set(1),
+		CompanyType: autotask.Set(int64(1)),
 	}
 	_, err := autotask.Create[entities.Company](t.Context(), client, company)
 	if err == nil {

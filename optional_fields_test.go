@@ -15,7 +15,7 @@ func TestOptionalSetSerialization(t *testing.T) {
 	t.Parallel()
 	company := entities.Company{
 		CompanyName: autotask.Set("Test Corp"),
-		CompanyType: autotask.Set(1),
+		CompanyType: autotask.Set(int64(1)),
 	}
 	data, err := json.Marshal(company)
 	if err != nil {

@@ -11,8 +11,8 @@ type Project struct {
 	ID                   autotask.Optional[int64]     `json:"id,omitzero"`
 	ProjectName          autotask.Optional[string]    `json:"projectName,omitzero"`
 	Description          autotask.Optional[string]    `json:"description,omitzero"`
-	Status               autotask.Optional[int]       `json:"status,omitzero"`
-	Type                 autotask.Optional[int]       `json:"type,omitzero"`
+	Status               autotask.Optional[int64]       `json:"status,omitzero"`
+	Type                 autotask.Optional[int64]       `json:"type,omitzero"`
 	CompanyID            autotask.Optional[int64]     `json:"companyID,omitzero"`
 	StartDateTime        autotask.Optional[time.Time] `json:"startDateTime,omitzero"`
 	EndDateTime          autotask.Optional[time.Time] `json:"endDateTime,omitzero"`
