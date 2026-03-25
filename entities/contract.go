@@ -13,8 +13,8 @@ type Contract struct {
 	Description       autotask.Optional[string]    `json:"description,omitzero"`
 	CompanyID         autotask.Optional[int64]     `json:"companyID,omitzero"`
 	ContactID         autotask.Optional[int64]     `json:"contactID,omitzero"`
-	Status            autotask.Optional[int]       `json:"status,omitzero"`
-	ContractType      autotask.Optional[int]       `json:"contractType,omitzero"`
+	Status            autotask.Optional[int64]       `json:"status,omitzero"`
+	ContractType      autotask.Optional[int64]       `json:"contractType,omitzero"`
 	StartDate         autotask.Optional[time.Time] `json:"startDate,omitzero"`
 	EndDate           autotask.Optional[time.Time] `json:"endDate,omitzero"`
 	EstimatedHours    autotask.Optional[float64]   `json:"estimatedHours,omitzero"`

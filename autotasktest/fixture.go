@@ -40,7 +40,7 @@ func CompanyFixture(overrides ...func(*entities.Company)) entities.Company {
 		State:         autotask.Set("IL"),
 		PostalCode:    autotask.Set("62701"),
 		Country:       autotask.Set("United States"),
-		CompanyType:   autotask.Set(1),
+		CompanyType:   autotask.Set(int64(1)),
 		IsActive:      autotask.Set(true),
 		CreateDate:    autotask.Set(fixtureTime),
 		UserDefinedFields: []autotask.UDF{
@@ -82,14 +82,14 @@ func TicketFixture(overrides ...func(*entities.Ticket)) entities.Ticket {
 		Title:        autotask.Set("Server intermittently unreachable"),
 		Description:  autotask.Set("Users report periodic connectivity issues with the production server."),
 		TicketNumber: autotask.Set("T20240115.0001"),
-		Status:       autotask.Set(1), // New
-		Priority:     autotask.Set(2), //nolint:mnd // High
+		Status:       autotask.Set(int64(1)), // New
+		Priority:     autotask.Set(int64(2)), //nolint:mnd // High
 		CompanyID:    autotask.Set(int64(1001)), //nolint:mnd // test fixture data
 		ContactID:    autotask.Set(int64(2001)), //nolint:mnd // test fixture data
 		DueDateTime:  autotask.Set(fixtureTime.Add(72 * time.Hour)), //nolint:mnd // test fixture data
 		CreateDate:   autotask.Set(fixtureTime),
-		TicketType:   autotask.Set(1), // Service Request
-		Source:       autotask.Set(1), // Phone
+		TicketType:   autotask.Set(int64(1)), // Service Request
+		Source:       autotask.Set(int64(1)), // Phone
 		UserDefinedFields: []autotask.UDF{
 			{Name: "Severity", Value: "P2"},
 		},
@@ -107,8 +107,8 @@ func TicketNoteFixture(overrides ...func(*entities.TicketNote)) entities.TicketN
 		TicketID:          autotask.Set(int64(3001)), //nolint:mnd // test fixture data
 		Title:             autotask.Set("Initial investigation"),
 		Description:       autotask.Set("Checked server logs, found intermittent OOM events."),
-		NoteType:          autotask.Set(1), // Internal
-		Publish:           autotask.Set(1),
+		NoteType:          autotask.Set(int64(1)), // Internal
+		Publish:           autotask.Set(int64(1)),
 		CreateDateTime:    autotask.Set(fixtureTime),
 		CreatorResourceID: autotask.Set(int64(5001)), //nolint:mnd // test fixture data
 		UserDefinedFields: []autotask.UDF{
@@ -127,8 +127,8 @@ func ProjectFixture(overrides ...func(*entities.Project)) entities.Project {
 		ID:             autotask.Set(nextFixtureID()),
 		ProjectName:    autotask.Set("Infrastructure Upgrade Q1"),
 		Description:    autotask.Set("Upgrade all production servers to latest OS."),
-		Status:         autotask.Set(1), // Active
-		Type:           autotask.Set(1),
+		Status:         autotask.Set(int64(1)), // Active
+		Type:           autotask.Set(int64(1)),
 		CompanyID:      autotask.Set(int64(1001)), //nolint:mnd // test fixture data
 		StartDateTime:  autotask.Set(fixtureTime),
 		EndDateTime:    autotask.Set(fixtureTime.Add(90 * 24 * time.Hour)),
@@ -150,8 +150,8 @@ func TaskFixture(overrides ...func(*entities.Task)) entities.Task {
 		ID:                 autotask.Set(nextFixtureID()),
 		Title:              autotask.Set("Update server firmware"),
 		Description:        autotask.Set("Apply latest firmware patches to production servers."),
-		Status:             autotask.Set(1), // New
-		Priority:           autotask.Set(2), //nolint:mnd // Normal
+		Status:             autotask.Set(int64(1)), // New
+		Priority:           autotask.Set(int64(2)), //nolint:mnd // Normal
 		ProjectID:          autotask.Set(int64(4001)), //nolint:mnd // test fixture data
 		AssignedResourceID: autotask.Set(int64(5001)), //nolint:mnd // test fixture data
 		EstimatedHours:     autotask.Set(4.0), //nolint:mnd // test fixture data
@@ -198,8 +198,8 @@ func ContractFixture(overrides ...func(*entities.Contract)) entities.Contract {
 		Description:    autotask.Set("Covers 24/7 phone and email support."),
 		CompanyID:      autotask.Set(int64(1001)), //nolint:mnd // test fixture data
 		ContactID:      autotask.Set(int64(2001)), //nolint:mnd // test fixture data
-		Status:         autotask.Set(1), // Active
-		ContractType:   autotask.Set(1), // Time & Materials
+		Status:         autotask.Set(int64(1)), // Active
+		ContractType:   autotask.Set(int64(1)), // Time & Materials
 		StartDate:      autotask.Set(fixtureTime),
 		EndDate:        autotask.Set(fixtureTime.Add(365 * 24 * time.Hour)),
 		EstimatedHours: autotask.Set(200.0), //nolint:mnd // test fixture data
@@ -220,7 +220,7 @@ func ConfigurationItemFixture(overrides ...func(*entities.ConfigurationItem)) en
 		ReferenceTitle:        autotask.Set("PROD-WEB-01"),
 		ReferenceNumber:       autotask.Set("CI-2024-001"),
 		CompanyID:             autotask.Set(int64(1001)), //nolint:mnd // test fixture data
-		ConfigurationItemType: autotask.Set(1), // Server
+		ConfigurationItemType: autotask.Set(int64(1)), // Server
 		IsActive:              autotask.Set(true),
 		InstallDate:           autotask.Set(fixtureTime),
 		SerialNumber:          autotask.Set("SN-ABCD-1234"),

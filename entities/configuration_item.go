@@ -13,7 +13,7 @@ type ConfigurationItem struct {
 	ReferenceNumber        autotask.Optional[string]    `json:"referenceNumber,omitzero"`
 	CompanyID              autotask.Optional[int64]     `json:"companyID,omitzero"`
 	ContactID              autotask.Optional[int64]     `json:"contactID,omitzero"`
-	ConfigurationItemType  autotask.Optional[int]       `json:"configurationItemType,omitzero"`
+	ConfigurationItemType  autotask.Optional[int64]       `json:"configurationItemType,omitzero"`
 	IsActive               autotask.Optional[bool]      `json:"isActive,omitzero"`
 	InstallDate            autotask.Optional[time.Time] `json:"installDate,omitzero"`
 	WarrantyExpirationDate autotask.Optional[time.Time] `json:"warrantyExpirationDate,omitzero"`

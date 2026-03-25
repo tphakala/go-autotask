@@ -12,8 +12,8 @@ type Task struct {
 	ID                   autotask.Optional[int64]     `json:"id,omitzero"`
 	Title                autotask.Optional[string]    `json:"title,omitzero"`
 	Description          autotask.Optional[string]    `json:"description,omitzero"`
-	Status               autotask.Optional[int]       `json:"status,omitzero"`
-	Priority             autotask.Optional[int]       `json:"priority,omitzero"`
+	Status               autotask.Optional[int64]       `json:"status,omitzero"`
+	Priority             autotask.Optional[int64]       `json:"priority,omitzero"`
 	ProjectID            autotask.Optional[int64]     `json:"projectID,omitzero"`
 	AssignedResourceID   autotask.Optional[int64]     `json:"assignedResourceID,omitzero"`
 	EstimatedHours       autotask.Optional[float64]   `json:"estimatedHours,omitzero"`

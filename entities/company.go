@@ -20,8 +20,8 @@ type Company struct {
 	State            autotask.Optional[string]    `json:"state,omitzero"`
 	PostalCode       autotask.Optional[string]    `json:"postalCode,omitzero"`
 	Country          autotask.Optional[string]    `json:"country,omitzero"`
-	CompanyType      autotask.Optional[int]       `json:"companyType,omitzero"`
-	Classification   autotask.Optional[int]       `json:"classification,omitzero"`
+	CompanyType      autotask.Optional[int64]       `json:"companyType,omitzero"`
+	Classification   autotask.Optional[int64]       `json:"classification,omitzero"`
 	OwnerResourceID  autotask.Optional[int64]     `json:"ownerResourceID,omitzero"`
 	IsActive         autotask.Optional[bool]      `json:"isActive,omitzero"`
 	CreateDate       autotask.Optional[time.Time] `json:"createDate,omitzero"`
