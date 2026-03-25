@@ -29,7 +29,7 @@ func newZoneDiscoveryServer(t *testing.T, versionCalls *atomic.Int32) *httptest.
 			versionCalls.Add(1)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"versions": []string{"1.0"},
+			"apiVersions": []string{"1.0"},
 		})
 	})
 

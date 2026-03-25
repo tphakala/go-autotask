@@ -78,7 +78,7 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 		return nil, fmt.Errorf("autotask: version request returned %d", resp.StatusCode)
 	}
 	var versionResp struct {
-		Versions []string `json:"versions"`
+		Versions []string `json:"apiVersions"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&versionResp); err != nil {
 		return nil, fmt.Errorf("autotask: decoding version response: %w", err)

@@ -56,7 +56,7 @@ func TestDiscoverZone(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /atservicesrest/versioninformation", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"versions": []string{"1.0"},
+			"apiVersions": []string{"1.0"},
 		})
 	})
 	mux.HandleFunc("GET /atservicesrest/1.0/zoneInformation", func(w http.ResponseWriter, r *http.Request) {
