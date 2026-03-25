@@ -13,7 +13,7 @@ type Resource struct {
 	UserName                  autotask.Optional[string] `json:"userName,omitzero"`
 	Title                     autotask.Optional[string] `json:"title,omitzero"`
 	IsActive                  autotask.Optional[bool]   `json:"isActive,omitzero"`
-	ResourceType              autotask.Optional[int]    `json:"resourceType,omitzero"`
+	ResourceType              autotask.Optional[int64]  `json:"resourceType,omitzero"`
 	LocationID                autotask.Optional[int64]  `json:"locationID,omitzero"`
 	DefaultServiceDeskRoleID  autotask.Optional[int64]  `json:"defaultServiceDeskRoleID,omitzero"`
 	UserDefinedFields         []autotask.UDF            `json:"userDefinedFields,omitempty"`

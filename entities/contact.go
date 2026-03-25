@@ -17,7 +17,7 @@ type Contact struct {
 	Phone             autotask.Optional[string]    `json:"phone,omitzero"`
 	MobilePhone       autotask.Optional[string]    `json:"mobilePhone,omitzero"`
 	CompanyID         autotask.Optional[int64]     `json:"companyID,omitzero"`
-	IsActive          autotask.Optional[bool]      `json:"isActive,omitzero"`
+	IsActive          autotask.Optional[int64]     `json:"isActive,omitzero"`
 	CreateDate        autotask.Optional[time.Time] `json:"createDate,omitzero"`
 	LastActivityDate  autotask.Optional[time.Time] `json:"lastActivityDate,omitzero"`
 	UserDefinedFields []autotask.UDF               `json:"userDefinedFields,omitempty"`
