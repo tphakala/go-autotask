@@ -20,7 +20,7 @@ type ExpenseItem struct {
 	ExpenseReportID                          autotask.Optional[int64]     `json:"expenseReportID,omitzero"`
 	GLCode                                   autotask.Optional[string]    `json:"gLCode,omitzero"`
 	HaveReceipt                              autotask.Optional[bool]      `json:"haveReceipt,omitzero"`
-	Id                                       autotask.Optional[int64]     `json:"id,omitzero"`
+	ID                                       autotask.Optional[int64]     `json:"id,omitzero"`
 	InternalCurrencyExpenseAmount            autotask.Optional[float64]   `json:"internalCurrencyExpenseAmount,omitzero"`
 	InternalCurrencyReimbursementAmount      autotask.Optional[float64]   `json:"internalCurrencyReimbursementAmount,omitzero"`
 	IsBillableToCompany                      autotask.Optional[bool]      `json:"isBillableToCompany,omitzero"`

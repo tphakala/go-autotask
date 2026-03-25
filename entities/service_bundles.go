@@ -15,7 +15,7 @@ type ServiceBundle struct {
 	CreatorResourceID                        autotask.Optional[int64]     `json:"creatorResourceID,omitzero"`
 	Description                              autotask.Optional[string]    `json:"description,omitzero"`
 	ExternalID                               autotask.Optional[string]    `json:"externalID,omitzero"`
-	Id                                       autotask.Optional[int64]     `json:"id,omitzero"`
+	ID                                       autotask.Optional[int64]     `json:"id,omitzero"`
 	InternalID                               autotask.Optional[string]    `json:"internalID,omitzero"`
 	InvoiceDescription                       autotask.Optional[string]    `json:"invoiceDescription,omitzero"`
 	IsActive                                 autotask.Optional[bool]      `json:"isActive,omitzero"`
@@ -31,7 +31,7 @@ type ServiceBundle struct {
 	UnitDiscount                             autotask.Optional[float64]   `json:"unitDiscount,omitzero"`
 	UnitPrice                                autotask.Optional[float64]   `json:"unitPrice,omitzero"`
 	UpdateResourceID                         autotask.Optional[int64]     `json:"updateResourceID,omitzero"`
-	Url                                      autotask.Optional[string]    `json:"url,omitzero"`
+	URL                                      autotask.Optional[string]    `json:"url,omitzero"`
 	UserDefinedFields                        []autotask.UDF               `json:"userDefinedFields,omitempty"`
 }
 

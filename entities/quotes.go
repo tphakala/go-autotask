@@ -27,7 +27,7 @@ type Quote struct {
 	ExtApprovalResponseSignature      autotask.Optional[string]    `json:"extApprovalResponseSignature,omitzero"`
 	ExternalQuoteNumber               autotask.Optional[string]    `json:"externalQuoteNumber,omitzero"`
 	GroupByID                         autotask.Optional[int64]     `json:"groupByID,omitzero"`
-	Id                                autotask.Optional[int64]     `json:"id,omitzero"`
+	ID                                autotask.Optional[int64]     `json:"id,omitzero"`
 	ImpersonatorCreatorResourceID     autotask.Optional[int64]     `json:"impersonatorCreatorResourceID,omitzero"`
 	IsActive                          autotask.Optional[bool]      `json:"isActive,omitzero"`
 	LastActivityDate                  autotask.Optional[time.Time] `json:"lastActivityDate,omitzero"`

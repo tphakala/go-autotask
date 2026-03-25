@@ -12,7 +12,7 @@ type BillingItemApprovalLevel struct {
 	ApprovalDateTime   autotask.Optional[time.Time] `json:"approvalDateTime,omitzero"`
 	ApprovalLevel      autotask.Optional[int64]     `json:"approvalLevel,omitzero"`
 	ApprovalResourceID autotask.Optional[int64]     `json:"approvalResourceID,omitzero"`
-	Id                 autotask.Optional[int64]     `json:"id,omitzero"`
+	ID                 autotask.Optional[int64]     `json:"id,omitzero"`
 	TimeEntryID        autotask.Optional[int64]     `json:"timeEntryID,omitzero"`
 	UserDefinedFields  []autotask.UDF               `json:"userDefinedFields,omitempty"`
 }

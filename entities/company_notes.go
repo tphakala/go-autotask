@@ -16,7 +16,7 @@ type CompanyNote struct {
 	ContactID                     autotask.Optional[int64]     `json:"contactID,omitzero"`
 	CreateDateTime                autotask.Optional[time.Time] `json:"createDateTime,omitzero"`
 	EndDateTime                   autotask.Optional[time.Time] `json:"endDateTime,omitzero"`
-	Id                            autotask.Optional[int64]     `json:"id,omitzero"`
+	ID                            autotask.Optional[int64]     `json:"id,omitzero"`
 	ImpersonatorCreatorResourceID autotask.Optional[int64]     `json:"impersonatorCreatorResourceID,omitzero"`
 	ImpersonatorUpdaterResourceID autotask.Optional[int64]     `json:"impersonatorUpdaterResourceID,omitzero"`
 	LastModifiedDate              autotask.Optional[time.Time] `json:"lastModifiedDate,omitzero"`

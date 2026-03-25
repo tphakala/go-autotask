@@ -18,7 +18,7 @@ type TicketAttachment struct {
 	Data                          autotask.Optional[string]    `json:"data,omitzero"`
 	FileSize                      autotask.Optional[int64]     `json:"fileSize,omitzero"`
 	FullPath                      autotask.Optional[string]    `json:"fullPath,omitzero"`
-	Id                            autotask.Optional[int64]     `json:"id,omitzero"`
+	ID                            autotask.Optional[int64]     `json:"id,omitzero"`
 	ImpersonatorCreatorResourceID autotask.Optional[int64]     `json:"impersonatorCreatorResourceID,omitzero"`
 	OpportunityID                 autotask.Optional[int64]     `json:"opportunityID,omitzero"`
 	ParentAttachmentID            autotask.Optional[int64]     `json:"parentAttachmentID,omitzero"`

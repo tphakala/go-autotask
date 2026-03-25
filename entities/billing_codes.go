@@ -13,7 +13,7 @@ type BillingCode struct {
 	Description                autotask.Optional[string]  `json:"description,omitzero"`
 	ExternalNumber             autotask.Optional[string]  `json:"externalNumber,omitzero"`
 	GeneralLedgerAccount       autotask.Optional[int64]   `json:"generalLedgerAccount,omitzero"`
-	Id                         autotask.Optional[int64]   `json:"id,omitzero"`
+	ID                         autotask.Optional[int64]   `json:"id,omitzero"`
 	IsActive                   autotask.Optional[bool]    `json:"isActive,omitzero"`
 	IsExcludedFromNewContracts autotask.Optional[bool]    `json:"isExcludedFromNewContracts,omitzero"`
 	MarkupRate                 autotask.Optional[float64] `json:"markupRate,omitzero"`

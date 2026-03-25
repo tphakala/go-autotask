@@ -13,7 +13,7 @@ type ProjectNote struct {
 	CreatedByContactID            autotask.Optional[int64]     `json:"createdByContactID,omitzero"`
 	CreatorResourceID             autotask.Optional[int64]     `json:"creatorResourceID,omitzero"`
 	Description                   autotask.Optional[string]    `json:"description,omitzero"`
-	Id                            autotask.Optional[int64]     `json:"id,omitzero"`
+	ID                            autotask.Optional[int64]     `json:"id,omitzero"`
 	ImpersonatorCreatorResourceID autotask.Optional[int64]     `json:"impersonatorCreatorResourceID,omitzero"`
 	ImpersonatorUpdaterResourceID autotask.Optional[int64]     `json:"impersonatorUpdaterResourceID,omitzero"`
 	IsAnnouncement                autotask.Optional[bool]      `json:"isAnnouncement,omitzero"`

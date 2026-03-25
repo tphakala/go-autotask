@@ -16,7 +16,7 @@ type Invoice struct {
 	CreatorResourceID            autotask.Optional[int64]     `json:"creatorResourceID,omitzero"`
 	DueDate                      autotask.Optional[time.Time] `json:"dueDate,omitzero"`
 	FromDate                     autotask.Optional[time.Time] `json:"fromDate,omitzero"`
-	Id                           autotask.Optional[int64]     `json:"id,omitzero"`
+	ID                           autotask.Optional[int64]     `json:"id,omitzero"`
 	InvoiceDateTime              autotask.Optional[time.Time] `json:"invoiceDateTime,omitzero"`
 	InvoiceEditorTemplateID      autotask.Optional[int64]     `json:"invoiceEditorTemplateID,omitzero"`
 	InvoiceNumber                autotask.Optional[string]    `json:"invoiceNumber,omitzero"`

@@ -12,7 +12,7 @@ type QuoteItem struct {
 	Description                  autotask.Optional[string]  `json:"description,omitzero"`
 	ExpenseID                    autotask.Optional[int64]   `json:"expenseID,omitzero"`
 	HighestCost                  autotask.Optional[float64] `json:"highestCost,omitzero"`
-	Id                           autotask.Optional[int64]   `json:"id,omitzero"`
+	ID                           autotask.Optional[int64]   `json:"id,omitzero"`
 	InternalCurrencyLineDiscount autotask.Optional[float64] `json:"internalCurrencyLineDiscount,omitzero"`
 	InternalCurrencyUnitDiscount autotask.Optional[float64] `json:"internalCurrencyUnitDiscount,omitzero"`
 	InternalCurrencyUnitPrice    autotask.Optional[float64] `json:"internalCurrencyUnitPrice,omitzero"`

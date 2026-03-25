@@ -26,7 +26,7 @@ type BillingItem struct {
 	Description                       autotask.Optional[string]    `json:"description,omitzero"`
 	ExpenseItemID                     autotask.Optional[int64]     `json:"expenseItemID,omitzero"`
 	ExtendedPrice                     autotask.Optional[float64]   `json:"extendedPrice,omitzero"`
-	Id                                autotask.Optional[int64]     `json:"id,omitzero"`
+	ID                                autotask.Optional[int64]     `json:"id,omitzero"`
 	InternalCurrencyExtendedPrice     autotask.Optional[float64]   `json:"internalCurrencyExtendedPrice,omitzero"`
 	InternalCurrencyRate              autotask.Optional[float64]   `json:"internalCurrencyRate,omitzero"`
 	InternalCurrencyTaxDollars        autotask.Optional[float64]   `json:"internalCurrencyTaxDollars,omitzero"`

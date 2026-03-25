@@ -13,7 +13,7 @@ type ExpenseReport struct {
 	ApprovedDate                           autotask.Optional[time.Time] `json:"approvedDate,omitzero"`
 	ApproverID                             autotask.Optional[int64]     `json:"approverID,omitzero"`
 	DepartmentNumber                       autotask.Optional[string]    `json:"departmentNumber,omitzero"`
-	Id                                     autotask.Optional[int64]     `json:"id,omitzero"`
+	ID                                     autotask.Optional[int64]     `json:"id,omitzero"`
 	InternalCurrencyCashAdvanceAmount      autotask.Optional[float64]   `json:"internalCurrencyCashAdvanceAmount,omitzero"`
 	InternalCurrencyExpenseTotal           autotask.Optional[float64]   `json:"internalCurrencyExpenseTotal,omitzero"`
 	Name                                   autotask.Optional[string]    `json:"name,omitzero"`

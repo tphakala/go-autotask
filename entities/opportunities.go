@@ -25,7 +25,7 @@ type Opportunity struct {
 	CreatorResourceID                autotask.Optional[int64]     `json:"creatorResourceID,omitzero"`
 	Description                      autotask.Optional[string]    `json:"description,omitzero"`
 	HelpNeeded                       autotask.Optional[string]    `json:"helpNeeded,omitzero"`
-	Id                               autotask.Optional[int64]     `json:"id,omitzero"`
+	ID                               autotask.Optional[int64]     `json:"id,omitzero"`
 	ImpersonatorCreatorResourceID    autotask.Optional[int64]     `json:"impersonatorCreatorResourceID,omitzero"`
 	LastActivity                     autotask.Optional[time.Time] `json:"lastActivity,omitzero"`
 	LeadSource                       autotask.Optional[int64]     `json:"leadSource,omitzero"`

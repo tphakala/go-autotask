@@ -18,7 +18,7 @@ type Product struct {
 	Description                       autotask.Optional[string]    `json:"description,omitzero"`
 	DoesNotRequireProcurement         autotask.Optional[bool]      `json:"doesNotRequireProcurement,omitzero"`
 	ExternalProductID                 autotask.Optional[string]    `json:"externalProductID,omitzero"`
-	Id                                autotask.Optional[int64]     `json:"id,omitzero"`
+	ID                                autotask.Optional[int64]     `json:"id,omitzero"`
 	ImpersonatorCreatorResourceID     autotask.Optional[int64]     `json:"impersonatorCreatorResourceID,omitzero"`
 	InternalProductID                 autotask.Optional[string]    `json:"internalProductID,omitzero"`
 	IsActive                          autotask.Optional[bool]      `json:"isActive,omitzero"`
