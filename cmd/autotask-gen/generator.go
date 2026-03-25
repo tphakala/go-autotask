@@ -157,9 +157,22 @@ func goType(atType string) string {
 	}
 }
 
+// knownAcronyms maps lowercase acronyms to their Go-canonical uppercase form.
+// Only applied when the entire field name matches a known acronym.
+var knownAcronyms = map[string]string{
+	"id": "ID", "url": "URL", "api": "API", "html": "HTML",
+	"sql": "SQL", "ip": "IP", "ssl": "SSL", "cpu": "CPU",
+	"http": "HTTP", "tcp": "TCP", "udp": "UDP", "uri": "URI",
+	"uid": "UID", "uuid": "UUID", "ssh": "SSH",
+}
+
 func goName(s string) string {
 	if s == "" {
 		return s
+	}
+	// Check if the entire field name is a known acronym.
+	if canonical, ok := knownAcronyms[strings.ToLower(s)]; ok {
+		return canonical
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
 }
