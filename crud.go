@@ -16,7 +16,7 @@ func Get[T Entity](ctx context.Context, c *Client, id int64) (*T, error) {
 	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
 		return nil, err
 	}
-	if resp.Item == nil {
+	if resp.Item == nil || string(resp.Item) == "null" {
 		return nil, fmt.Errorf("autotask: %s %d returned no item", zero.EntityName(), id)
 	}
 	var entity T
