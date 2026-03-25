@@ -60,6 +60,17 @@ func WithThresholdMonitor(opts ...middleware.ThresholdMonitorOption) ClientOptio
 	}
 }
 
+// WithMaxConcurrency limits the number of concurrent in-flight API requests.
+// Autotask enforces a per-integration-code thread limit (default 3).
+// If n <= 0, the default of 3 is used.
+func WithMaxConcurrency(n int) ClientOption {
+	return func(c *Client) {
+		c.middlewares = append(c.middlewares, func(next http.RoundTripper) http.RoundTripper {
+			return middleware.NewConcurrencyLimiter(next, n)
+		})
+	}
+}
+
 // WithZoneBaseURL overrides the base URL used for zone discovery.
 // This is primarily useful for testing.
 func WithZoneBaseURL(url string) ClientOption {
