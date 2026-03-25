@@ -63,7 +63,7 @@ func ContactFixture(overrides ...func(*entities.Contact)) entities.Contact {
 		Phone:        autotask.Set("555-0101"),
 		MobilePhone:  autotask.Set("555-0102"),
 		CompanyID:    autotask.Set(int64(1001)), //nolint:mnd // test fixture data
-		IsActive:     autotask.Set(true),
+		IsActive:     autotask.Set(int64(1)),   //nolint:mnd // 1=active (API uses int, not bool)
 		CreateDate:   autotask.Set(fixtureTime),
 		UserDefinedFields: []autotask.UDF{
 			{Name: "PreferredContact", Value: "Email"},
@@ -177,8 +177,8 @@ func ResourceFixture(overrides ...func(*entities.Resource)) entities.Resource {
 		Email:        autotask.Set("john.smith@company.example.com"),
 		UserName:     autotask.Set("jsmith"),
 		Title:        autotask.Set("Senior Systems Engineer"),
-		IsActive:     autotask.Set(true),
-		ResourceType: autotask.Set(1), // Employee
+		IsActive:     autotask.Set(true), // Resource.IsActive is bool (unlike Contact)
+		ResourceType: autotask.Set(int64(1)), //nolint:mnd // Employee
 		LocationID:   autotask.Set(int64(1)),
 		UserDefinedFields: []autotask.UDF{
 			{Name: "Team", Value: "Infrastructure"},
