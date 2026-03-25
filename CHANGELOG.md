@@ -9,7 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`WithMaxConcurrency(n)`** — semaphore-based middleware limiting concurrent in-flight API requests. Autotask enforces a per-integration-code thread limit (default 3); this prevents the client from exceeding it. Blocks with context cancellation support, releases slot on response completion.
 - **`WithErrorCallback`** — new `ThresholdMonitor` option to receive errors from background monitoring checks instead of silent failures
 
 ### Fixed
