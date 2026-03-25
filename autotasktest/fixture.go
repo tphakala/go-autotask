@@ -178,7 +178,7 @@ func ResourceFixture(overrides ...func(*entities.Resource)) entities.Resource {
 		UserName:     autotask.Set("jsmith"),
 		Title:        autotask.Set("Senior Systems Engineer"),
 		IsActive:     autotask.Set(true), // Resource.IsActive is bool (unlike Contact)
-		ResourceType: autotask.Set(int64(1)), //nolint:mnd // Employee
+		ResourceType: autotask.Set("Employee"),
 		LocationID:   autotask.Set(int64(1)),
 		UserDefinedFields: []autotask.UDF{
 			{Name: "Team", Value: "Infrastructure"},
