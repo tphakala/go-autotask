@@ -36,7 +36,7 @@ func TestChildTicketNote(t *testing.T) {
 	t.Parallel()
 	note := autotasktest.TicketNoteFixture()
 	srv, client := autotasktest.NewServer(t, autotasktest.WithEntity(note))
-	const wantPath = "/Tickets/100/TicketNotes"
+	const wantPath = "/Tickets/100/Notes"
 
 	t.Run("GetChild", func(t *testing.T) {
 		children, err := autotask.GetChild[entities.Ticket, entities.TicketNote](t.Context(), client, 100)

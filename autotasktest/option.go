@@ -120,6 +120,8 @@ func extractID(m map[string]any) int64 {
 
 // WithEntity seeds the server with one or more entities of type T.
 // The entity's EntityName() determines which store it goes into.
+// If the entity implements ChildEntity, the store is also registered under
+// the child name so child URL lookups resolve correctly.
 func WithEntity[T autotask.Entity](items ...T) ServerOption {
 	return func(ts *TestServer) {
 		if len(items) == 0 {
@@ -130,6 +132,13 @@ func WithEntity[T autotask.Entity](items ...T) ServerOption {
 		if !ok {
 			store = newEntityStore(name)
 			ts.entities[name] = store
+		}
+		// Also register under ChildEntityName so child URL lookups work.
+		if ce, ok := any(items[0]).(autotask.ChildEntity); ok {
+			childName := ce.ChildEntityName()
+			if childName != name {
+				ts.entities[childName] = store
+			}
 		}
 		for _, item := range items {
 			data, err := json.Marshal(item)
