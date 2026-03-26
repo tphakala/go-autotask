@@ -8,6 +8,16 @@ import (
 	"net/http"
 )
 
+// resolveChildName returns the URL segment for a child entity.
+// If the entity implements ChildEntity, its ChildEntityName is used;
+// otherwise it falls back to EntityName.
+func resolveChildName[C Entity](c C) string {
+	if ce, ok := any(c).(ChildEntity); ok {
+		return ce.ChildEntityName()
+	}
+	return c.EntityName()
+}
+
 type childPageResponse struct {
 	Items       []json.RawMessage `json:"items"`
 	PageDetails struct {
@@ -20,7 +30,7 @@ type childPageResponse struct {
 func GetChild[P Entity, C Entity](ctx context.Context, c *Client, parentID int64) ([]*C, error) {
 	var parent P
 	var child C
-	path := fmt.Sprintf("/v1.0/%s/%d/%s", parent.EntityName(), parentID, child.EntityName())
+	path := fmt.Sprintf("/v1.0/%s/%d/%s", parent.EntityName(), parentID, resolveChildName(child))
 	var resp childPageResponse
 	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
 		return nil, err
@@ -40,7 +50,7 @@ func GetChild[P Entity, C Entity](ctx context.Context, c *Client, parentID int64
 func ListChild[P Entity, C Entity](ctx context.Context, c *Client, parentID int64) ([]*C, error) {
 	var zeroP P
 	var zeroC C
-	path := fmt.Sprintf("/v1.0/%s/%d/%s", zeroP.EntityName(), parentID, zeroC.EntityName())
+	path := fmt.Sprintf("/v1.0/%s/%d/%s", zeroP.EntityName(), parentID, resolveChildName(zeroC))
 	var allItems []*C
 	pages := 0
 	for {
@@ -72,7 +82,7 @@ func ListChildIter[P Entity, C Entity](ctx context.Context, c *Client, parentID 
 	return func(yield func(*C, error) bool) {
 		var zeroP P
 		var zeroC C
-		path := fmt.Sprintf("/v1.0/%s/%d/%s", zeroP.EntityName(), parentID, zeroC.EntityName())
+		path := fmt.Sprintf("/v1.0/%s/%d/%s", zeroP.EntityName(), parentID, resolveChildName(zeroC))
 		pages := 0
 		for {
 			pages++
@@ -154,7 +164,7 @@ func CreateChild[P Entity, C Entity](ctx context.Context, c *Client, parentID in
 		return nil, fmt.Errorf("autotask: child entity must not be nil")
 	}
 	var parent P
-	path := fmt.Sprintf("/v1.0/%s/%d/%s", parent.EntityName(), parentID, (*child).EntityName())
+	path := fmt.Sprintf("/v1.0/%s/%d/%s", parent.EntityName(), parentID, resolveChildName(*child))
 	var resp struct {
 		ItemID *int64 `json:"itemId"`
 	}
