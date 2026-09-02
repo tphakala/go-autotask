@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`ListChildRawIter`** — lazy, early-exit iterator over untyped child entities (the untyped counterpart of `ListChildIter`). Callers that need only the first few items can stop without buffering every page. `ListChildRaw` now consumes it, so its accumulate-all behavior is unchanged.
+
+### Fixed
+
+- **Zone discovery API-version selection** — discovery now selects the advertised API version this client implements (case-insensitive, tolerant of a leading `V` and surrounding whitespace) instead of the last advertised entry. A version that Autotask advertises but does not serve no longer breaks `NewClient`. Request-URL joins are normalized to avoid a `//v1.0/` double slash.
+- **`autotasktest` version endpoint** — the mock now returns the `apiVersions` key that zone discovery decodes (was `versions`).
+
 ## [1.4.0] - 2026-03-25
 
 ### Added

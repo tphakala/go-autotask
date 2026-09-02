@@ -120,30 +120,54 @@ func fetchAndYieldChildPage[C Entity](ctx context.Context, c *Client, entityZero
 	return resp.PageDetails.NextPageURL, true
 }
 
-// ListChildRaw fetches all child entities (untyped) for a parent, with automatic pagination.
+// ListChildRawIter returns an iterator over child entities (untyped) for a
+// parent with lazy pagination. Ranging stops fetching further pages as soon as
+// the caller breaks, so a caller that needs only the first few items does not
+// pull every page up to maxPages (including large blob fields such as an
+// attachment's data). It is the untyped counterpart of ListChildIter.
+func ListChildRawIter(ctx context.Context, c *Client, parentEntityName string, parentID int64, childEntityName string) iter.Seq2[map[string]any, error] {
+	return func(yield func(map[string]any, error) bool) {
+		path := fmt.Sprintf("/v1.0/%s/%d/%s", parentEntityName, parentID, childEntityName)
+		pages := 0
+		for {
+			pages++
+			if pages > maxPages {
+				yield(nil, &MaxPagesExceededError{EntityName: childEntityName, MaxPages: maxPages})
+				return
+			}
+			var resp struct {
+				Items       []map[string]any `json:"items"`
+				PageDetails struct {
+					NextPageURL string `json:"nextPageUrl"`
+				} `json:"pageDetails"`
+			}
+			if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+				yield(nil, err)
+				return
+			}
+			for _, item := range resp.Items {
+				if !yield(item, nil) {
+					return
+				}
+			}
+			if resp.PageDetails.NextPageURL == "" {
+				return
+			}
+			path = resp.PageDetails.NextPageURL
+		}
+	}
+}
+
+// ListChildRaw fetches all child entities (untyped) for a parent, with automatic
+// pagination. For large or blob-heavy collections, prefer ListChildRawIter to
+// stop early instead of buffering every page.
 func ListChildRaw(ctx context.Context, c *Client, parentEntityName string, parentID int64, childEntityName string) ([]map[string]any, error) {
-	path := fmt.Sprintf("/v1.0/%s/%d/%s", parentEntityName, parentID, childEntityName)
 	var allItems []map[string]any
-	pages := 0
-	for {
-		pages++
-		if pages > maxPages {
-			return nil, &MaxPagesExceededError{EntityName: childEntityName, MaxPages: maxPages}
-		}
-		var resp struct {
-			Items       []map[string]any `json:"items"`
-			PageDetails struct {
-				NextPageURL string `json:"nextPageUrl"`
-			} `json:"pageDetails"`
-		}
-		if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+	for item, err := range ListChildRawIter(ctx, c, parentEntityName, parentID, childEntityName) {
+		if err != nil {
 			return nil, err
 		}
-		allItems = append(allItems, resp.Items...)
-		if resp.PageDetails.NextPageURL == "" {
-			break
-		}
-		path = resp.PageDetails.NextPageURL
+		allItems = append(allItems, item)
 	}
 	return allItems, nil
 }
