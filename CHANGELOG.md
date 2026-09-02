@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`ListRawIter`** — lazy, early-exit iterator over untyped top-level entities (the untyped counterpart of `ListIter`). Callers that need only the first few items can stop without buffering every page. `ListRaw` now consumes it, so its accumulate-all and `MaxRecords` behavior is unchanged.
 - **`ListChildRawIter`** — lazy, early-exit iterator over untyped child entities (the untyped counterpart of `ListChildIter`). Callers that need only the first few items can stop without buffering every page. `ListChildRaw` now consumes it, so its accumulate-all behavior is unchanged.
 
 ### Fixed
