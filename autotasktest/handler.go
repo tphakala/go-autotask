@@ -257,7 +257,9 @@ func (ts *TestServer) handleZoneInfo(w http.ResponseWriter, r *http.Request) {
 
 //nolint:unparam // r is required by http.Handler signature
 func (ts *TestServer) handleVersionInfo(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, map[string]any{"versions": []string{"1.0"}})
+	// The wire key is "apiVersions" (the key discoverZone decodes), not "versions".
+	// Advertise the realistic list Autotask currently returns.
+	writeJSON(w, map[string]any{"apiVersions": []string{"V1.0", "V2.0"}})
 }
 
 // Threshold request count constants for test responses.

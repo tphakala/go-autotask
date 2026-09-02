@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -142,7 +143,7 @@ func (m *ThresholdMonitor) reportError(err error) {
 }
 
 func (m *ThresholdMonitor) check(ctx context.Context) {
-	checkURL := m.baseURL + "/v1.0/ThresholdInformation"
+	checkURL := strings.TrimRight(m.baseURL, "/") + "/v1.0/ThresholdInformation"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checkURL, http.NoBody)
 	if err != nil {
 		m.reportError(fmt.Errorf("threshold monitor: creating request: %w", err))

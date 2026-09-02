@@ -6,9 +6,17 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
+
+// supportedAPIVersion is the Autotask REST API wire version this client
+// implements. Every entity path is hardcoded to "/v1.0/", so zone discovery
+// must resolve against this version rather than whatever the server happens to
+// advertise last. Bump this (and the entity paths) when a new version is
+// actually implemented here.
+const supportedAPIVersion = "1.0"
 
 const (
 	defaultZoneBaseURL  = "https://webservices2.autotask.net"
@@ -64,6 +72,7 @@ func (c *ZoneCache) Set(username string, zone *ZoneInfo) {
 }
 
 func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, username string) (*ZoneInfo, error) {
+	baseURL = strings.TrimRight(baseURL, "/")
 	versionsURL := baseURL + "/atservicesrest/versioninformation"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, versionsURL, http.NoBody)
 	if err != nil {
@@ -86,10 +95,24 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 	if len(versions.Versions) == 0 {
 		return nil, fmt.Errorf("autotask: no API versions available")
 	}
-	// The Autotask API currently only has version "1.0". We select the last
-	// element assuming ascending order. If multiple versions exist in the
-	// future, implement explicit version comparison (e.g., semver parsing).
-	apiVersion := versions.Versions[len(versions.Versions)-1]
+	// Select the advertised version that matches the one this client implements,
+	// case-insensitively and tolerant of a leading "V" (Autotask advertises
+	// entries like "V1.0"). Do not trust the server's ordering or newest entry:
+	// Autotask has advertised a version it no longer serves (V2.0 returning 404
+	// while still listed), which broke selecting the last element. The advertised
+	// string (trimmed of surrounding whitespace) is used in the request path
+	// because that is what the server routes on.
+	apiVersion := ""
+	for _, v := range versions.Versions {
+		normalized := strings.TrimSpace(v)
+		if strings.TrimPrefix(strings.ToLower(normalized), "v") == supportedAPIVersion {
+			apiVersion = normalized
+			break
+		}
+	}
+	if apiVersion == "" {
+		return nil, fmt.Errorf("autotask: server does not advertise supported API version %q (available: %v)", supportedAPIVersion, versions.Versions)
+	}
 	zoneURL := fmt.Sprintf("%s/atservicesrest/%s/zoneInformation?user=%s", baseURL, apiVersion, url.QueryEscape(username))
 	req, err = http.NewRequestWithContext(ctx, http.MethodGet, zoneURL, http.NoBody)
 	if err != nil {

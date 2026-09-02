@@ -24,22 +24,30 @@ func newZoneDiscoveryServer(t *testing.T, versionCalls *atomic.Int32) *httptest.
 	mux := http.NewServeMux()
 	var srv *httptest.Server
 
+	// Advertise both V1.0 and V2.0 (as Autotask does) but only serve V1.0. If the
+	// client ever selects the last advertised entry (V2.0) again, the V2.0 route
+	// below fails the test loudly instead of a generic discovery failure.
 	mux.HandleFunc("GET /atservicesrest/versioninformation", func(w http.ResponseWriter, r *http.Request) {
 		if versionCalls != nil {
 			versionCalls.Add(1)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"apiVersions": []string{"1.0"},
+			"apiVersions": []string{"V1.0", "V2.0"},
 		})
 	})
 
-	mux.HandleFunc("GET /atservicesrest/1.0/zoneInformation", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /atservicesrest/V1.0/zoneInformation", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"zoneName": "Test Zone",
 			"url":      srv.URL,
 			"webUrl":   srv.URL,
 			"ci":       1,
 		})
+	})
+
+	mux.HandleFunc("GET /atservicesrest/V2.0/zoneInformation", func(w http.ResponseWriter, _ *http.Request) {
+		t.Errorf("V2.0 zoneInformation must not be requested; it is advertised but not served")
+		http.Error(w, "not found", http.StatusNotFound)
 	})
 
 	mux.HandleFunc("GET /v1.0/Companies/{id}", func(w http.ResponseWriter, r *http.Request) {

@@ -10,8 +10,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"strconv"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	version                = "1.3.0"
-	defaultHTTPTimeout     = 30 * time.Second
+	version            = "1.3.0"
+	defaultHTTPTimeout = 30 * time.Second
 )
 
 var _ interface{ Close() error } = (*Client)(nil)
@@ -30,7 +30,7 @@ type Client struct {
 	baseURL              string
 	auth                 AuthConfig
 	zoneCache            *ZoneCache
-	middlewares           []Middleware
+	middlewares          []Middleware
 	thresholdMonitorOpts []middleware.ThresholdMonitorOption
 	logger               *slog.Logger
 	userAgent            string
@@ -127,8 +127,9 @@ func (c *Client) resolveZone(ctx context.Context) (*ZoneInfo, error) {
 	return zone, nil
 }
 
-// do executes an HTTP request. path is appended to baseURL unless it starts
-// with "http" (absolute URL from pagination nextPageUrl).
+// do executes an HTTP request. path is joined onto baseURL unless it is an
+// absolute URL (a pagination nextPageUrl starting with http:// or https://), in
+// which case it is used unchanged. See joinURL.
 func (c *Client) do(ctx context.Context, method, path string, body, result any) error {
 	var bodyReader *bytes.Buffer
 	if body != nil {
@@ -138,10 +139,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, result any) 
 		}
 		bodyReader = bytes.NewBuffer(b)
 	}
-	requestURL := path
-	if !strings.HasPrefix(path, "http") {
-		requestURL = c.baseURL + path
-	}
+	requestURL := joinURL(c.baseURL, path)
 	var req *http.Request
 	var err error
 	if bodyReader != nil {
@@ -178,6 +176,28 @@ func (c *Client) Do(ctx context.Context, method, path string, body, result any) 
 	return c.do(ctx, method, path, body, result)
 }
 
+// joinURL builds the request URL from baseURL and path. An absolute URL (a
+// pagination nextPageUrl, which starts with http:// or https://) is returned
+// unchanged. Otherwise baseURL and path are joined with exactly one "/" between
+// them, trimming any trailing slashes on baseURL so a zone URL ending in "/"
+// cannot produce a "//v1.0/" double slash.
+func joinURL(baseURL, path string) string {
+	// Scheme comparison is case-insensitive per RFC 3986; return the path verbatim.
+	lower := strings.ToLower(path)
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		return path
+	}
+	base := strings.TrimRight(baseURL, "/")
+	switch {
+	case path == "":
+		return base
+	case strings.HasPrefix(path, "/"):
+		return base + path
+	default:
+		return base + "/" + path
+	}
+}
+
 // isSameOrigin returns true if requestURL has the same scheme and host as baseURL.
 func isSameOrigin(requestURL, baseURL string) bool {
 	reqParsed, err := url.Parse(requestURL)
@@ -196,4 +216,4 @@ type discardHandler struct{}
 func (discardHandler) Enabled(context.Context, slog.Level) bool  { return false }
 func (discardHandler) Handle(context.Context, slog.Record) error { return nil }
 func (d discardHandler) WithAttrs([]slog.Attr) slog.Handler      { return d }
-func (d discardHandler) WithGroup(string) slog.Handler            { return d }
+func (d discardHandler) WithGroup(string) slog.Handler           { return d }
