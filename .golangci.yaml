@@ -101,6 +101,12 @@ linters:
         linters:
           - dupl
           - gocognit
+          - goconst
+      # autotasktest is a mock-server test-support package; goconst on its
+      # mock JSON field names is noise, same rationale as excluding it from tests.
+      - path: "autotasktest/"
+        linters:
+          - goconst
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
