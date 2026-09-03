@@ -27,7 +27,7 @@ client, err := autotask.NewClient(ctx, autotask.AuthConfig{
 - **Optional fields**: three-state `Optional[T]` type (unset / null / value) for correct API semantics
 - **Middleware**: composable rate limiter, circuit breaker, concurrency limiter, and API threshold monitor
 - **Raw operations**: `GetRaw`, `ListRaw`, and friends for entities not defined in the library
-- **Child entities**: `GetChild` and `CreateChild` for parent-child relationships
+- **Child entities**: `ListChild` and `CreateChild` for parent-child relationships
 - **Metadata introspection**: query field definitions, picklists, UDFs, and entity capabilities at runtime
 - **Code generation**: `autotask-gen` generates entity structs from live API metadata
 - **Test support**: `autotasktest.NewMockClient` for in-memory testing with fixtures
@@ -98,8 +98,8 @@ n, err := autotask.Count[entities.Ticket](ctx, client, autotask.NewQuery())
 created, err := autotask.Create(ctx, client, &entities.Ticket{
     Title:     autotask.Set("Server down"),
     CompanyID: autotask.Set(int64(123)),
-    Status:    autotask.Set(1),
-    Priority:  autotask.Set(2),
+    Status:    autotask.Set(int64(1)),
+    Priority:  autotask.Set(int64(2)),
 })
 
 // Update
@@ -175,7 +175,7 @@ Autotask fields can be unset, explicitly null, or have a value. `Optional[T]` ha
 ```go
 ticket := &entities.Ticket{
     Title:    autotask.Set("My ticket"),    // set to a value
-    Priority: autotask.Null[int](),         // explicitly null
+    Priority: autotask.Null[int64](),       // explicitly null
     // Status is omitted (unset, not sent in the request)
 }
 
@@ -258,8 +258,8 @@ results, err := autotask.ListRaw(ctx, client, "Companies",
 ## Child entities
 
 ```go
-// Get all notes for a ticket
-notes, err := autotask.GetChild[entities.Ticket, entities.TicketNote](ctx, client, ticketID)
+// List all notes for a ticket (paginated)
+notes, err := autotask.ListChild[entities.Ticket, entities.TicketNote](ctx, client, ticketID)
 
 // Create a note on a ticket
 note, err := autotask.CreateChild[entities.Ticket](ctx, client, ticketID, &entities.TicketNote{
