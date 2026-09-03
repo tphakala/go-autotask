@@ -248,6 +248,54 @@ func TestPaginationListWithMaxRecords(t *testing.T) {
 	}
 }
 
+func TestPaginationListMaxRecordsSinglePageOverflow(t *testing.T) {
+	t.Parallel()
+
+	// All 10 entities fit in one page (default page size 500), and the
+	// MaxRecords cap (3) is reached within that first page. List must cap the
+	// result to exactly MaxRecords, not return the whole page. This pins the
+	// cap-on-accumulation behavior now that List consumes ListIter (which does
+	// not enforce MaxRecords itself).
+	companies := makeCompanies(10)
+	_, client := autotasktest.NewServer(t,
+		autotasktest.WithEntity(companies...),
+	)
+
+	items, err := autotask.List[entities.Company](t.Context(), client, autotask.NewQuery().Limit(3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("got %d items, want 3", len(items))
+	}
+}
+
+func TestPaginationListMaxRecordsStopsAtPageBoundary(t *testing.T) {
+	t.Parallel()
+
+	// Limit(4) with page size 2 is reached at the end of the second page. List
+	// must fetch exactly two pages and must NOT request the page after the cap.
+	// Delegating to ListIter has to break before the next page fetch, matching
+	// the old hand-rolled loop's request count. This pins the request-count half
+	// of the refactor's equivalence; item count is pinned by the tests above.
+	companies := makeCompanies(10)
+	srv, client := autotasktest.NewServer(t,
+		autotasktest.WithEntity(companies...),
+		autotasktest.WithPageSize(2),
+	)
+
+	items, err := autotask.List[entities.Company](t.Context(), client, autotask.NewQuery().Limit(4))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 4 {
+		t.Fatalf("got %d items, want 4", len(items))
+	}
+	if got := srv.RequestCount(); got != 2 {
+		t.Fatalf("got %d page requests, want 2 (must not fetch the page after the cap)", got)
+	}
+}
+
 func TestPaginationListIterWithMaxRecords(t *testing.T) {
 	t.Parallel()
 	t.Skip("known gap: ListIter does not enforce MaxRecords client-side")

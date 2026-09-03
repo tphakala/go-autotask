@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`ListRawIter`** — lazy, early-exit iterator over untyped top-level entities (the untyped counterpart of `ListIter`). Callers that need only the first few items can stop without buffering every page. `ListRaw` now consumes it, so its accumulate-all and `MaxRecords` behavior is unchanged.
 - **`ListChildRawIter`** — lazy, early-exit iterator over untyped child entities (the untyped counterpart of `ListChildIter`). Callers that need only the first few items can stop without buffering every page. `ListChildRaw` now consumes it, so its accumulate-all behavior is unchanged.
 
+### Changed
+
+- **Pagination consolidation (internal)** — `List` and `ListChild` now delegate to `ListIter` and `ListChildIter` instead of duplicating the page-follow loop, so all four list-all functions share one shape. `ListRawIter` and `ListChildRawIter` now decode pages through a shared named `rawPageResponse` type. `List` still applies the `MaxRecords` cap on accumulation and, for successful responses, returns the same results and issues the same page-request sequence as before. Two edge cases on the `List` error path change: a malformed item positioned beyond the requested `MaxRecords` no longer fails the call (it is never decoded, matching `ListRaw`), and a decode failure is now reported as `autotask: decoding <Entity>: ...` instead of `autotask: decoding <Entity> item: ...` (matching `ListIter` and the other list functions).
+
 ### Fixed
 
 - **Zone discovery API-version selection** — discovery now selects the advertised API version this client implements (case-insensitive, tolerant of a leading `V` and surrounding whitespace) instead of the last advertised entry. A version that Autotask advertises but does not serve no longer breaks `NewClient`. Request-URL joins are normalized to avoid a `//v1.0/` double slash.

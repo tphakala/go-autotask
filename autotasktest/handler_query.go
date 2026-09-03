@@ -48,6 +48,11 @@ func (ts *TestServer) handleQuery(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Pagination is governed solely by pageSize. The query's MaxRecords is
+	// validated for range (see validate.go) but intentionally NOT applied to the
+	// returned set: the client caps to MaxRecords itself, and the List/ListRaw
+	// MaxRecords tests rely on this mock returning the full page so they exercise
+	// the client-side cap. Do not add server-side MaxRecords capping here.
 	pageSize := ts.opts.pageSize
 	start := (pageNum - 1) * pageSize
 	start = min(start, len(matched))

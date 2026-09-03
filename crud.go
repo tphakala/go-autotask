@@ -27,46 +27,19 @@ func Get[T Entity](ctx context.Context, c *Client, id int64) (*T, error) {
 }
 
 func List[T Entity](ctx context.Context, c *Client, q *Query) ([]*T, error) {
-	var zero T
-	path := fmt.Sprintf("/v1.0/%s/query", zero.EntityName())
 	totalLimit := 0
 	if q != nil {
 		totalLimit = q.MaxRecords()
 	}
 	var allItems []*T
-	var queryBody any = q
-	pages := 0
-	for {
-		pages++
-		if pages > maxPages {
-			return nil, &MaxPagesExceededError{EntityName: zero.EntityName(), MaxPages: maxPages}
-		}
-		var resp struct {
-			Items       []json.RawMessage `json:"items"`
-			PageDetails struct {
-				Count       int    `json:"count"`
-				NextPageURL string `json:"nextPageUrl"`
-			} `json:"pageDetails"`
-		}
-		if err := c.do(ctx, http.MethodPost, path, queryBody, &resp); err != nil {
+	for entity, err := range ListIter[T](ctx, c, q) {
+		if err != nil {
 			return nil, err
 		}
-		for _, raw := range resp.Items {
-			var entity T
-			if err := json.Unmarshal(raw, &entity); err != nil {
-				return nil, fmt.Errorf("autotask: decoding %s item: %w", zero.EntityName(), err)
-			}
-			allItems = append(allItems, &entity)
-		}
+		allItems = append(allItems, entity)
 		if totalLimit > 0 && len(allItems) >= totalLimit {
-			allItems = allItems[:totalLimit]
 			break
 		}
-		if resp.PageDetails.NextPageURL == "" {
-			break
-		}
-		path = resp.PageDetails.NextPageURL
-		queryBody = nil
 	}
 	return allItems, nil
 }

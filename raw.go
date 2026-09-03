@@ -37,12 +37,7 @@ func ListRawIter(ctx context.Context, c *Client, entityName string, q *Query) it
 				yield(nil, &MaxPagesExceededError{EntityName: entityName, MaxPages: maxPages})
 				return
 			}
-			var resp struct {
-				Items       []map[string]any `json:"items"`
-				PageDetails struct {
-					NextPageURL string `json:"nextPageUrl"`
-				} `json:"pageDetails"`
-			}
+			var resp rawPageResponse
 			if err := c.do(ctx, http.MethodPost, path, queryBody, &resp); err != nil {
 				yield(nil, err)
 				return

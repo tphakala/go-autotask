@@ -119,7 +119,14 @@ Available operators: `OpEq`, `OpNotEq`, `OpGt`, `OpGte`, `OpLt`, `OpLte`, `OpBeg
 
 ## Iterator pagination
 
-For large result sets, `ListIter` returns a Go iterator that fetches pages on demand:
+For large result sets, the `*Iter` functions return Go iterators (`iter.Seq2`) that fetch pages on demand and stop fetching as soon as you break out of the range, so you never buffer more than one page at a time. Every list-all function has a matching iterator:
+
+| List-all | Iterator | Entities |
+| --- | --- | --- |
+| `List` | `ListIter` | typed, top-level |
+| `ListChild` | `ListChildIter` | typed, child of a parent |
+| `ListRaw` | `ListRawIter` | untyped (`map[string]any`), top-level |
+| `ListChildRaw` | `ListChildRawIter` | untyped (`map[string]any`), child of a parent |
 
 ```go
 for ticket, err := range autotask.ListIter[entities.Ticket](ctx, client, autotask.NewQuery()) {
@@ -130,6 +137,19 @@ for ticket, err := range autotask.ListIter[entities.Ticket](ctx, client, autotas
     fmt.Println(title)
 }
 ```
+
+The untyped iterators take entity names as strings and yield `map[string]any`, which is handy for entities without a generated Go type:
+
+```go
+for item, err := range autotask.ListRawIter(ctx, client, "Tickets", autotask.NewQuery()) {
+    if err != nil {
+        return err
+    }
+    fmt.Println(item["id"])
+}
+```
+
+The top-level iterators (`ListIter`, `ListRawIter`) do not apply the query's `MaxRecords` cap client-side, unlike `List` and `ListRaw`; break out of the range once you have enough items.
 
 ## Optional fields
 
