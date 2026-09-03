@@ -37,20 +37,11 @@ func ListRawIter(ctx context.Context, c *Client, entityName string, q *Query) it
 				yield(nil, &MaxPagesExceededError{EntityName: entityName, MaxPages: maxPages})
 				return
 			}
-			var resp rawPageResponse
-			if err := c.do(ctx, http.MethodPost, path, queryBody, &resp); err != nil {
-				yield(nil, err)
+			nextPath, shouldContinue := fetchAndYieldRawPage(ctx, c, http.MethodPost, path, queryBody, yield)
+			if !shouldContinue || nextPath == "" {
 				return
 			}
-			for _, item := range resp.Items {
-				if !yield(item, nil) {
-					return
-				}
-			}
-			if resp.PageDetails.NextPageURL == "" {
-				return
-			}
-			path = resp.PageDetails.NextPageURL
+			path = nextPath
 			queryBody = nil
 		}
 	}

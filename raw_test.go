@@ -36,14 +36,14 @@ func newCRUDTestServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
-func testClient(t *testing.T, srv *httptest.Server) *Client {
-	t.Helper()
+func testClient(tb testing.TB, srv *httptest.Server) *Client {
+	tb.Helper()
 	auth := AuthConfig{Username: "u", Secret: "s", IntegrationCode: "c"}
-	client, err := NewClient(t.Context(), auth, WithBaseURL(srv.URL))
+	client, err := NewClient(tb.Context(), auth, WithBaseURL(srv.URL))
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
-	t.Cleanup(func() { _ = client.Close() })
+	tb.Cleanup(func() { _ = client.Close() })
 	return client
 }
 

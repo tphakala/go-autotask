@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -95,5 +96,40 @@ func TestListIterMaxPagesGuard(t *testing.T) {
 	}
 	if !gotError {
 		t.Fatal("expected MaxPagesExceededError from iterator")
+	}
+}
+
+// TestListIterDecodeError pins the decode-error message for a top-level entity
+// and the partial-page behavior: a malformed item yields a wrapped error but
+// iteration continues, so a valid item after it is still yielded.
+func TestListIterDecodeError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1.0/TestEntities/query", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items":       []any{"not-an-object", map[string]any{"id": 2}},
+			"pageDetails": map[string]any{"count": 2},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := testClient(t, srv)
+	var decodeErr error
+	var goodIDs []int64
+	for entity, err := range ListIter[testEntity](t.Context(), client, NewQuery()) {
+		if err != nil {
+			decodeErr = err
+			continue
+		}
+		v, _ := entity.ID.Get()
+		goodIDs = append(goodIDs, v)
+	}
+	if decodeErr == nil {
+		t.Fatal("expected a decode error for the malformed item")
+	}
+	if got, want := decodeErr.Error(), "autotask: decoding TestEntities:"; !strings.Contains(got, want) {
+		t.Fatalf("decode error = %q; want it to contain %q", got, want)
+	}
+	if len(goodIDs) != 1 || goodIDs[0] != 2 {
+		t.Fatalf("good ids = %v; want [2] (item after the malformed one must still be yielded)", goodIDs)
 	}
 }

@@ -18,30 +18,13 @@ func resolveChildName[C Entity](c C) string {
 	return c.EntityName()
 }
 
-type childPageResponse struct {
-	Items       []json.RawMessage `json:"items"`
-	PageDetails struct {
-		NextPageURL string `json:"nextPageUrl"`
-	} `json:"pageDetails"`
-}
-
-// rawPageResponse decodes one page of an untyped (map[string]any) list
-// response. It is the untyped counterpart of childPageResponse and is shared
-// by ListRawIter and ListChildRawIter.
-type rawPageResponse struct {
-	Items       []map[string]any `json:"items"`
-	PageDetails struct {
-		NextPageURL string `json:"nextPageUrl"`
-	} `json:"pageDetails"`
-}
-
 // Deprecated: Use ListChild which provides automatic pagination.
 // GetChild fetches child entities for a parent entity (first page only).
 func GetChild[P Entity, C Entity](ctx context.Context, c *Client, parentID int64) ([]*C, error) {
 	var parent P
 	var child C
 	path := fmt.Sprintf("/v1.0/%s/%d/%s", parent.EntityName(), parentID, resolveChildName(child))
-	var resp childPageResponse
+	var resp pageResponse[json.RawMessage]
 	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
 		return nil, err
 	}
@@ -74,6 +57,7 @@ func ListChildIter[P Entity, C Entity](ctx context.Context, c *Client, parentID 
 		var zeroP P
 		var zeroC C
 		path := fmt.Sprintf("/v1.0/%s/%d/%s", zeroP.EntityName(), parentID, resolveChildName(zeroC))
+		label := zeroC.EntityName() + " child"
 		pages := 0
 		for {
 			pages++
@@ -81,34 +65,13 @@ func ListChildIter[P Entity, C Entity](ctx context.Context, c *Client, parentID 
 				yield(nil, &MaxPagesExceededError{EntityName: zeroC.EntityName(), MaxPages: maxPages})
 				return
 			}
-			nextPath, shouldContinue := fetchAndYieldChildPage(ctx, c, &zeroC, path, yield)
+			nextPath, shouldContinue := fetchAndYieldTypedPage(ctx, c, http.MethodGet, path, nil, label, yield)
 			if !shouldContinue || nextPath == "" {
 				return
 			}
 			path = nextPath
 		}
 	}
-}
-
-func fetchAndYieldChildPage[C Entity](ctx context.Context, c *Client, entityZero *C, path string, yield func(*C, error) bool) (string, bool) {
-	var resp childPageResponse
-	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
-		yield(nil, err)
-		return "", false
-	}
-	for _, raw := range resp.Items {
-		var entity C
-		if err := json.Unmarshal(raw, &entity); err != nil {
-			if !yield(nil, fmt.Errorf("autotask: decoding %s child: %w", (*entityZero).EntityName(), err)) {
-				return "", false
-			}
-			continue
-		}
-		if !yield(&entity, nil) {
-			return "", false
-		}
-	}
-	return resp.PageDetails.NextPageURL, true
 }
 
 // ListChildRawIter returns an iterator over child entities (untyped) for a
@@ -126,20 +89,11 @@ func ListChildRawIter(ctx context.Context, c *Client, parentEntityName string, p
 				yield(nil, &MaxPagesExceededError{EntityName: childEntityName, MaxPages: maxPages})
 				return
 			}
-			var resp rawPageResponse
-			if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
-				yield(nil, err)
+			nextPath, shouldContinue := fetchAndYieldRawPage(ctx, c, http.MethodGet, path, nil, yield)
+			if !shouldContinue || nextPath == "" {
 				return
 			}
-			for _, item := range resp.Items {
-				if !yield(item, nil) {
-					return
-				}
-			}
-			if resp.PageDetails.NextPageURL == "" {
-				return
-			}
-			path = resp.PageDetails.NextPageURL
+			path = nextPath
 		}
 	}
 }
