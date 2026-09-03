@@ -1,5 +1,14 @@
 # go-autotask
 
+[![CI](https://github.com/tphakala/go-autotask/actions/workflows/ci.yml/badge.svg)](https://github.com/tphakala/go-autotask/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/tphakala/go-autotask.svg)](https://pkg.go.dev/github.com/tphakala/go-autotask)
+[![codecov](https://codecov.io/gh/tphakala/go-autotask/branch/main/graph/badge.svg)](https://codecov.io/gh/tphakala/go-autotask)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/tphakala/go-autotask)](go.mod)
+[![Latest release](https://img.shields.io/github/v/release/tphakala/go-autotask?sort=semver&label=release)](https://github.com/tphakala/go-autotask/releases/latest)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/tphakala/go-autotask/badge)](https://scorecard.dev/viewer/?uri=github.com/tphakala/go-autotask)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+[![Sponsor](https://img.shields.io/github/sponsors/tphakala?logo=githubsponsors&color=ea4aaa&label=Sponsor)](https://github.com/sponsors/tphakala)
+
 A Go client library for the [Autotask PSA](https://www.autotask.net/) REST API.
 
 ```go
@@ -12,17 +21,17 @@ client, err := autotask.NewClient(ctx, autotask.AuthConfig{
 
 ## Features
 
-- **Type-safe CRUD** — generic `Get`, `List`, `Create`, `Update`, `Delete` functions for any entity
-- **Query builder** — fluent API with `Where`, `Or`, `And`, field selection, and limits
-- **Iterator pagination** — `ListIter` returns `iter.Seq2` for memory-efficient large result sets
-- **Optional fields** — three-state `Optional[T]` type (unset / null / value) for correct API semantics
-- **Middleware** — composable rate limiter, circuit breaker, and API threshold monitor
-- **Raw operations** — `GetRaw`, `ListRaw`, etc. for entities not defined in the library
-- **Child entities** — `GetChild` and `CreateChild` for parent-child relationships
-- **Metadata introspection** — query field definitions, UDFs, and entity capabilities at runtime
-- **Code generation** — `autotask-gen` generates entity structs from live API metadata
-- **Test support** — `autotasktest.NewMockClient` for in-memory testing with fixtures
-- **Automatic zone discovery** — resolves the correct API endpoint for your account
+- **Type-safe CRUD**: generic `Get`, `List`, `Create`, `Update`, `Delete` functions for any entity
+- **Query builder**: fluent API with `Where`, `Or`, `And`, field selection, and limits
+- **Iterator pagination**: `ListIter` returns `iter.Seq2` for memory-efficient large result sets
+- **Optional fields**: three-state `Optional[T]` type (unset / null / value) for correct API semantics
+- **Middleware**: composable rate limiter, circuit breaker, concurrency limiter, and API threshold monitor
+- **Raw operations**: `GetRaw`, `ListRaw`, and friends for entities not defined in the library
+- **Child entities**: `ListChild` and `CreateChild` for parent-child relationships
+- **Metadata introspection**: query field definitions, picklists, UDFs, and entity capabilities at runtime
+- **Code generation**: `autotask-gen` generates entity structs from live API metadata
+- **Test support**: `autotasktest.NewMockClient` for in-memory testing with fixtures
+- **Automatic zone discovery**: resolves the correct API endpoint for your account
 
 ## Install
 
@@ -89,8 +98,8 @@ n, err := autotask.Count[entities.Ticket](ctx, client, autotask.NewQuery())
 created, err := autotask.Create(ctx, client, &entities.Ticket{
     Title:     autotask.Set("Server down"),
     CompanyID: autotask.Set(int64(123)),
-    Status:    autotask.Set(1),
-    Priority:  autotask.Set(2),
+    Status:    autotask.Set(int64(1)),
+    Priority:  autotask.Set(int64(2)),
 })
 
 // Update
@@ -116,6 +125,12 @@ tickets, err := autotask.List[entities.Ticket](ctx, client, q)
 ```
 
 Available operators: `OpEq`, `OpNotEq`, `OpGt`, `OpGte`, `OpLt`, `OpLte`, `OpBeginsWith`, `OpEndsWith`, `OpContains`, `OpExist`, `OpNotExist`, `OpIn`, `OpNotIn`.
+
+Use `WhereUDF` to filter on a user-defined field instead of a standard one:
+
+```go
+q := autotask.NewQuery().WhereUDF("MyCustomField", autotask.OpEq, "value")
+```
 
 ## Iterator pagination
 
@@ -149,6 +164,8 @@ for item, err := range autotask.ListRawIter(ctx, client, "Tickets", autotask.New
 }
 ```
 
+All four paginating loops are bounded by a `maxPages` safety limit; if it is ever hit (for example an API response that cycles `nextPageUrl`), the iterator yields a `*MaxPagesExceededError` rather than looping forever.
+
 The top-level iterators (`ListIter`, `ListRawIter`) do not apply the query's `MaxRecords` cap client-side, unlike `List` and `ListRaw`; break out of the range once you have enough items.
 
 ## Optional fields
@@ -158,8 +175,8 @@ Autotask fields can be unset, explicitly null, or have a value. `Optional[T]` ha
 ```go
 ticket := &entities.Ticket{
     Title:    autotask.Set("My ticket"),    // set to a value
-    Priority: autotask.Null[int](),         // explicitly null
-    // Status is omitted — unset, not sent in the request
+    Priority: autotask.Null[int64](),       // explicitly null
+    // Status is omitted (unset, not sent in the request)
 }
 
 if title, ok := ticket.Title.Get(); ok {
@@ -194,7 +211,18 @@ client, err := autotask.NewClient(ctx, auth,
 )
 ```
 
-Three-state circuit breaker (closed → open → half-open) that stops sending requests after repeated failures.
+Three-state circuit breaker (closed, open, half-open) that stops sending requests after repeated failures. `WithFailureWindow` and `WithSuccessThreshold` tune the trip and recovery behavior.
+
+### Concurrency limiter
+
+```go
+client, err := autotask.NewClient(ctx, auth,
+    autotask.WithRateLimiter(),      // enforce the hourly rate first
+    autotask.WithMaxConcurrency(3),  // then cap in-flight requests
+)
+```
+
+Caps the number of requests in flight at once. Compose it after the rate limiter so the rate limit is enforced before the concurrency gate.
 
 ### Threshold monitor
 
@@ -230,8 +258,8 @@ results, err := autotask.ListRaw(ctx, client, "Companies",
 ## Child entities
 
 ```go
-// Get all notes for a ticket
-notes, err := autotask.GetChild[entities.Ticket, entities.TicketNote](ctx, client, ticketID)
+// List all notes for a ticket (paginated)
+notes, err := autotask.ListChild[entities.Ticket, entities.TicketNote](ctx, client, ticketID)
 
 // Create a note on a ticket
 note, err := autotask.CreateChild[entities.Ticket](ctx, client, ticketID, &entities.TicketNote{
@@ -250,6 +278,12 @@ import "github.com/tphakala/go-autotask/metadata"
 fields, err := metadata.GetFields(ctx, client, "Tickets")
 for _, f := range fields {
     fmt.Printf("%s (%s) required=%v\n", f.Name, f.Type, f.IsRequired)
+}
+
+// Picklist values for a specific field
+values, err := metadata.GetPickList(ctx, client, "Tickets", "status")
+for _, v := range values {
+    fmt.Printf("%s = %s\n", v.Value, v.Label)
 }
 
 udfs, err := metadata.GetUDFs(ctx, client, "Tickets")
@@ -283,7 +317,7 @@ func TestMyCode(t *testing.T) {
             "item": map[string]any{"id": 42, "title": "Test"},
         }),
     )
-    // use client in tests — server and client are cleaned up automatically
+    // use client in tests, server and client are cleaned up automatically
 }
 ```
 
@@ -291,7 +325,8 @@ func TestMyCode(t *testing.T) {
 
 | Option | Description |
 |--------|-------------|
-| `WithBaseURL(url)` | Override automatic zone discovery |
+| `WithBaseURL(url)` | Override automatic zone discovery with a fixed API base URL |
+| `WithZoneBaseURL(url)` | Override the base URL used for zone discovery (mainly for testing) |
 | `WithHTTPClient(hc)` | Use a custom `*http.Client` |
 | `WithLogger(l)` | Structured logging via `*slog.Logger` |
 | `WithUserAgent(ua)` | Custom User-Agent header |
@@ -299,13 +334,16 @@ func TestMyCode(t *testing.T) {
 | `WithMiddleware(m)` | Add custom `http.RoundTripper` middleware |
 | `WithRateLimiter(opts...)` | Enable rate limiting |
 | `WithCircuitBreaker(opts...)` | Enable circuit breaker |
+| `WithMaxConcurrency(n)` | Cap the number of concurrent in-flight requests |
 | `WithThresholdMonitor(opts...)` | Enable API usage monitoring |
 
 ## Available entities
 
-`Company`, `Contact`, `Ticket`, `Resource`, `Contract`, `Project`, `Task`, `ConfigurationItem`, `TicketNote`, `TimeEntry`
+The `entities` package ships generated, type-safe structs for:
 
-All entities use `Optional[T]` fields and support user-defined fields via `UserDefinedFields []autotask.UDF`.
+`BillingCode`, `BillingItem`, `BillingItemApprovalLevel`, `Company`, `CompanyNote`, `ConfigurationItem`, `Contact`, `Contract`, `Department`, `ExpenseItem`, `ExpenseReport`, `Invoice`, `Opportunity`, `Product`, `Project`, `ProjectNote`, `Quote`, `QuoteItem`, `Resource`, `Service`, `ServiceBundle`, `Task`, `Ticket`, `TicketAttachment`, `TicketNote`, `TimeEntry`
+
+All entities use `Optional[T]` fields and support user-defined fields via `UserDefinedFields []autotask.UDF`. For any entity without a generated struct, use the raw (`map[string]any`) API or generate one with `autotask-gen`.
 
 ## Error handling
 

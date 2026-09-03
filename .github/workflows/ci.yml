@@ -27,10 +27,10 @@ jobs:
         run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: Upload coverage
-        uses: actions/upload-artifact@v7
+        uses: codecov/codecov-action@v7
         with:
-          name: coverage
-          path: coverage.out
+          files: coverage.out
+          fail_ci_if_error: false
 
   lint:
     name: Lint
