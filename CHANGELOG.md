@@ -23,6 +23,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Zone discovery API-version selection**: discovery now selects the advertised API version this client implements (case-insensitive, tolerant of a leading `V` and surrounding whitespace) instead of the last advertised entry. A version that Autotask advertises but does not serve no longer breaks `NewClient`. Request-URL joins are normalized to avoid a `//v1.0/` double slash.
 - **`autotasktest` version endpoint**: the mock now returns the `apiVersions` key that zone discovery decodes (was `versions`).
 
+## [1.4.4] - 2026-03-26
+
+### Fixed
+
+- **Child entity URL segments**: notes and attachments accessed as children now use the correct URL segment.
+
+## [1.4.3] - 2026-03-25
+
+### Fixed
+
+- All picklist and integer fields in the hand-written entities changed from `Optional[int]` to `Optional[int64]` to match the API and the generated entities. Affected: Ticket (Status, Priority, Source, IssueType, SubIssueType, TicketType, TicketCategory), Company (CompanyType, Classification), Project (Status, Type), Task (Status, Priority), Contract (Status, ContractType), ConfigurationItem (ConfigurationItemType), TicketNote (NoteType, Publish).
+
+### Changed
+
+- **Breaking**: code that used `autotask.Set(1)` for any of the fields above must now use `autotask.Set(int64(1))`.
+
+## [1.4.2] - 2026-03-25
+
+### Fixed
+
+- **`Resource.ResourceType`**: changed from `Optional[int64]` to `Optional[string]`; the API returns string values such as `"Employee"` and `"Contractor"`, not numeric IDs.
+
+## [1.4.1] - 2026-03-25
+
+### Fixed
+
+- **`Resource.ResourceType`**: changed from `Optional[int]` to `Optional[int64]`; the API returns numeric picklist IDs.
+- **`Contact.IsActive`**: changed from `Optional[bool]` to `Optional[int64]`; the API returns `1`/`0`, not `true`/`false` (unlike `Resource.IsActive`, which is boolean).
+- **`GetEntityInfo`**: unwrap the `{"info": {...}}` response envelope so `CanCreate`, `CanQuery`, and the other fields are populated instead of left as zero values.
+
 ## [1.4.0] - 2026-03-25
 
 ### Added
@@ -111,6 +141,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [Unreleased]: https://github.com/tphakala/go-autotask/compare/v1.5.0...HEAD
 [1.5.0]: https://github.com/tphakala/go-autotask/compare/v1.4.4...v1.5.0
+[1.4.4]: https://github.com/tphakala/go-autotask/compare/v1.4.3...v1.4.4
+[1.4.3]: https://github.com/tphakala/go-autotask/compare/v1.4.2...v1.4.3
+[1.4.2]: https://github.com/tphakala/go-autotask/compare/v1.4.1...v1.4.2
+[1.4.1]: https://github.com/tphakala/go-autotask/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/tphakala/go-autotask/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/tphakala/go-autotask/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/tphakala/go-autotask/compare/v1.1.0...v1.2.0
