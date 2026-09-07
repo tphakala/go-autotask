@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-09-07
+
 ### Fixed
 
 - **TLS 1.3 to TLS 1.2 fallback**: the HTTP client now falls back from TLS 1.3 to TLS 1.2 for hosts that refuse a TLS 1.3 handshake (Autotask's edge), fixing requests that failed with EOF or connection reset on Go 1.24+. A host downgraded to TLS 1.2 is re-probed for TLS 1.3 after an hour, so a downgrade triggered by a transient handshake blip self-heals instead of pinning the host to TLS 1.2 for the client's lifetime.
@@ -143,7 +145,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Entity types: Company, Contact, Ticket, Resource, Contract, Project, Task, ConfigurationItem, TicketNote, TimeEntry
 - GitHub Actions: CI (test and lint), CodeQL, govulncheck, Dependabot, automated releases, stale issue cleanup
 
-[Unreleased]: https://github.com/tphakala/go-autotask/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/tphakala/go-autotask/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/tphakala/go-autotask/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/tphakala/go-autotask/compare/v1.4.4...v1.5.0
 [1.4.4]: https://github.com/tphakala/go-autotask/compare/v1.4.3...v1.4.4
 [1.4.3]: https://github.com/tphakala/go-autotask/compare/v1.4.2...v1.4.3
