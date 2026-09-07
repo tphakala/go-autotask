@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **TLS 1.3 to TLS 1.2 fallback**: the HTTP client now falls back from TLS 1.3 to TLS 1.2 for hosts that refuse a TLS 1.3 handshake (Autotask's edge), fixing requests that failed with EOF or connection reset on Go 1.24+.
+
 ## [1.5.0] - 2026-09-03
 
 ### Added
