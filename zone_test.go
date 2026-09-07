@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -51,6 +52,77 @@ func TestZoneCacheReturnsCopy(t *testing.T) {
 	if got2.URL != "https://original.com" {
 		t.Fatalf("cache was mutated: URL = %q", got2.URL)
 	}
+}
+
+// TestZoneCacheSetNilIgnored covers the nil guard in Set: a nil zone must not
+// create an entry (and must not panic dereferencing it). Deleting the guard
+// makes this panic on the nil dereference.
+func TestZoneCacheSetNilIgnored(t *testing.T) {
+	cache := newZoneCache(1 * time.Hour)
+	cache.Set("user@example.com", nil)
+	if _, ok := cache.Get("user@example.com"); ok {
+		t.Fatal("Set(nil) must not create a cache entry")
+	}
+}
+
+// TestZoneCacheSetOverwrites pins that a second Set for the same user replaces
+// the cached zone rather than keeping the first. A Set that skipped existing
+// keys would return the stale entry and fail here.
+func TestZoneCacheSetOverwrites(t *testing.T) {
+	cache := newZoneCache(1 * time.Hour)
+	cache.Set("user@example.com", &ZoneInfo{URL: "https://old.example", ZoneName: "old"})
+	cache.Set("user@example.com", &ZoneInfo{URL: "https://new.example", ZoneName: "new"})
+	got, ok := cache.Get("user@example.com")
+	if !ok {
+		t.Fatal("expected cache hit")
+	}
+	if got.URL != "https://new.example" || got.ZoneName != "new" {
+		t.Fatalf("Set did not overwrite the existing entry: got %+v", *got)
+	}
+}
+
+// TestZoneCacheSetStoresCopy is the write-side companion to
+// TestZoneCacheReturnsCopy: mutating the caller's struct after Set must not
+// reach into the cache. Storing the caller's pointer instead of a value copy
+// turns this red.
+func TestZoneCacheSetStoresCopy(t *testing.T) {
+	cache := newZoneCache(1 * time.Hour)
+	zone := &ZoneInfo{URL: "https://original.example", ZoneName: "Zone 1"}
+	cache.Set("user@example.com", zone)
+	zone.URL = "https://mutated.example"
+	got, ok := cache.Get("user@example.com")
+	if !ok {
+		t.Fatal("expected cache hit")
+	}
+	if got.URL != "https://original.example" {
+		t.Fatalf("cache stored the caller's pointer, not a copy: URL = %q", got.URL)
+	}
+}
+
+// TestZoneCacheConcurrentAccess exercises the RWMutex under -race: concurrent
+// Set and Get on the same key must not race. Dropping the locks in Get/Set makes
+// the race detector fail this.
+func TestZoneCacheConcurrentAccess(t *testing.T) {
+	cache := newZoneCache(1 * time.Hour)
+	zone := &ZoneInfo{URL: "https://webservices5.autotask.net", ZoneName: "Zone 5"}
+	const goroutines = 8
+	var wg sync.WaitGroup
+	wg.Add(goroutines * 2)
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+			for range 100 {
+				cache.Set("user@example.com", zone)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			for range 100 {
+				cache.Get("user@example.com")
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 // zoneServer builds a mock that advertises apiVersions and serves the

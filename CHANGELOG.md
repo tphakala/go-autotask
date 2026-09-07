@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **TLS 1.3 to TLS 1.2 fallback**: the HTTP client now falls back from TLS 1.3 to TLS 1.2 for hosts that refuse a TLS 1.3 handshake (Autotask's edge), fixing requests that failed with EOF or connection reset on Go 1.24+.
+- **TLS 1.3 to TLS 1.2 fallback**: the HTTP client now falls back from TLS 1.3 to TLS 1.2 for hosts that refuse a TLS 1.3 handshake (Autotask's edge), fixing requests that failed with EOF or connection reset on Go 1.24+. A host downgraded to TLS 1.2 is re-probed for TLS 1.3 after an hour, so a downgrade triggered by a transient handshake blip self-heals instead of pinning the host to TLS 1.2 for the client's lifetime.
 
 ## [1.5.0] - 2026-09-03
 

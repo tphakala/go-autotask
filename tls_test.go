@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // errUnexpectedCall marks a RoundTripper branch that must never run.
@@ -50,7 +51,7 @@ func (timeoutError) Temporary() bool { return true }
 
 func newFallbackFor(t *testing.T, primary, fallback http.RoundTripper) *tlsFallbackTransport {
 	t.Helper()
-	return &tlsFallbackTransport{primary: primary, fallback: fallback, forced12: make(map[string]bool)}
+	return &tlsFallbackTransport{primary: primary, fallback: fallback, forced12: make(map[string]time.Time)}
 }
 
 // mustGet issues a GET through rt, closes the body, and returns the status code
@@ -160,6 +161,81 @@ func TestTLSFallbackCachesHost(t *testing.T) {
 	}
 	if fallback.calls != 2 {
 		t.Errorf("fallback.calls=%d, want 2", fallback.calls)
+	}
+}
+
+// TestTLSFallbackReprobesAfterTTL pins the self-heal: a host downgraded to TLS
+// 1.2 stays pinned only for the TTL. Within the window the primary is not
+// re-probed; once the window lapses the next request re-probes TLS 1.3, and when
+// 1.3 now works the host un-pins. Making hostForced12 ignore the TTL (always
+// return true for a cached host) turns the after-TTL assertions red.
+func TestTLSFallbackReprobesAfterTTL(t *testing.T) {
+	primaryErr := io.EOF
+	primary := &fakeRT{fn: func(*http.Request) (*http.Response, error) {
+		if primaryErr != nil {
+			return nil, primaryErr
+		}
+		return okResponse(), nil
+	}}
+	fallback := &fakeRT{fn: func(*http.Request) (*http.Response, error) { return okResponse(), nil }}
+
+	now := time.Unix(0, 0).UTC()
+	ft := newFallbackFor(t, primary, fallback)
+	ft.now = func() time.Time { return now }
+	ft.ttl = time.Hour
+
+	// First request refuses 1.3, downgrades, and pins the host at t0.
+	if _, err := mustGet(t, ft, "https://host.example/a"); err != nil {
+		t.Fatalf("first request: %v", err)
+	}
+	// Within the TTL the pin holds: the primary (1.3) is not re-probed.
+	if _, err := mustGet(t, ft, "https://host.example/b"); err != nil {
+		t.Fatalf("second request: %v", err)
+	}
+	if primary.calls != 1 {
+		t.Errorf("within TTL primary.calls=%d, want 1 (host stays pinned to 1.2)", primary.calls)
+	}
+
+	// The TTL lapses and TLS 1.3 now works: the next request re-probes the
+	// primary and the host un-pins.
+	now = now.Add(time.Hour + time.Minute)
+	primaryErr = nil
+	if _, err := mustGet(t, ft, "https://host.example/c"); err != nil {
+		t.Fatalf("third request: %v", err)
+	}
+	if primary.calls != 2 {
+		t.Errorf("after TTL primary.calls=%d, want 2 (1.3 is re-probed)", primary.calls)
+	}
+	if fallback.calls != 2 {
+		t.Errorf("fallback.calls=%d, want 2 (the successful re-probe skips the fallback)", fallback.calls)
+	}
+	if ft.hostForced12("host.example") {
+		t.Error("host should un-pin after a successful TLS 1.3 re-probe")
+	}
+}
+
+// TestTLSFallbackForced12TTLBoundary pins the expiry comparison in hostForced12
+// at exactly one TTL: a host stays pinned right up to the TTL and un-pins the
+// instant it is reached (the check is `elapsed < ttl`, so equal means expired).
+// Changing `<` to `<=` keeps the host pinned at the boundary and turns the
+// exactly-at-TTL assertion red.
+func TestTLSFallbackForced12TTLBoundary(t *testing.T) {
+	ft := newFallbackFor(t, nil, nil) // transports unused; only the cache is exercised
+	now := time.Unix(0, 0).UTC()
+	ft.now = func() time.Time { return now }
+	ft.ttl = time.Hour
+
+	ft.markHostForced12("host.example") // pinned at t0
+
+	// One tick before the TTL: still pinned.
+	now = now.Add(ft.ttl - time.Nanosecond)
+	if !ft.hostForced12("host.example") {
+		t.Error("host must stay pinned just before the TTL lapses")
+	}
+	// Exactly at the TTL (elapsed == ttl): expired, because the check is strict `<`.
+	now = now.Add(time.Nanosecond)
+	if ft.hostForced12("host.example") {
+		t.Error("host must un-pin exactly at the TTL boundary (elapsed == ttl)")
 	}
 }
 

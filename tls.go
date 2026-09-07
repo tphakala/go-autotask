@@ -11,7 +11,12 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 )
+
+// forced12TTL bounds how long a host is pinned to TLS 1.2 after a successful
+// downgrade before the next request re-probes TLS 1.3.
+const forced12TTL = time.Hour
 
 // tlsFallbackTransport prefers TLS 1.3 but transparently downgrades to TLS 1.2 for
 // hosts that refuse a TLS 1.3 handshake.
@@ -35,32 +40,72 @@ import (
 // duplicated. When the 1.2 attempt succeeds where 1.3 failed, the host is
 // remembered so later requests go straight to 1.2 and do not pay a failed 1.3
 // handshake each time. A host that genuinely supports 1.3 keeps using it.
+//
+// The downgrade is remembered only for forced12TTL. After it lapses the next
+// request re-probes TLS 1.3, so a host pinned to 1.2 by a transient handshake
+// blip self-heals once the blip clears, while a host that keeps refusing 1.3 is
+// re-pinned on that probe. A pinned host otherwise pays no failed 1.3 handshake;
+// only when the TTL lapses does a request re-probe, and requests arriving
+// concurrently in that window can each re-probe once before the host is
+// re-pinned.
 type tlsFallbackTransport struct {
 	primary  http.RoundTripper // TLS 1.3 capable
 	fallback http.RoundTripper // TLS 1.2 capped
 
+	// now returns the current time; nil defaults to time.Now. Overridable in
+	// tests to exercise the forced12 TTL without sleeping.
+	now func() time.Time
+	// ttl is how long a host stays pinned to TLS 1.2 after a downgrade before a
+	// request re-probes TLS 1.3. Zero defaults to forced12TTL.
+	ttl time.Duration
+
 	mu       sync.RWMutex
-	forced12 map[string]bool
+	forced12 map[string]time.Time // host -> time its TLS 1.2 downgrade was recorded
 }
 
 func newTLSFallbackTransport() *tlsFallbackTransport {
 	return &tlsFallbackTransport{
 		primary:  &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}},
 		fallback: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, MaxVersion: tls.VersionTLS12}},
-		forced12: make(map[string]bool),
+		now:      time.Now,
+		ttl:      forced12TTL,
+		forced12: make(map[string]time.Time),
 	}
+}
+
+// clock returns the current time, honouring an injected now for tests.
+func (t *tlsFallbackTransport) clock() time.Time {
+	if t.now != nil {
+		return t.now()
+	}
+	return time.Now()
+}
+
+// forcedTTL is the pin lifetime, defaulting to forced12TTL when unset.
+func (t *tlsFallbackTransport) forcedTTL() time.Duration {
+	if t.ttl > 0 {
+		return t.ttl
+	}
+	return forced12TTL
 }
 
 func (t *tlsFallbackTransport) hostForced12(host string) bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return t.forced12[host]
+	downgradedAt, ok := t.forced12[host]
+	if !ok {
+		return false
+	}
+	// An entry older than the TTL is ignored so the next request re-probes TLS
+	// 1.3 and a transient downgrade self-heals. The stale entry is harmless: it
+	// is overwritten with a fresh timestamp if the downgrade recurs.
+	return t.clock().Sub(downgradedAt) < t.forcedTTL()
 }
 
 func (t *tlsFallbackTransport) markHostForced12(host string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.forced12[host] = true
+	t.forced12[host] = t.clock()
 }
 
 func (t *tlsFallbackTransport) RoundTrip(req *http.Request) (*http.Response, error) {
