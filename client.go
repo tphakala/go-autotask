@@ -3,7 +3,6 @@ package autotask
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,20 +46,24 @@ type AuthConfig struct {
 
 type Middleware func(next http.RoundTripper) http.RoundTripper
 
+// newDefaultHTTPClient builds the client's default HTTP client. Its transport
+// prefers TLS 1.3 but falls back to TLS 1.2 for hosts that refuse a 1.3 handshake
+// (see tlsFallbackTransport). A caller that wants full control can supply its own
+// client via WithHTTPClient.
+func newDefaultHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout:   defaultHTTPTimeout,
+		Transport: newTLSFallbackTransport(),
+	}
+}
+
 func NewClient(ctx context.Context, auth AuthConfig, opts ...ClientOption) (*Client, error) {
 	c := &Client{
-		httpClient: &http.Client{
-			Timeout: defaultHTTPTimeout,
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					MinVersion: tls.VersionTLS12,
-				},
-			},
-		},
-		auth:      auth,
-		zoneCache: newZoneCache(defaultZoneCacheTTL),
-		logger:    slog.New(discardHandler{}),
-		userAgent: "go-autotask/" + version,
+		httpClient: newDefaultHTTPClient(),
+		auth:       auth,
+		zoneCache:  newZoneCache(defaultZoneCacheTTL),
+		logger:     slog.New(discardHandler{}),
+		userAgent:  "go-autotask/" + version,
 	}
 	for _, opt := range opts {
 		opt(c)
