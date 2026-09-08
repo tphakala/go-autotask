@@ -135,7 +135,13 @@ func ClearBuiltin(m dsl.Matcher) {
 //
 // Note: Only matches loops starting from 0 with < comparison and i++.
 // Loops with different starting values, comparisons, or increments
-// are intentionally not flagged.
+// are intentionally not flagged. The bound $n must also be a plain
+// identifier or dotted selector (x, obj.field): a call or len(...) bound
+// is not flagged, because range evaluates its operand once whereas the
+// classic loop re-evaluates the bound each iteration, so the rewrite is
+// not always equivalent. The body must also not reassign $n or mutate the
+// index $i or take its address, since range owns the index and evaluates
+// its operand once. This also excludes b.N (see the .N filter below).
 //
 // See: https://go.dev/doc/go1.22#language
 func RangeOverInteger(m dsl.Matcher) {
@@ -145,11 +151,23 @@ func RangeOverInteger(m dsl.Matcher) {
 		`for $i := 0; $i < $n; $i++ { $*body }`,
 	).
 		Where(
-			!m["n"].Text.Matches(`.*\.N$`) &&
-				!m["n"].Text.Matches(`\.(NumField|NumMethod|NumIn|NumOut)\(\)$`),
+			m["n"].Text.Matches(`^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$`) &&
+				!m["n"].Text.Matches(`.*\.N$`) &&
+				!m["body"].Contains(`$n = $_`) &&
+				!m["body"].Contains(`$n += $_`) &&
+				!m["body"].Contains(`$n -= $_`) &&
+				!m["body"].Contains(`$n++`) &&
+				!m["body"].Contains(`$n--`) &&
+				!m["body"].Contains(`$i = $_`) &&
+				!m["body"].Contains(`$i++`) &&
+				!m["body"].Contains(`$i--`) &&
+				!m["body"].Contains(`&$i`),
 		).
-		Report("use for $i := range $n instead of for $i := 0; $i < $n; $i++ (Go 1.22+)").
-		Suggest("for $i := range $n { $body }")
+		// Report only, no Suggest: a Suggest template containing the $*body group
+		// does not round-trip through golangci-lint's gocritic --fix, which writes
+		// the literal "$*body" into the source and corrupts the loop. Verified with
+		// golangci-lint 2.13.2. Report the modernization; leave the edit to a human.
+		Report("use for $i := range $n instead of for $i := 0; $i < $n; $i++ (Go 1.22+)")
 }
 
 // AppendWithoutValues detects append calls with no values which have no effect.
@@ -196,4 +214,47 @@ func NewWithExpression(m dsl.Matcher) {
 	).
 		Report("use new($val) instead of &[]$typ{$val}[0] (Go 1.26+)").
 		Suggest("new($val)")
+}
+
+// EmbeddedFieldLiteral detects a struct literal that initializes a promoted
+// field through a nested literal of the embedded type, and suggests keying the
+// promoted field directly, which Go 1.27 allows.
+//
+// Old pattern:
+//
+//	type Base struct{ Name string }
+//	type Config struct {
+//	    Base
+//	    Port int
+//	}
+//	cfg := Config{Base: Base{Name: "x"}, Port: 80}
+//
+// New pattern (Go 1.27+):
+//
+//	cfg := Config{Name: "x", Port: 80}
+//
+// The spec now allows a struct literal key to be any valid field selector for
+// a (possibly promoted) field of the struct, as long as no embedded field on the
+// path is a pointer. This mirrors the embedlit modernizer in go fix.
+//
+// The rule only fires when the key and the nested literal's type share the same
+// name, which is what an embedded value field looks like in a literal. A regular
+// field that happens to be named after its type (Base Base) also matches, and a
+// promoted name that is shadowed or ambiguous in the outer struct cannot be
+// keyed directly, so this is a report rather than a rewrite.
+//
+// See: https://go.dev/doc/go1.27#language
+func EmbeddedFieldLiteral(m dsl.Matcher) {
+	m.Match(
+		`$T{$*_, $emb: $embT{$k: $v, $*_}, $*_}`,
+	).
+		Where(m["emb"].Text == m["embT"].Text).
+		Report("initialize the promoted field directly: $T{$k: $v, ...} instead of $emb: $embT{$k: $v, ...} (Go 1.27+); not applicable if $k is shadowed or ambiguous in $T, or if $emb is a regular field named after its type")
+
+	// Embedded type from another package: field name is the bare type name.
+	m.Match(
+		`$T{$*_, $emb: $pkg.$embT{$k: $v, $*_}, $*_}`,
+	).
+		Where(m["emb"].Text == m["embT"].Text).
+		Report("initialize the promoted field directly: $T{$k: $v, ...} instead of $emb: $pkg.$embT{$k: $v, ...} (Go 1.27+); not applicable if $k is shadowed or ambiguous in $T, or if $emb is a regular field named after its type")
 }

@@ -27,9 +27,15 @@ import "github.com/quasilyte/go-ruleguard/dsl"
 // See: https://pkg.go.dev/time#pkg-constants (DateTime, DateOnly, TimeOnly)
 func TimeDateTimeConstants(m dsl.Matcher) {
 	// DateTime: "2006-01-02 15:04:05"
+	// The type guard keeps the Format matches from firing on any value with a
+	// Format(string) method (e.g. a custom formatter), where the time.* constant
+	// is undefined and --fix would emit non-compiling "undefined: time". Both
+	// time.Time and *time.Time are accepted: Format has a value receiver, so it
+	// is also called through a pointer (common for nullable/optional fields).
 	m.Match(
 		`$t.Format("2006-01-02 15:04:05")`,
 	).
+		Where(m["t"].Type.Is("time.Time") || m["t"].Type.Is("*time.Time")).
 		Report(`use $t.Format(time.DateTime) instead of magic format string (Go 1.20+)`).
 		Suggest(`$t.Format(time.DateTime)`)
 
@@ -43,6 +49,7 @@ func TimeDateTimeConstants(m dsl.Matcher) {
 	m.Match(
 		`$t.Format("2006-01-02")`,
 	).
+		Where(m["t"].Type.Is("time.Time") || m["t"].Type.Is("*time.Time")).
 		Report(`use $t.Format(time.DateOnly) instead of magic format string (Go 1.20+)`).
 		Suggest(`$t.Format(time.DateOnly)`)
 
@@ -56,6 +63,7 @@ func TimeDateTimeConstants(m dsl.Matcher) {
 	m.Match(
 		`$t.Format("15:04:05")`,
 	).
+		Where(m["t"].Type.Is("time.Time") || m["t"].Type.Is("*time.Time")).
 		Report(`use $t.Format(time.TimeOnly) instead of magic format string (Go 1.20+)`).
 		Suggest(`$t.Format(time.TimeOnly)`)
 
@@ -89,9 +97,13 @@ func TimeDateTimeConstants(m dsl.Matcher) {
 //	}
 //
 // Background: Before Go 1.23, timer channels had capacity 1. Code that
-// checked len(timer.C) to avoid blocking reads is now broken.
+// checked len(timer.C) to avoid blocking reads is now broken. Go 1.23 through
+// Go 1.26 kept the old behaviour reachable through the asynctimerchan GODEBUG
+// setting; Go 1.27 removed that setting permanently, so timer and ticker
+// channels are unbuffered regardless of GODEBUG.
 //
 // See: https://go.dev/doc/go1.23#timer-changes
+// See: https://go.dev/doc/go1.27#runtime
 // See: https://pkg.go.dev/time#Timer
 func TimerChannelLen(m dsl.Matcher) {
 	// len() on timer.C
