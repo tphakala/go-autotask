@@ -27,6 +27,11 @@ import "github.com/quasilyte/go-ruleguard/dsl"
 // dependency is only worth it when nothing else in the module needs the extra
 // google/uuid API (v1, v5, SQL scanning, ClockSequence), so this is advisory.
 //
+// The match is gated on the file importing github.com/google/uuid, a deliberate
+// simplification: in the rare file that imports google/uuid under an alias and
+// the standard uuid package unaliased, a stdlib uuid.New() call is reported
+// spuriously.
+//
 // See: https://pkg.go.dev/uuid
 func StdlibUUID(m dsl.Matcher) {
 	m.Match(

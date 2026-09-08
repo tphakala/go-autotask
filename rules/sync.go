@@ -81,11 +81,11 @@ func AtomicTypes(m dsl.Matcher) {
 		`atomic.$fn(&$x, $*_)`,
 	).
 		Where(m["fn"].Text.Matches(`^(Add|Load|Store|Swap|CompareAndSwap|And|Or)(Int32|Int64|Uint32|Uint64|Uintptr)$`)).
-		Report("declare $x as the matching atomic type (atomic.Int64, atomic.Uint32, ...) and call its methods instead of the atomic.$fn function on &$x; typed atomics forbid non-atomic access and fix 32-bit alignment; not applicable if $x is marshaled or crosses an ABI boundary")
+		Report("use a typed atomic (atomic.Int64, atomic.Uint32, ...) for $x and call its methods instead of the atomic.$fn function on &$x; typed atomics forbid non-atomic access and fix 32-bit alignment; when $x is a slice/array element or struct field, change the element or field type rather than the call site; not applicable if $x is marshaled or crosses an ABI boundary")
 
 	m.Match(
 		`atomic.$fn(&$x, $*_)`,
 	).
 		Where(m["fn"].Text.Matches(`^(Load|Store|Swap|CompareAndSwap)Pointer$`)).
-		Report("declare $x as atomic.Pointer[T] and call its methods instead of the atomic.$fn function on &$x; the generic wrapper removes the unsafe.Pointer casts")
+		Report("use atomic.Pointer[T] for $x and call its methods instead of the atomic.$fn function on &$x; the generic wrapper removes the unsafe.Pointer casts")
 }

@@ -213,7 +213,7 @@ func StringsCutLast(m dsl.Matcher) {
 		`$i := strings.LastIndex($s, $sep); if $i < 0 { $*_ }; $*body`,
 		`$i := strings.LastIndex($s, $sep); if $i == -1 { $*_ }; $*body`,
 	).
-		Where(m["body"].Contains(`$s[:$i]`) || m["body"].Contains(`$s[$i:]`) || m["body"].Contains(`$s[$i+$_:]`)).
+		Where(m["body"].Contains(`$s[:$i]`) || m["body"].Contains(`$s[$i+$_:]`)).
 		Report("use before, after, found := strings.CutLast($s, $sep) instead of checking strings.LastIndex and slicing by hand (Go 1.27+)")
 
 	m.Match(
@@ -222,6 +222,6 @@ func StringsCutLast(m dsl.Matcher) {
 		`$i := bytes.LastIndex($s, $sep); if $i < 0 { $*_ }; $*body`,
 		`$i := bytes.LastIndex($s, $sep); if $i == -1 { $*_ }; $*body`,
 	).
-		Where(m["body"].Contains(`$s[:$i]`) || m["body"].Contains(`$s[$i:]`) || m["body"].Contains(`$s[$i+$_:]`)).
+		Where(m["body"].Contains(`$s[:$i]`) || m["body"].Contains(`$s[$i+$_:]`)).
 		Report("use before, after, found := bytes.CutLast($s, $sep) instead of checking bytes.LastIndex and slicing by hand (Go 1.27+)")
 }

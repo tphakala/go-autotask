@@ -139,7 +139,9 @@ func ClearBuiltin(m dsl.Matcher) {
 // identifier or dotted selector (x, obj.field): a call or len(...) bound
 // is not flagged, because range evaluates its operand once whereas the
 // classic loop re-evaluates the bound each iteration, so the rewrite is
-// not always equivalent. This also excludes b.N (see the .N filter below).
+// not always equivalent. The body must also not reassign $n or mutate the
+// index $i or take its address, since range owns the index and evaluates
+// its operand once. This also excludes b.N (see the .N filter below).
 //
 // See: https://go.dev/doc/go1.22#language
 func RangeOverInteger(m dsl.Matcher) {
@@ -150,7 +152,16 @@ func RangeOverInteger(m dsl.Matcher) {
 	).
 		Where(
 			m["n"].Text.Matches(`^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$`) &&
-				!m["n"].Text.Matches(`.*\.N$`),
+				!m["n"].Text.Matches(`.*\.N$`) &&
+				!m["body"].Contains(`$n = $_`) &&
+				!m["body"].Contains(`$n += $_`) &&
+				!m["body"].Contains(`$n -= $_`) &&
+				!m["body"].Contains(`$n++`) &&
+				!m["body"].Contains(`$n--`) &&
+				!m["body"].Contains(`$i = $_`) &&
+				!m["body"].Contains(`$i++`) &&
+				!m["body"].Contains(`$i--`) &&
+				!m["body"].Contains(`&$i`),
 		).
 		// Report only, no Suggest: a Suggest template containing the $*body group
 		// does not round-trip through golangci-lint's gocritic --fix, which writes
