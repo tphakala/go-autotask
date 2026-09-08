@@ -1,7 +1,6 @@
 package autotasktest
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -127,7 +126,7 @@ func NewServer(tb testing.TB, opts ...ServerOption) (*TestServer, *autotask.Clie
 		Secret:          ts.auth.secret,
 		IntegrationCode: ts.auth.integrationCode,
 	}
-	client, err := autotask.NewClient(context.Background(), auth, autotask.WithBaseURL(ts.URL))
+	client, err := autotask.NewClient(tb.Context(), auth, autotask.WithBaseURL(ts.URL))
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -247,7 +246,7 @@ func (ts *TestServer) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// CRUD operations — extract entity name from path.
+	// CRUD operations: extract entity name from path.
 	// Paths: /v1.0/{entity}/{id}, /v1.0/{entity}/query, /v1.0/{entity}/query/count,
 	//        /v1.0/{entity}, /v1.0/{parent}/{parentID}/{child}/...
 	switch r.Method {

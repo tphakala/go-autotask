@@ -1,7 +1,6 @@
 package autotasktest
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -60,7 +59,7 @@ func NewMockClient(t *testing.T, opts ...MockOption) *autotask.Client {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	auth := autotask.AuthConfig{Username: "test", Secret: "test", IntegrationCode: "test"}
-	client, err := autotask.NewClient(context.Background(), auth, autotask.WithBaseURL(srv.URL))
+	client, err := autotask.NewClient(t.Context(), auth, autotask.WithBaseURL(srv.URL))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Minimum Go version is now 1.27** (previously 1.26). The `go` directive in `go.mod` requires Go 1.27 or later, so consumers must build with Go 1.27+.
+- Upgraded the linter to golangci-lint v2.13.2 and extended the ruleguard rule set with Go 1.27 modernization matchers. No public API changed.
+
 ## [1.5.1] - 2026-09-07
 
 ### Fixed

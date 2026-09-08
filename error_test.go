@@ -64,7 +64,7 @@ func TestParseResponse401(t *testing.T) {
 }
 
 func TestParseResponse429WithRetryAfter(t *testing.T) {
-	resp := &http.Response{
+	resp := &http.Response{ //nolint:gocritic // EmbeddedFieldLiteral false positive: http.Response.Header is a named field of type http.Header, not embedded, so it cannot be keyed directly
 		StatusCode: http.StatusTooManyRequests,
 		Body:       io.NopCloser(strings.NewReader(`{"errors":["Rate limit exceeded"]}`)),
 		Header:     http.Header{"Retry-After": []string{"120"}},
