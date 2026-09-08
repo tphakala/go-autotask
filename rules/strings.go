@@ -179,18 +179,28 @@ func StringsFieldsFuncIteration(m dsl.Matcher) {
 // See: https://pkg.go.dev/strings#CutLast
 // See: https://pkg.go.dev/bytes#CutLast
 func StringsCutLast(m dsl.Matcher) {
-	// Slicing around the last separator.
+	// Slicing before the last separator (the prefix). This slice panics when
+	// $sep is absent, because LastIndex returns -1.
 	m.Match(
 		`$s[:strings.LastIndex($s, $sep)]`,
+	).
+		Report("use before, _, found := strings.CutLast($s, $sep) instead of slicing before strings.LastIndex (Go 1.27+); when $sep is absent this slice panics (index -1) whereas CutLast returns (s, \"\", false), so check found")
+
+	// Slicing after the last separator (the suffix, +len($sep) to drop the sep).
+	m.Match(
 		`$s[strings.LastIndex($s, $sep)+len($sep):]`,
 	).
-		Report("use before, after, found := strings.CutLast($s, $sep) instead of slicing around strings.LastIndex (Go 1.27+); when $sep is absent the slicing idiom yields all of $s but CutLast yields after == \"\", so check found")
+		Report("use _, after, found := strings.CutLast($s, $sep) instead of slicing after strings.LastIndex (Go 1.27+); the not-found case differs (LastIndex is -1 when $sep is absent), so check found")
 
 	m.Match(
 		`$s[:bytes.LastIndex($s, $sep)]`,
+	).
+		Report("use before, _, found := bytes.CutLast($s, $sep) instead of slicing before bytes.LastIndex (Go 1.27+); when $sep is absent this slice panics (index -1) whereas CutLast returns (s, nil, false), so check found")
+
+	m.Match(
 		`$s[bytes.LastIndex($s, $sep)+len($sep):]`,
 	).
-		Report("use before, after, found := bytes.CutLast($s, $sep) instead of slicing around bytes.LastIndex (Go 1.27+); when $sep is absent the slicing idiom yields all of $s but CutLast yields after == nil, so check found")
+		Report("use _, after, found := bytes.CutLast($s, $sep) instead of slicing after bytes.LastIndex (Go 1.27+); the not-found case differs (LastIndex is -1 when $sep is absent), so check found")
 
 	// The +1 form skips exactly one byte, so it is a CutLast candidate only when
 	// the separator is a one-character literal; with "::" it would keep a ":".
