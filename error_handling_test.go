@@ -55,6 +55,25 @@ func assertItemNotFound(t *testing.T, err error) {
 	}
 }
 
+func TestErrorNotFound404(t *testing.T) {
+	t.Parallel()
+	_, client := autotasktest.NewServer(t,
+		autotasktest.WithEntity(autotasktest.CompanyFixture()),
+		autotasktest.WithErrorOn("GET", "Companies/99999", http.StatusNotFound, []string{"not found"}),
+	)
+	_, getErr := autotask.Get[entities.Company](t.Context(), client, 99999)
+	_, rawErr := autotask.GetRaw(t.Context(), client, "Companies", 99999)
+	for name, err := range map[string]error{"Get": getErr, "GetRaw": rawErr} {
+		nf, ok := errors.AsType[*autotask.NotFoundError](err)
+		if !ok {
+			t.Fatalf("%s: expected NotFoundError, got %T: %v", name, err, err)
+		}
+		if nf.Err.StatusCode != http.StatusNotFound {
+			t.Fatalf("%s: StatusCode = %d; want %d", name, nf.Err.StatusCode, http.StatusNotFound)
+		}
+	}
+}
+
 func TestUpdateRawReturnsItemID(t *testing.T) {
 	t.Parallel()
 	company := autotasktest.CompanyFixture()
