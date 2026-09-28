@@ -1,9 +1,11 @@
 package autotask
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -89,7 +91,7 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 	var versions struct {
 		Versions []string `json:"apiVersions"`
 	}
-	if err := json.NewDecoder(versionResp.Body).Decode(&versions); err != nil {
+	if err := decodeJSONBody(versionResp, &versions); err != nil {
 		return nil, fmt.Errorf("autotask: decoding version response: %w", err)
 	}
 	if len(versions.Versions) == 0 {
@@ -127,11 +129,25 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 		return nil, fmt.Errorf("autotask: zone discovery returned %d", zoneResp.StatusCode)
 	}
 	var zone ZoneInfo
-	if err := json.NewDecoder(zoneResp.Body).Decode(&zone); err != nil {
+	if err := decodeJSONBody(zoneResp, &zone); err != nil {
 		return nil, fmt.Errorf("autotask: decoding zone response: %w", err)
 	}
 	if zone.URL == "" {
 		return nil, fmt.Errorf("autotask: zone discovery returned empty URL")
 	}
 	return &zone, nil
+}
+
+// decodeJSONBody reads resp's body and decodes its first JSON value into v. A
+// body that is not JSON, such as the HTML maintenance page, returns an
+// *UnexpectedContentTypeError.
+func decodeJSONBody(resp *http.Response, v any) error {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if err := checkJSONBody(resp, body); err != nil {
+		return err
+	}
+	return json.NewDecoder(bytes.NewReader(body)).Decode(v)
 }

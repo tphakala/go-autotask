@@ -1,15 +1,21 @@
 package autotask
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
 const retryAfterDefault = 60 * time.Second
+
+// maxSnippetBytes caps how much of a non-JSON body UnexpectedContentTypeError keeps.
+const maxSnippetBytes = 256
 
 type Error struct {
 	StatusCode int
@@ -72,6 +78,20 @@ type ServerError struct{ Err Error }
 func (e *ServerError) Error() string { return e.Err.Error() }
 func (e *ServerError) Unwrap() error { return &e.Err }
 
+// UnexpectedContentTypeError reports a successful (2xx) response whose body is
+// not JSON. During planned maintenance Autotask answers with HTTP 200 and an
+// HTML page, so a caller can treat this error as transient and back off.
+type UnexpectedContentTypeError struct {
+	StatusCode  int
+	ContentType string
+	// Snippet holds up to the first 256 bytes of the body, for logging.
+	Snippet string
+}
+
+func (e *UnexpectedContentTypeError) Error() string {
+	return fmt.Sprintf("autotask: %d response body is not JSON (Content-Type %q)", e.StatusCode, e.ContentType)
+}
+
 func statusToError(resp *http.Response, base Error) error {
 	switch {
 	case resp.StatusCode == http.StatusBadRequest:
@@ -108,6 +128,11 @@ func parseResponse(resp *http.Response, result any) error {
 		if len(apiErrors) > 0 {
 			return &Error{StatusCode: resp.StatusCode, Message: "unexpected error in success response", Errors: apiErrors}
 		}
+		// Checked even when result is nil, so a Delete answered by the
+		// maintenance page does not read as success.
+		if err := checkJSONBody(resp, body); err != nil {
+			return err
+		}
 		if result != nil && len(body) > 0 {
 			if err := json.Unmarshal(body, result); err != nil {
 				return fmt.Errorf("autotask: decoding response: %w", err)
@@ -117,6 +142,42 @@ func parseResponse(resp *http.Response, result any) error {
 	}
 	base := Error{StatusCode: resp.StatusCode, Message: http.StatusText(resp.StatusCode), Errors: apiErrors}
 	return statusToError(resp, base)
+}
+
+// checkJSONBody returns an *UnexpectedContentTypeError when body is neither
+// labelled as JSON nor valid JSON. A body that is valid JSON passes under any
+// Content-Type, because JSON can arrive mislabelled: a Go net/http handler that
+// does not set the header gets a sniffed "text/plain; charset=utf-8"
+// (net/http/server.go:1486 in Go 1.27.1). An empty or whitespace-only body
+// passes and is left to the caller.
+func checkJSONBody(resp *http.Response, body []byte) error {
+	if len(bytes.TrimSpace(body)) == 0 {
+		return nil
+	}
+	contentType := resp.Header.Get("Content-Type")
+	if isJSONMediaType(contentType) || json.Valid(body) {
+		return nil
+	}
+	snippet := body
+	if len(snippet) > maxSnippetBytes {
+		snippet = snippet[:maxSnippetBytes]
+	}
+	return &UnexpectedContentTypeError{
+		StatusCode:  resp.StatusCode,
+		ContentType: contentType,
+		// The cut can split a multi-byte character; drop the partial bytes.
+		Snippet: strings.ToValidUTF8(string(snippet), ""),
+	}
+}
+
+// isJSONMediaType reports whether contentType is application/json or a
+// +json structured syntax type such as application/problem+json.
+func isJSONMediaType(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return false
+	}
+	return mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
 }
 
 func extractErrors(body []byte) []APIError {

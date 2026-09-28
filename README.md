@@ -376,6 +376,8 @@ if nf, ok := errors.AsType[*autotask.NotFoundError](err); ok {
 
 `Get` and `GetRaw` also return `NotFoundError` when a GET succeeds but its `item` is missing or null, which is how Autotask can answer for an id that does not exist. That error has `StatusCode` 200.
 
+A 2xx response whose body is not JSON returns `UnexpectedContentTypeError`, with the status code, the `Content-Type` header and up to the first 256 bytes of the body in `Snippet`. Autotask answers with HTTP 200 and an HTML page during planned maintenance, so treat this error as transient and retry later. `NewClient` returns it (wrapped) when zone discovery hits the same page.
+
 ## License
 
 Apache-2.0
