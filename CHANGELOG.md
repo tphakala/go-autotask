@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Minimum Go version is now 1.27** (previously 1.26). The `go` directive in `go.mod` requires Go 1.27 or later, so consumers must build with Go 1.27+.
 - Upgraded the linter to golangci-lint v2.13.2 and extended the ruleguard rule set with Go 1.27 modernization matchers. No public API changed.
+- **`autotasktest.NewServer` answers a GET for a missing id with 200 and `{"item": null}`** instead of a 404, for an entity type the server has a store for (seeded with `WithEntity`, for example), so tests go through the same client path as a real missing record. `Get` and `GetRaw` still return `*NotFoundError` for it, now with `StatusCode` 200 and no `Errors`. Tests that inspect the raw HTTP status of that response will see 200. An entity type the server has no store for still answers 404, and `NewMockClient` is unchanged: it serves only the fixtures it is given.
+
+### Fixed
+
+- **`Get` and `GetRaw` return `*NotFoundError` for a missing or null `item`** (#14). `Get` returned an untyped error that `errors.As` could not match, and `GetRaw` returned `(nil, nil)`, so a missing record looked like success. The error has `StatusCode` 200, which tells it apart from a 404.
+- **`UpdateRaw` returns the PATCH response body** (#15). It decoded an `item` field that the Autotask PATCH response does not carry, so a successful update returned a nil map. It now returns the decoded body, for example `{"itemId": 123}`, the same way `CreateRaw` does. It no longer unwraps an `item` field, so a PATCH response that carries one comes back as `{"item": {...}}`.
 
 ## [1.5.1] - 2026-09-07
 

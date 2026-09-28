@@ -7,6 +7,9 @@ import (
 	"net/http"
 )
 
+// GetRaw fetches one entity by id as an untyped map. Like Get, it returns a
+// *NotFoundError when the id does not exist, whether the API answers with a
+// 404 or with a 2xx whose item is missing or null.
 func GetRaw(ctx context.Context, c *Client, entityName string, id int64) (map[string]any, error) {
 	path := fmt.Sprintf("/v1.0/%s/%d", entityName, id)
 	var resp struct {
@@ -14,6 +17,9 @@ func GetRaw(ctx context.Context, c *Client, entityName string, id int64) (map[st
 	}
 	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
 		return nil, err
+	}
+	if resp.Item == nil {
+		return nil, itemNotFoundError(entityName, id)
 	}
 	return resp.Item, nil
 }
@@ -78,15 +84,15 @@ func CreateRaw(ctx context.Context, c *Client, entityName string, data map[strin
 	return resp, nil
 }
 
+// UpdateRaw patches an entity from an untyped map. Like CreateRaw, it returns
+// the decoded response body as is, for example {"itemId": N}.
 func UpdateRaw(ctx context.Context, c *Client, entityName string, data map[string]any) (map[string]any, error) {
 	path := fmt.Sprintf("/v1.0/%s", entityName)
-	var resp struct {
-		Item map[string]any `json:"item"`
-	}
+	var resp map[string]any
 	if err := c.do(ctx, http.MethodPatch, path, data, &resp); err != nil {
 		return nil, err
 	}
-	return resp.Item, nil
+	return resp, nil
 }
 
 func DeleteRaw(ctx context.Context, c *Client, entityName string, id int64) error {

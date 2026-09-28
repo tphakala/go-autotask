@@ -37,11 +37,57 @@ func TestErrorNotFound(t *testing.T) {
 		autotasktest.WithEntity(company),
 	)
 	_, err := autotask.Get[entities.Company](t.Context(), client, 99999)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if _, ok := errors.AsType[*autotask.NotFoundError](err); !ok {
+	assertItemNotFound(t, err)
+	_, err = autotask.GetRaw(t.Context(), client, "Companies", 99999)
+	assertItemNotFound(t, err)
+}
+
+// assertItemNotFound checks for the NotFoundError the client builds from a
+// 200 response with a null item, which is how the mock answers a missing id.
+func assertItemNotFound(t *testing.T, err error) {
+	t.Helper()
+	nf, ok := errors.AsType[*autotask.NotFoundError](err)
+	if !ok {
 		t.Fatalf("expected NotFoundError, got %T: %v", err, err)
+	}
+	if nf.Err.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d; want %d (null item, not a 404)", nf.Err.StatusCode, http.StatusOK)
+	}
+}
+
+func TestErrorNotFound404(t *testing.T) {
+	t.Parallel()
+	_, client := autotasktest.NewServer(t,
+		autotasktest.WithEntity(autotasktest.CompanyFixture()),
+		autotasktest.WithErrorOn("GET", "Companies/99999", http.StatusNotFound, []string{"not found"}),
+	)
+	_, getErr := autotask.Get[entities.Company](t.Context(), client, 99999)
+	_, rawErr := autotask.GetRaw(t.Context(), client, "Companies", 99999)
+	for name, err := range map[string]error{"Get": getErr, "GetRaw": rawErr} {
+		nf, ok := errors.AsType[*autotask.NotFoundError](err)
+		if !ok {
+			t.Fatalf("%s: expected NotFoundError, got %T: %v", name, err, err)
+		}
+		if nf.Err.StatusCode != http.StatusNotFound {
+			t.Fatalf("%s: StatusCode = %d; want %d", name, nf.Err.StatusCode, http.StatusNotFound)
+		}
+	}
+}
+
+func TestUpdateRawReturnsItemID(t *testing.T) {
+	t.Parallel()
+	company := autotasktest.CompanyFixture()
+	_, client := autotasktest.NewServer(t,
+		autotasktest.WithEntity(company),
+	)
+	id, _ := company.ID.Get()
+	result, err := autotask.UpdateRaw(t.Context(), client, "Companies",
+		map[string]any{"id": id, "companyName": "Renamed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result["itemId"] != float64(id) {
+		t.Fatalf("itemId = %v; want %d (result %v)", result["itemId"], id, result)
 	}
 }
 
