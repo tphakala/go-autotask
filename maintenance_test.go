@@ -1,6 +1,7 @@
 package autotask
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -48,6 +49,18 @@ func requireContentTypeError(t *testing.T, err error) {
 	}
 	if !strings.HasPrefix(ct.Snippet, "<!DOCTYPE html>") {
 		t.Fatalf("Snippet = %q; want the start of the page", ct.Snippet)
+	}
+}
+
+// requireDecodeError asserts the untyped decode error parseResponse returns
+// when a body it decodes is not valid JSON.
+func requireDecodeError(t *testing.T, err error) {
+	t.Helper()
+	if _, ok := errors.AsType[*json.SyntaxError](err); !ok {
+		t.Fatalf("err = %v; want it to wrap *json.SyntaxError", err)
+	}
+	if !strings.HasPrefix(err.Error(), "autotask: decoding response: ") {
+		t.Fatalf("err = %q; want the decoding response prefix", err)
 	}
 }
 
@@ -187,6 +200,9 @@ func TestParseResponseContentType(t *testing.T) {
 				}
 				if _, typed := errors.AsType[*UnexpectedContentTypeError](err); typed != tt.wantTyped {
 					t.Fatalf("withResult=%v: typed = %v; want %v (err %v)", withResult, typed, tt.wantTyped, err)
+				}
+				if withResult && tt.decodeErr {
+					requireDecodeError(t, err)
 				}
 				if withResult && !wantErr && tt.body != "" && result.ID != 1 {
 					t.Fatalf("ID = %d; want 1", result.ID)
