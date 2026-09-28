@@ -15,6 +15,8 @@ var CredentialHeaders = []string{"UserName", "Secret", "ApiIntegrationCode", "Im
 const maxRedirects = 10
 
 // SameOrigin reports whether rawURL has the same scheme and host as baseURL.
+// Hosts are compared ignoring ASCII case, as DNS names are; any other byte
+// must match exactly.
 func SameOrigin(rawURL, baseURL string) bool {
 	reqParsed, err := url.Parse(rawURL)
 	if err != nil {
@@ -24,7 +26,29 @@ func SameOrigin(rawURL, baseURL string) bool {
 	if err != nil {
 		return false
 	}
-	return reqParsed.Scheme == baseParsed.Scheme && reqParsed.Host == baseParsed.Host
+	return reqParsed.Scheme == baseParsed.Scheme && equalASCIIFold(reqParsed.Host, baseParsed.Host)
+}
+
+// equalASCIIFold reports whether a and b are equal when ASCII letters are
+// compared without case. Unlike strings.EqualFold it does no Unicode folding,
+// so a non-ASCII rune only matches itself.
+func equalASCIIFold(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range len(a) {
+		if lowerASCII(a[i]) != lowerASCII(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func lowerASCII(c byte) byte {
+	if 'A' <= c && c <= 'Z' {
+		return c + ('a' - 'A')
+	}
+	return c
 }
 
 // Guard returns a copy of hc whose CheckRedirect removes CredentialHeaders

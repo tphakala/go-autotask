@@ -17,7 +17,10 @@ func TestSameOrigin(t *testing.T) {
 		want    bool
 	}{
 		{"same host, other path", "https://webservices2.autotask.net/v1.0/Tickets", base, true},
+		{"host differs only in case", "https://WebServices2.Autotask.net/v1.0/Tickets", base, true},
+		{"Unicode fold of a host letter", "https://webservices2.autotas\u212A.net/v1.0/Tickets", base, false},
 		{"other host", "https://evil.example/v1.0/Tickets", base, false},
+		{"other host, same length", "https://webservices3.autotask.net/v1.0/Tickets", base, false},
 		{"suffix lookalike", "https://webservices2.autotask.net.evil.com/v1.0/Tickets", base, false},
 		{"scheme downgrade", "http://webservices2.autotask.net/v1.0/Tickets", base, false},
 		{"explicit port", "https://webservices2.autotask.net:8443/v1.0/Tickets", base, false},
