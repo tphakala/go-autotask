@@ -79,8 +79,9 @@ func (e *ServerError) Error() string { return e.Err.Error() }
 func (e *ServerError) Unwrap() error { return &e.Err }
 
 // UnexpectedContentTypeError reports a successful (2xx) response whose body is
-// not JSON. During planned maintenance Autotask answers with HTTP 200 and an
-// HTML page, so a caller can treat this error as transient and back off.
+// not blank, not labelled as JSON and not valid JSON. During planned
+// maintenance Autotask answers with HTTP 200 and an HTML page, so a caller can
+// treat this error as transient and back off.
 type UnexpectedContentTypeError struct {
 	Err         Error
 	ContentType string
