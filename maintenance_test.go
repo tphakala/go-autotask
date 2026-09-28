@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 )
 
@@ -159,6 +160,7 @@ func TestParseResponseContentType(t *testing.T) {
 		{name: "malformed json", contentType: "application/json", body: `{"id":`, decodeErr: true},
 		{name: "malformed json mixed case", contentType: "Application/JSON", body: `{"id":`, decodeErr: true},
 		{name: "malformed structured +json", contentType: "application/problem+json", body: `{"id":`, decodeErr: true},
+		{name: "malformed json with charset", contentType: "application/json; charset=utf-8", body: `{"id":`, decodeErr: true},
 	}
 	for _, tt := range tests {
 		for _, withResult := range []bool{true, false} {
@@ -232,4 +234,45 @@ func TestUnexpectedContentTypeNon200Status(t *testing.T) {
 	if ct.Err.StatusCode != http.StatusAccepted {
 		t.Fatalf("Err.StatusCode = %d; want %d", ct.Err.StatusCode, http.StatusAccepted)
 	}
+}
+
+// A non-2xx HTML page, for example from a proxy, keeps its status-typed error:
+// the content-type check applies only to 2xx responses.
+func TestNonSuccessHTMLKeepsStatusError(t *testing.T) {
+	t.Run("503", func(t *testing.T) {
+		resp := &http.Response{
+			StatusCode: http.StatusServiceUnavailable,
+			Header:     http.Header{},
+			Body:       io.NopCloser(strings.NewReader(maintenancePage)),
+		}
+		resp.Header.Set("Content-Type", "text/html")
+		err := parseResponse(resp, nil)
+		if _, ok := errors.AsType[*ServerError](err); !ok {
+			t.Fatalf("expected ServerError, got %T: %v", err, err)
+		}
+		if _, ok := errors.AsType[*UnexpectedContentTypeError](err); ok {
+			t.Fatalf("503 must not be an UnexpectedContentTypeError: %v", err)
+		}
+	})
+
+	t.Run("429", func(t *testing.T) {
+		resp := &http.Response{
+			StatusCode: http.StatusTooManyRequests,
+			Header:     http.Header{},
+			Body:       io.NopCloser(strings.NewReader(maintenancePage)),
+		}
+		resp.Header.Set("Content-Type", "text/html")
+		resp.Header.Set("Retry-After", "7")
+		err := parseResponse(resp, nil)
+		rl, ok := errors.AsType[*RateLimitError](err)
+		if !ok {
+			t.Fatalf("expected RateLimitError, got %T: %v", err, err)
+		}
+		if rl.RetryAfter != 7*time.Second {
+			t.Fatalf("RetryAfter = %v; want 7s", rl.RetryAfter)
+		}
+		if _, ok := errors.AsType[*UnexpectedContentTypeError](err); ok {
+			t.Fatalf("429 must not be an UnexpectedContentTypeError: %v", err)
+		}
+	})
 }
