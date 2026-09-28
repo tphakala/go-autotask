@@ -32,8 +32,15 @@ func requireContentTypeError(t *testing.T, err error) {
 	if !ok {
 		t.Fatalf("expected UnexpectedContentTypeError, got %T: %v", err, err)
 	}
-	if ct.StatusCode != http.StatusOK {
-		t.Fatalf("StatusCode = %d; want %d", ct.StatusCode, http.StatusOK)
+	if ct.Err.StatusCode != http.StatusOK {
+		t.Fatalf("Err.StatusCode = %d; want %d", ct.Err.StatusCode, http.StatusOK)
+	}
+	if _, ok := errors.AsType[*Error](err); !ok {
+		t.Fatalf("errors.AsType[*Error] does not match %T: %v", err, err)
+	}
+	const wantText = `autotask: 200 response body is not JSON (Content-Type "text/html; charset=utf-8")`
+	if got := ct.Error(); got != wantText {
+		t.Fatalf("Error() = %q; want %q", got, wantText)
 	}
 	if ct.ContentType != "text/html; charset=utf-8" {
 		t.Fatalf("ContentType = %q; want %q", ct.ContentType, "text/html; charset=utf-8")
@@ -208,5 +215,21 @@ func TestUnexpectedContentTypeSnippetBounded(t *testing.T) {
 	}
 	if want := body[:maxSnippetBytes-1]; ct.Snippet != want {
 		t.Fatalf("Snippet = %q; want %q", ct.Snippet, want)
+	}
+}
+
+func TestUnexpectedContentTypeNon200Status(t *testing.T) {
+	resp := &http.Response{
+		StatusCode: http.StatusAccepted,
+		Header:     http.Header{},
+		Body:       io.NopCloser(strings.NewReader(maintenancePage)),
+	}
+	resp.Header.Set("Content-Type", "text/html")
+	ct, ok := errors.AsType[*UnexpectedContentTypeError](parseResponse(resp, nil))
+	if !ok {
+		t.Fatal("expected UnexpectedContentTypeError")
+	}
+	if ct.Err.StatusCode != http.StatusAccepted {
+		t.Fatalf("Err.StatusCode = %d; want %d", ct.Err.StatusCode, http.StatusAccepted)
 	}
 }

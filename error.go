@@ -82,15 +82,16 @@ func (e *ServerError) Unwrap() error { return &e.Err }
 // not JSON. During planned maintenance Autotask answers with HTTP 200 and an
 // HTML page, so a caller can treat this error as transient and back off.
 type UnexpectedContentTypeError struct {
-	StatusCode  int
+	Err         Error
 	ContentType string
 	// Snippet holds up to the first 256 bytes of the body, for logging.
 	Snippet string
 }
 
 func (e *UnexpectedContentTypeError) Error() string {
-	return fmt.Sprintf("autotask: %d response body is not JSON (Content-Type %q)", e.StatusCode, e.ContentType)
+	return fmt.Sprintf("%s (Content-Type %q)", e.Err.Error(), e.ContentType)
 }
+func (e *UnexpectedContentTypeError) Unwrap() error { return &e.Err }
 
 func statusToError(resp *http.Response, base Error) error {
 	switch {
@@ -163,7 +164,7 @@ func checkJSONBody(resp *http.Response, body []byte) error {
 		snippet = snippet[:maxSnippetBytes]
 	}
 	return &UnexpectedContentTypeError{
-		StatusCode:  resp.StatusCode,
+		Err:         Error{StatusCode: resp.StatusCode, Message: "response body is not JSON"},
 		ContentType: contentType,
 		// The cut can split a multi-byte character; drop the partial bytes.
 		Snippet: strings.ToValidUTF8(string(snippet), ""),
