@@ -80,7 +80,9 @@ func (ts *TestServer) handleGet(w http.ResponseWriter, r *http.Request) {
 
 	item, found := store.getByID(id)
 	if !found {
-		writeErrorResponse(w, http.StatusNotFound, []string{fmt.Sprintf("%s with ID %d not found", entityName, id)})
+		// A missing id answers 200 with a null item, not 404, so tests exercise
+		// the same client path as the real API.
+		writeJSON(w, map[string]any{"item": nil})
 		return
 	}
 	writeJSON(w, map[string]any{"item": item})

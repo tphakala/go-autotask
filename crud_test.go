@@ -68,6 +68,34 @@ func TestGet(t *testing.T) {
 	}
 }
 
+func TestGetMissingItem(t *testing.T) {
+	for name, body := range map[string]string{
+		"null item":    `{"item": null}`,
+		"missing item": `{}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mux.HandleFunc("GET /v1.0/TestEntities/{id}", func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(body))
+			})
+			srv := httptest.NewServer(mux)
+			defer srv.Close()
+			client := testClient(t, srv)
+			entity, err := Get[testEntity](t.Context(), client, 7)
+			if entity != nil {
+				t.Fatalf("entity = %+v; want nil", entity)
+			}
+			nf, ok := errors.AsType[*NotFoundError](err)
+			if !ok {
+				t.Fatalf("expected NotFoundError, got %T: %v", err, err)
+			}
+			if nf.Err.StatusCode != http.StatusOK {
+				t.Fatalf("StatusCode = %d; want %d", nf.Err.StatusCode, http.StatusOK)
+			}
+		})
+	}
+}
+
 func TestList(t *testing.T) {
 	srv := newTypedTestServer(t)
 	client := testClient(t, srv)

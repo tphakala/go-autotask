@@ -26,7 +26,7 @@ func newCRUDTestServer(t *testing.T) *httptest.Server {
 		_ = json.NewEncoder(w).Encode(map[string]any{"itemId": 456})
 	})
 	mux.HandleFunc("PATCH /v1.0/Tickets", func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"item": map[string]any{"id": 123}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"itemId": 123})
 	})
 	mux.HandleFunc("DELETE /v1.0/Tickets/{id}", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -92,8 +92,36 @@ func TestUpdateRaw(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result == nil {
-		t.Fatal("expected non-nil result")
+	if result["itemId"] != float64(123) {
+		t.Fatalf("itemId = %v; want 123 (result %v)", result["itemId"], result)
+	}
+}
+
+func TestGetRawMissingItem(t *testing.T) {
+	for name, body := range map[string]string{
+		"null item":    `{"item": null}`,
+		"missing item": `{}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mux.HandleFunc("GET /v1.0/Tickets/{id}", func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(body))
+			})
+			srv := httptest.NewServer(mux)
+			defer srv.Close()
+			client := testClient(t, srv)
+			result, err := GetRaw(t.Context(), client, "Tickets", 7)
+			if result != nil {
+				t.Fatalf("result = %v; want nil", result)
+			}
+			nf, ok := errors.AsType[*NotFoundError](err)
+			if !ok {
+				t.Fatalf("expected NotFoundError, got %T: %v", err, err)
+			}
+			if nf.Err.StatusCode != http.StatusOK {
+				t.Fatalf("StatusCode = %d; want %d", nf.Err.StatusCode, http.StatusOK)
+			}
+		})
 	}
 }
 

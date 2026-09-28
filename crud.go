@@ -7,6 +7,9 @@ import (
 	"net/http"
 )
 
+// Get fetches one entity by id. It returns a *NotFoundError when the id does
+// not exist, whether the API answers with a 404 or with a 2xx whose item is
+// missing or null.
 func Get[T Entity](ctx context.Context, c *Client, id int64) (*T, error) {
 	var zero T
 	path := fmt.Sprintf("/v1.0/%s/%d", zero.EntityName(), id)
@@ -17,13 +20,23 @@ func Get[T Entity](ctx context.Context, c *Client, id int64) (*T, error) {
 		return nil, err
 	}
 	if resp.Item == nil || string(resp.Item) == "null" {
-		return nil, fmt.Errorf("autotask: %s %d returned no item", zero.EntityName(), id)
+		return nil, itemNotFoundError(zero.EntityName(), id)
 	}
 	var entity T
 	if err := json.Unmarshal(resp.Item, &entity); err != nil {
 		return nil, fmt.Errorf("autotask: decoding %s: %w", zero.EntityName(), err)
 	}
 	return &entity, nil
+}
+
+// itemNotFoundError is the error for a successful GET response without an
+// item. Its StatusCode is 200 rather than 404, so a caller can tell the two
+// cases apart while errors.As still matches *NotFoundError.
+func itemNotFoundError(entityName string, id int64) error {
+	return &NotFoundError{Err: Error{
+		StatusCode: http.StatusOK,
+		Message:    fmt.Sprintf("%s %d returned no item", entityName, id),
+	}}
 }
 
 func List[T Entity](ctx context.Context, c *Client, q *Query) ([]*T, error) {

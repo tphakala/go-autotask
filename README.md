@@ -250,6 +250,11 @@ For entities not defined in the library, use the untyped API:
 result, err := autotask.GetRaw(ctx, client, "Companies", 123)
 fmt.Println(result["companyName"])
 
+// UpdateRaw returns the response body, for example {"itemId": 123}
+resp, err := autotask.UpdateRaw(ctx, client, "Companies",
+    map[string]any{"id": 123, "companyName": "Renamed"},
+)
+
 results, err := autotask.ListRaw(ctx, client, "Companies",
     autotask.NewQuery().Where("isActive", autotask.OpEq, true),
 )
@@ -368,6 +373,8 @@ if nf, ok := errors.AsType[*autotask.NotFoundError](err); ok {
 | `ServerError` | 5xx |
 
 `RateLimitError` includes a `RetryAfter` duration parsed from the response header.
+
+`Get` and `GetRaw` also return `NotFoundError` when a GET succeeds but its `item` is missing or null, which is how Autotask can answer for an id that does not exist. That error has `StatusCode` 200.
 
 ## License
 
