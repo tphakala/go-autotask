@@ -4,13 +4,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	autotask "github.com/tphakala/go-autotask"
 	"github.com/tphakala/go-autotask/autotasktest"
 	"github.com/tphakala/go-autotask/entities"
+	"github.com/tphakala/go-autotask/middleware"
 )
 
 func TestAuthHeadersPresent(t *testing.T) {
@@ -193,4 +196,239 @@ func TestAuthSameOriginValidation(t *testing.T) {
 	if got := evilHeaders.Get("User-Agent"); !strings.HasPrefix(got, "go-autotask/") {
 		t.Errorf("cross-origin User-Agent = %q; want prefix %q", got, "go-autotask/")
 	}
+}
+
+// headerRecorder is a test server that records the headers of each request it
+// receives and answers with a JSON item.
+type headerRecorder struct {
+	srv     *httptest.Server
+	mu      sync.Mutex
+	headers []http.Header
+}
+
+func newHeaderRecorder(t *testing.T, body any) *headerRecorder {
+	t.Helper()
+	rec := &headerRecorder{}
+	rec.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec.mu.Lock()
+		rec.headers = append(rec.headers, r.Header.Clone())
+		rec.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(body)
+	}))
+	t.Cleanup(rec.srv.Close)
+	return rec
+}
+
+func (rec *headerRecorder) requests() []http.Header {
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	return slices.Clone(rec.headers)
+}
+
+// newRedirector returns a server that answers every request with a 307 to
+// target joined with the request path.
+func newRedirector(t *testing.T, target string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target+r.URL.RequestURI(), http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+var redirectCredentialHeaders = []string{"UserName", "Secret", "ApiIntegrationCode", "ImpersonationResourceId"}
+
+func requireNoCredentials(t *testing.T, h http.Header) {
+	t.Helper()
+	for _, name := range redirectCredentialHeaders {
+		if got := h.Get(name); got != "" {
+			t.Errorf("redirect target got %s = %q; want empty", name, got)
+		}
+	}
+}
+
+func TestAuthCrossOriginRedirectDropsCredentials(t *testing.T) {
+	t.Parallel()
+	target := newHeaderRecorder(t, map[string]any{"item": map[string]any{"id": 1}})
+	origin := newRedirector(t, target.srv.URL)
+
+	auth := autotask.AuthConfig{Username: "secretuser", Secret: "secretpass", IntegrationCode: "secretcode"}
+	client, err := autotask.NewClient(t.Context(), auth,
+		autotask.WithBaseURL(origin.URL),
+		autotask.WithImpersonation(12345),
+	)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	if _, err := autotask.Get[entities.Company](t.Context(), client, 1); err != nil {
+		t.Fatalf("Get failed: %v", err)
+	}
+
+	reqs := target.requests()
+	if len(reqs) != 1 {
+		t.Fatalf("redirect target got %d requests; want 1", len(reqs))
+	}
+	requireNoCredentials(t, reqs[0])
+	// Headers that are not credentials still follow the redirect.
+	if got := reqs[0].Get("User-Agent"); !strings.HasPrefix(got, "go-autotask/") {
+		t.Errorf("redirect target User-Agent = %q; want prefix %q", got, "go-autotask/")
+	}
+}
+
+func TestAuthSameOriginRedirectKeepsCredentials(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var gotHeaders http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/moved/v1.0/Companies/1" {
+			mu.Lock()
+			gotHeaders = r.Header.Clone()
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{"item": map[string]any{"id": 1}})
+			return
+		}
+		http.Redirect(w, r, "/moved"+r.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(srv.Close)
+
+	auth := autotask.AuthConfig{Username: "user", Secret: "secret", IntegrationCode: "code"}
+	client, err := autotask.NewClient(t.Context(), auth,
+		autotask.WithBaseURL(srv.URL),
+		autotask.WithImpersonation(12345),
+	)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	if _, err := autotask.Get[entities.Company](t.Context(), client, 1); err != nil {
+		t.Fatalf("Get failed: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if gotHeaders == nil {
+		t.Fatal("redirected request never reached the server")
+	}
+	want := map[string]string{
+		"UserName":                "user",
+		"Secret":                  "secret",
+		"ApiIntegrationCode":      "code",
+		"ImpersonationResourceId": "12345",
+	}
+	for name, v := range want {
+		if got := gotHeaders.Get(name); got != v {
+			t.Errorf("same-origin redirect %s = %q; want %q", name, got, v)
+		}
+	}
+}
+
+func TestAuthRedirectCallsCallerCheckRedirect(t *testing.T) {
+	t.Parallel()
+	target := newHeaderRecorder(t, map[string]any{"item": map[string]any{"id": 1}})
+	origin := newRedirector(t, target.srv.URL)
+
+	var mu sync.Mutex
+	var seen []http.Header
+	hc := &http.Client{CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+		mu.Lock()
+		seen = append(seen, req.Header.Clone())
+		mu.Unlock()
+		return http.ErrUseLastResponse
+	}}
+
+	auth := autotask.AuthConfig{Username: "user", Secret: "secret", IntegrationCode: "code"}
+	client, err := autotask.NewClient(t.Context(), auth,
+		autotask.WithBaseURL(origin.URL),
+		autotask.WithHTTPClient(hc),
+	)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	// ErrUseLastResponse hands the 307 back to the client, which reports it as
+	// an error; only the redirect handling matters here.
+	_, _ = autotask.Get[entities.Company](t.Context(), client, 1)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) != 1 {
+		t.Fatalf("caller CheckRedirect called %d times; want 1", len(seen))
+	}
+	// The credentials are already gone when the caller's CheckRedirect runs.
+	requireNoCredentials(t, seen[0])
+	if n := len(target.requests()); n != 0 {
+		t.Errorf("redirect target got %d requests; want 0 (caller stopped the redirect)", n)
+	}
+}
+
+func TestAuthRedirectDefaultLimit(t *testing.T) {
+	t.Parallel()
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, srv.URL+r.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(srv.Close)
+
+	hc := &http.Client{}
+	auth := autotask.AuthConfig{Username: "user", Secret: "secret", IntegrationCode: "code"}
+	client, err := autotask.NewClient(t.Context(), auth,
+		autotask.WithBaseURL(srv.URL),
+		autotask.WithHTTPClient(hc),
+	)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	_, err = autotask.Get[entities.Company](t.Context(), client, 1)
+	if err == nil || !strings.Contains(err.Error(), "stopped after 10 redirects") {
+		t.Errorf("Get error = %v; want one containing %q", err, "stopped after 10 redirects")
+	}
+	if hc.CheckRedirect != nil {
+		t.Error("NewClient set CheckRedirect on the caller's http.Client; want it left nil")
+	}
+}
+
+func TestAuthThresholdMonitorRedirectDropsCredentials(t *testing.T) {
+	t.Parallel()
+	target := newHeaderRecorder(t, map[string]any{
+		"currentTimeframeRequestCount": 95,
+		"externalRequestThreshold":     100,
+	})
+	origin := newRedirector(t, target.srv.URL)
+
+	fired := make(chan struct{}, 1)
+	auth := autotask.AuthConfig{Username: "user", Secret: "secret", IntegrationCode: "code"}
+	client, err := autotask.NewClient(t.Context(), auth,
+		autotask.WithBaseURL(origin.URL),
+		autotask.WithThresholdMonitor(
+			middleware.WithCheckInterval(time.Hour),
+			middleware.WithCriticalCallback(func(middleware.ThresholdInfo) {
+				select {
+				case fired <- struct{}{}:
+				default:
+				}
+			}),
+		),
+	)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	select {
+	case <-fired:
+	case <-time.After(5 * time.Second):
+		t.Fatal("threshold check did not reach the redirect target")
+	}
+	reqs := target.requests()
+	if len(reqs) == 0 {
+		t.Fatal("redirect target got no requests")
+	}
+	requireNoCredentials(t, reqs[0])
 }

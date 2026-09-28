@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/tphakala/go-autotask/internal/redirect"
 )
 
 const (
@@ -80,13 +82,16 @@ type ThresholdMonitor struct {
 }
 
 // NewThresholdMonitor creates a new ThresholdMonitor. Call Start to begin polling.
+// The monitor uses a copy of httpClient whose CheckRedirect removes the
+// credential headers from any redirect to another scheme or host, then calls
+// httpClient.CheckRedirect if it is set. httpClient is not modified.
 func NewThresholdMonitor(httpClient *http.Client, baseURL string, auth AuthHeaders, opts ...ThresholdMonitorOption) *ThresholdMonitor {
 	cfg := thresholdMonitorConfig{checkInterval: defaultCheckInterval}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
 	return &ThresholdMonitor{
-		httpClient: httpClient, baseURL: baseURL, auth: auth, config: cfg, done: make(chan struct{}),
+		httpClient: redirect.Guard(httpClient, baseURL), baseURL: baseURL, auth: auth, config: cfg, done: make(chan struct{}),
 	}
 }
 

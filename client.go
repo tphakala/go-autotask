@@ -8,12 +8,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/tphakala/go-autotask/internal/redirect"
 	"github.com/tphakala/go-autotask/middleware"
 )
 
@@ -90,6 +90,9 @@ func NewClient(ctx context.Context, auth AuthConfig, opts ...ClientOption) (*Cli
 		}
 		c.baseURL = zone.URL
 	}
+	// Installed after zone discovery so the guard compares against the final
+	// baseURL.
+	c.httpClient = redirect.Guard(c.httpClient, c.baseURL)
 	// Start threshold monitor if configured.
 	if len(c.thresholdMonitorOpts) > 0 {
 		auth := middleware.AuthHeaders{
@@ -158,7 +161,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, result any) 
 	// Only attach credentials if the request targets the same origin to prevent
 	// credential leaks to external hosts (e.g., via a spoofed nextPageUrl like
 	// https://api.autotask.net.evil.com which would pass a prefix check).
-	if c.baseURL != "" && isSameOrigin(requestURL, c.baseURL) {
+	if c.baseURL != "" && redirect.SameOrigin(requestURL, c.baseURL) {
 		req.Header.Set("UserName", c.auth.Username)
 		req.Header.Set("Secret", c.auth.Secret)
 		req.Header.Set("ApiIntegrationCode", c.auth.IntegrationCode)
@@ -199,19 +202,6 @@ func joinURL(baseURL, path string) string {
 	default:
 		return base + "/" + path
 	}
-}
-
-// isSameOrigin returns true if requestURL has the same scheme and host as baseURL.
-func isSameOrigin(requestURL, baseURL string) bool {
-	reqParsed, err := url.Parse(requestURL)
-	if err != nil {
-		return false
-	}
-	baseParsed, err := url.Parse(baseURL)
-	if err != nil {
-		return false
-	}
-	return reqParsed.Scheme == baseParsed.Scheme && reqParsed.Host == baseParsed.Host
 }
 
 type discardHandler struct{}
