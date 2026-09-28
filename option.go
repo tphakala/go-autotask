@@ -9,6 +9,10 @@ import (
 
 type ClientOption func(*Client)
 
+// WithHTTPClient sets the HTTP client used for all requests. NewClient uses a
+// copy of hc, so setting hc's fields after NewClient returns has no effect.
+// The copy's CheckRedirect removes the Autotask credential headers from any
+// redirect to another scheme or host, then calls hc.CheckRedirect if it is set.
 func WithHTTPClient(hc *http.Client) ClientOption {
 	return func(c *Client) { c.httpClient = hc }
 }
