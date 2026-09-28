@@ -139,8 +139,8 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 }
 
 // decodeJSONBody reads resp's body and decodes its first JSON value into v. A
-// body that is not JSON, such as the HTML maintenance page, returns an
-// *UnexpectedContentTypeError.
+// body that is not blank, not labelled as JSON and not valid JSON, such as the
+// HTML maintenance page, returns an *UnexpectedContentTypeError.
 func decodeJSONBody(resp *http.Response, v any) error {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
