@@ -24,6 +24,9 @@ type fixture struct {
 	body   any
 }
 
+// WithFixture answers method and path with status and body encoded as JSON. A
+// nil body sends an empty body, which calls that decode a result reject with
+// *autotask.EmptyResponseError.
 func WithFixture(method, path string, status int, body any) MockOption {
 	return func(c *mockConfig) {
 		c.fixtures = append(c.fixtures, fixture{method: method, path: path, status: status, body: body})
