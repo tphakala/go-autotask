@@ -296,3 +296,16 @@ func TestZoneDiscoveryStatusErrorKeepsMessageAndType(t *testing.T) {
 		t.Fatalf("err = %T; want *ServerError reachable with errors.As", err)
 	}
 }
+
+type timeoutError struct{}
+
+func (timeoutError) Error() string   { return "i/o timeout" }
+func (timeoutError) Timeout() bool   { return true }
+func (timeoutError) Temporary() bool { return false }
+
+func TestIsTransientNetErrorTimeout(t *testing.T) {
+	t.Parallel()
+	if !autotask.IsTransient(fmt.Errorf("autotask: request failed: %w", timeoutError{})) {
+		t.Fatal("a net.Error timeout is transient")
+	}
+}

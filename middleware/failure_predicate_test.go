@@ -285,7 +285,7 @@ func TestWithFailurePredicateNilIgnored(t *testing.T) {
 func TestPredicateReadsBodyAndCallerStillGetsIt(t *testing.T) {
 	t.Parallel()
 	for _, size := range []int{0, 10, peekLimit, peekLimit + 1, 3*peekLimit + 7} {
-		body := strings.Repeat("x", size)
+		body := positional(size)
 		var seen int
 		cb := NewCircuitBreaker(&scripted{resps: []*http.Response{respWith(200, "text/plain", body)}},
 			WithFailurePredicate(func(resp *http.Response, _ error) bool {
@@ -312,6 +312,16 @@ func TestPredicateReadsBodyAndCallerStillGetsIt(t *testing.T) {
 			t.Fatalf("size %d: predicate saw %d bytes; want %d", size, seen, want)
 		}
 	}
+}
+
+// positional returns n bytes whose value depends on the position, so a body
+// replayed out of order does not compare equal.
+func positional(n int) string {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = byte('a' + i%251%26 + i/251%3)
+	}
+	return string(b)
 }
 
 func TestPredicateThatReadsNothingLeavesBodyIntact(t *testing.T) {
@@ -359,5 +369,49 @@ func TestBreakerNilBody(t *testing.T) {
 	resp, err := do(t, cb)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		t.Fatalf("got %v, %v", resp, err)
+	}
+}
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, errors.New("read failed") }
+
+func TestDefaultFailureUnreadable500Body(t *testing.T) {
+	t.Parallel()
+	nilBody := &http.Response{StatusCode: http.StatusInternalServerError}
+	if !DefaultFailure(nilBody, nil) {
+		t.Error("a 500 without a body is a server failure")
+	}
+	broken := &http.Response{StatusCode: http.StatusInternalServerError, Body: io.NopCloser(failingReader{})}
+	if !DefaultFailure(broken, nil) {
+		t.Error("a 500 whose body cannot be read is a server failure")
+	}
+}
+
+func TestBreakerClosesAfterGoodProbes(t *testing.T) {
+	t.Parallel()
+	inner := &scripted{resps: []*http.Response{respWith(503, "", "")}}
+	cb := NewCircuitBreaker(inner, WithFailureThreshold(1), WithOpenTimeout(5*time.Millisecond), WithSuccessThreshold(2))
+	resp, _ := do(t, cb)
+	drain(t, resp)
+	time.Sleep(15 * time.Millisecond)
+	if cb.State() != StateHalfOpen {
+		t.Fatalf("state = %s; want half-open", cb.State())
+	}
+	resp, err := do(t, cb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drain(t, resp)
+	if cb.State() != StateHalfOpen {
+		t.Fatalf("state = %s; want half-open after one good probe of two", cb.State())
+	}
+	resp, err = do(t, cb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drain(t, resp)
+	if cb.State() != StateClosed {
+		t.Fatalf("state = %s; want closed after two good probes", cb.State())
 	}
 }
