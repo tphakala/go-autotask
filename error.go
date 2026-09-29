@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/tphakala/go-autotask/internal/apierr"
 )
 
 const retryAfterDefault = 60 * time.Second
@@ -84,6 +86,24 @@ type ServerError struct{ Err Error }
 
 func (e *ServerError) Error() string { return e.Err.Error() }
 func (e *ServerError) Unwrap() error { return &e.Err }
+
+// IsValidation reports whether e is a validation failure that Autotask
+// answered with HTTP 500, such as a field value over its maximum length. It
+// is true for status 500 when an error message matches known validation
+// wording. The wording list is a heuristic that covers only messages seen in
+// real responses, so a false result does not prove the 500 is a server
+// failure. Retrying a validation 500 returns the same error.
+func (e *ServerError) IsValidation() bool {
+	if e == nil || e.Err.StatusCode != http.StatusInternalServerError {
+		return false
+	}
+	for _, ae := range e.Err.Errors {
+		if apierr.IsValidation(ae.Message) {
+			return true
+		}
+	}
+	return false
+}
 
 // UnexpectedContentTypeError reports a successful (2xx) response whose body is
 // not blank, not labelled as JSON and not valid JSON. During planned
@@ -271,25 +291,13 @@ func isJSONMediaType(contentType string) bool {
 }
 
 func extractErrors(body []byte) []APIError {
-	var envelope struct {
-		Errors []json.RawMessage `json:"errors"`
-	}
-	if err := json.Unmarshal(body, &envelope); err != nil || len(envelope.Errors) == 0 {
+	entries := apierr.Extract(body)
+	if len(entries) == 0 {
 		return nil
 	}
-	var result []APIError
-	for _, raw := range envelope.Errors {
-		var ae APIError
-		if err := json.Unmarshal(raw, &ae); err != nil {
-			var s string
-			if err := json.Unmarshal(raw, &s); err == nil && s != "" {
-				result = append(result, APIError{Message: s})
-			}
-			continue
-		}
-		if ae.Message != "" {
-			result = append(result, ae)
-		}
+	result := make([]APIError, len(entries))
+	for i, e := range entries {
+		result[i] = APIError{Message: e.Message, Field: e.Field}
 	}
 	return result
 }

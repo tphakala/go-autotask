@@ -85,7 +85,7 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 	}
 	defer versionResp.Body.Close() //nolint:errcheck // error ignored in defer
 	if versionResp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("autotask: version request returned %d", versionResp.StatusCode)
+		return nil, zoneStatusError("version request", versionResp)
 	}
 	var versions struct {
 		Versions []string `json:"apiVersions"`
@@ -125,7 +125,7 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 	}
 	defer zoneResp.Body.Close() //nolint:errcheck // error ignored in defer
 	if zoneResp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("autotask: zone discovery returned %d", zoneResp.StatusCode)
+		return nil, zoneStatusError("zone discovery", zoneResp)
 	}
 	var zone ZoneInfo
 	if err := decodeJSONBody(zoneResp, &zone, maxBodyBytes); err != nil {
@@ -135,6 +135,25 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 		return nil, fmt.Errorf("autotask: zone discovery returned empty URL")
 	}
 	return &zone, nil
+}
+
+// zoneDiscoveryError keeps the message of a failed zone discovery step and
+// unwraps to the status-typed error, so errors.As and IsTransient classify it
+// by status.
+type zoneDiscoveryError struct {
+	msg string
+	err error
+}
+
+func (e *zoneDiscoveryError) Error() string { return e.msg }
+func (e *zoneDiscoveryError) Unwrap() error { return e.err }
+
+func zoneStatusError(step string, resp *http.Response) error {
+	base := Error{StatusCode: resp.StatusCode, Message: http.StatusText(resp.StatusCode)}
+	return &zoneDiscoveryError{
+		msg: fmt.Sprintf("autotask: %s returned %d", step, resp.StatusCode),
+		err: statusToError(resp, base),
+	}
 }
 
 // decodeJSONBody reads at most limit bytes of resp's body and decodes its first
