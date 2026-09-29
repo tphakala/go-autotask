@@ -168,15 +168,53 @@ func WithPageSize(n int) ServerOption {
 	}
 }
 
+// RuleOption adjusts a rule created by WithErrorOn, WithResponseOn or
+// WithRetryAfterError.
+type RuleOption func(*errorRule)
+
+// Times limits a rule to the first n matching requests. Later requests fall
+// through to the next matching rule, or to the normal handler. n <= 0 leaves
+// the rule unlimited, which is the default.
+func Times(n int) RuleOption {
+	return func(r *errorRule) {
+		r.limit = max(n, 0)
+	}
+}
+
+func (ts *TestServer) addRule(rule *errorRule, opts []RuleOption) {
+	for _, opt := range opts {
+		opt(rule)
+	}
+	ts.opts.errorRules = append(ts.opts.errorRules, *rule)
+}
+
 // WithErrorOn injects an error response for requests matching method + path suffix.
-func WithErrorOn(method, pathSuffix string, status int, errors []string) ServerOption {
+// An empty method matches every method. Rules are tried in registration order
+// and the first one that matches and has requests left answers.
+func WithErrorOn(method, pathSuffix string, status int, errors []string, opts ...RuleOption) ServerOption {
 	return func(ts *TestServer) {
-		ts.opts.errorRules = append(ts.opts.errorRules, errorRule{
+		ts.addRule(&errorRule{
 			method:     method,
 			pathSuffix: pathSuffix,
 			status:     status,
 			errors:     errors,
-		})
+		}, opts)
+	}
+}
+
+// WithResponseOn serves a fixed response for requests matching method + path
+// suffix. The body is sent as is, so it can be HTML, empty or invalid JSON,
+// such as the maintenance page Autotask serves with HTTP 200. An empty
+// contentType sends no Content-Type header. Rules run before the auth check
+// and follow the ordering and Times semantics of WithErrorOn.
+func WithResponseOn(method, pathSuffix string, status int, contentType, body string, opts ...RuleOption) ServerOption {
+	return func(ts *TestServer) {
+		ts.addRule(&errorRule{
+			method:     method,
+			pathSuffix: pathSuffix,
+			status:     status,
+			raw:        &rawResponse{contentType: contentType, body: body},
+		}, opts)
 	}
 }
 
@@ -230,14 +268,14 @@ func WithDeleteSupport(entityName string) ServerOption {
 }
 
 // WithRetryAfterError injects a 429 response with Retry-After header for a path.
-func WithRetryAfterError(pathSuffix string, retryAfterSeconds int) ServerOption {
+func WithRetryAfterError(pathSuffix string, retryAfterSeconds int, opts ...RuleOption) ServerOption {
 	return func(ts *TestServer) {
-		ts.opts.errorRules = append(ts.opts.errorRules, errorRule{
+		ts.addRule(&errorRule{
 			method:     "",
 			pathSuffix: pathSuffix,
 			status:     http.StatusTooManyRequests,
 			errors:     []string{fmt.Sprintf("Rate limit exceeded. Retry after %d seconds.", retryAfterSeconds)},
 			headers:    map[string]string{"Retry-After": strconv.Itoa(retryAfterSeconds)},
-		})
+		}, opts)
 	}
 }

@@ -224,12 +224,11 @@ func TestErrorEmptyBody(t *testing.T) {
 	client := autotasktest.NewMockClient(t,
 		autotasktest.WithFixture("GET", "/v1.0/Companies/1", http.StatusOK, nil),
 	)
-	// A 200 response with an empty body should not panic.
-	// Get expects {"item": ...}, so an empty body yields an unmarshaling error
-	// because the client tries to unmarshal empty JSON into the item envelope.
+	// A nil fixture body is sent as an empty body, which a call that decodes a
+	// result rejects as *EmptyResponseError before any decode.
 	_, err := autotask.Get[entities.Company](t.Context(), client, 1)
-	if err == nil {
-		t.Fatal("expected error when 200 response has empty body (client cannot unmarshal empty JSON)")
+	if _, ok := errors.AsType[*autotask.EmptyResponseError](err); !ok {
+		t.Fatalf("got %T: %v; want *autotask.EmptyResponseError for a 200 with an empty body", err, err)
 	}
 }
 
