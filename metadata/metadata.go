@@ -9,13 +9,21 @@ import (
 )
 
 type FieldInfo struct {
-	Name           string          `json:"name"`
-	Label          string          `json:"label"`
-	Type           string          `json:"dataType"`
-	IsRequired     bool            `json:"isRequired"`
-	IsReadOnly     bool            `json:"isReadOnly"`
-	IsPickList     bool            `json:"isPickList"`
-	PickListValues []PickListValue `json:"picklistValues,omitempty"`
+	Name  string `json:"name"`
+	Label string `json:"label"`
+	Type  string `json:"dataType"`
+	// Length is the maximum length of a string value, or 0 when Autotask
+	// reports none.
+	Length      int  `json:"length,omitempty"`
+	IsRequired  bool `json:"isRequired"`
+	IsReadOnly  bool `json:"isReadOnly"`
+	IsQueryable bool `json:"isQueryable"`
+	IsPickList  bool `json:"isPickList"`
+	// IsReference marks a field that holds the ID of another entity, named by
+	// ReferenceEntityType.
+	IsReference         bool            `json:"isReference"`
+	ReferenceEntityType string          `json:"referenceEntityType,omitempty"`
+	PickListValues      []PickListValue `json:"picklistValues,omitempty"`
 }
 
 type PickListValue struct {

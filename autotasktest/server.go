@@ -50,12 +50,23 @@ type serverOptions struct {
 	zoneInfo   *zoneConfig
 }
 
+// errorRule is a canned response for requests matching method and pathSuffix.
+// It answers with the JSON error envelope, or with raw when raw is set.
 type errorRule struct {
 	method     string
 	pathSuffix string
 	status     int
 	errors     []string
 	headers    map[string]string // extra headers to set on error response (e.g., Retry-After)
+	raw        *rawResponse
+	limit      int // maximum number of requests the rule answers; 0 means unlimited
+	hits       int // requests answered so far; guarded by TestServer.mu
+}
+
+// rawResponse is a fixed response body sent as is.
+type rawResponse struct {
+	contentType string
+	body        string
 }
 
 type zoneConfig struct {
@@ -81,12 +92,16 @@ type EntityInfoResponse struct {
 
 // FieldInfoResponse is exported for use with WithEntityMetadata.
 type FieldInfoResponse struct {
-	Name       string `json:"name"`
-	Label      string `json:"label"`
-	DataType   string `json:"dataType"`
-	IsRequired bool   `json:"isRequired"`
-	IsReadOnly bool   `json:"isReadOnly"`
-	IsPickList bool   `json:"isPickList"`
+	Name                string `json:"name"`
+	Label               string `json:"label"`
+	DataType            string `json:"dataType"`
+	Length              int    `json:"length,omitempty"`
+	IsRequired          bool   `json:"isRequired"`
+	IsReadOnly          bool   `json:"isReadOnly"`
+	IsQueryable         bool   `json:"isQueryable"`
+	IsPickList          bool   `json:"isPickList"`
+	IsReference         bool   `json:"isReference"`
+	ReferenceEntityType string `json:"referenceEntityType,omitempty"`
 }
 
 // UDFInfoResponse is exported for use with WithEntityMetadata.
@@ -191,15 +206,16 @@ func (ts *TestServer) handler() http.Handler {
 		}
 
 		// Check for error injection rules.
-		for _, rule := range ts.opts.errorRules {
-			methodMatch := rule.method == "" || r.Method == rule.method
-			if methodMatch && strings.HasSuffix(r.URL.Path, rule.pathSuffix) {
-				for k, v := range rule.headers {
-					w.Header().Set(k, v)
-				}
-				writeErrorResponse(w, rule.status, rule.errors)
+		if rule, ok := ts.matchRule(r); ok {
+			for k, v := range rule.headers {
+				w.Header().Set(k, v)
+			}
+			if rule.raw != nil {
+				writeRawResponse(w, rule.status, *rule.raw)
 				return
 			}
+			writeErrorResponse(w, rule.status, rule.errors)
+			return
 		}
 
 		// Validate auth headers.
@@ -211,6 +227,29 @@ func (ts *TestServer) handler() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		ts.route(w, r)
 	})
+}
+
+// matchRule returns a copy of the first rule that matches r and still has
+// requests left, and counts the request against it. A rule that has answered
+// its limit no longer matches, so later rules and the normal handler apply.
+func (ts *TestServer) matchRule(r *http.Request) (errorRule, bool) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	for i := range ts.opts.errorRules {
+		rule := &ts.opts.errorRules[i]
+		if rule.method != "" && r.Method != rule.method {
+			continue
+		}
+		if !strings.HasSuffix(r.URL.Path, rule.pathSuffix) {
+			continue
+		}
+		if rule.limit > 0 && rule.hits >= rule.limit {
+			continue
+		}
+		rule.hits++
+		return *rule, true
+	}
+	return errorRule{}, false
 }
 
 func (ts *TestServer) route(w http.ResponseWriter, r *http.Request) {
@@ -274,6 +313,17 @@ func writeErrorResponse(w http.ResponseWriter, status int, errors []string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{"errors": errors}) //nolint:errchkjson // test helper
+}
+
+func writeRawResponse(w http.ResponseWriter, status int, raw rawResponse) {
+	if raw.contentType == "" {
+		// A nil value stops net/http from sniffing a Content-Type.
+		w.Header()["Content-Type"] = nil
+	} else {
+		w.Header().Set("Content-Type", raw.contentType)
+	}
+	w.WriteHeader(status)
+	_, _ = io.WriteString(w, raw.body)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

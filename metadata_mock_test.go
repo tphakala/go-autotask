@@ -163,3 +163,35 @@ func TestMetadataDefaultResponse(t *testing.T) {
 		t.Fatal("expected default HasUserDefinedFields = false")
 	}
 }
+
+func TestMetadataGetFieldsLengthQueryableReference(t *testing.T) {
+	t.Parallel()
+	_, client := autotasktest.NewServer(t,
+		autotasktest.WithEntityMetadata("Tickets",
+			autotasktest.EntityInfoResponse{Name: "Tickets"},
+			[]autotasktest.FieldInfoResponse{
+				{Name: "description", DataType: "string", Length: 8000, IsQueryable: true},
+				{Name: "companyID", DataType: "integer", IsReference: true, ReferenceEntityType: "Company"},
+				{Name: "secret", DataType: "string"},
+			},
+			nil,
+		),
+	)
+
+	fields, err := metadata.GetFields(t.Context(), client, "Tickets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fields) != 3 {
+		t.Fatalf("got %d fields, want 3", len(fields))
+	}
+	if fields[0].Length != 8000 || !fields[0].IsQueryable || fields[0].IsReference {
+		t.Fatalf("description = %+v; want Length 8000, queryable, not a reference", fields[0])
+	}
+	if !fields[1].IsReference || fields[1].ReferenceEntityType != "Company" || fields[1].Length != 0 {
+		t.Fatalf("companyID = %+v; want a reference to Company with no length", fields[1])
+	}
+	if fields[2].Length != 0 || fields[2].IsQueryable || fields[2].IsReference || fields[2].ReferenceEntityType != "" {
+		t.Fatalf("secret = %+v; want all new fields zero", fields[2])
+	}
+}
