@@ -44,6 +44,8 @@ func TestDefaultFailure(t *testing.T) {
 		{"204 with html label", respWith(204, "text/html", ""), nil, false},
 		{"200 empty body with html label", respWith(200, "text/html", ""), nil, false},
 		{"unparsable content type", respWith(200, "///", "x"), nil, true},
+		{"json with a malformed parameter", respWith(200, "application/json; charset", `{}`), nil, false},
+		{"html with a malformed parameter", respWith(200, "text/html; charset", "<html>"), nil, true},
 		{"404", respWith(404, "application/json", `{}`), nil, false},
 		{"429", respWith(429, "", ""), nil, true},
 		{"503", respWith(503, "", validation500), nil, true},

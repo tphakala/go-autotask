@@ -156,8 +156,9 @@ func isNonJSON(resp *http.Response) bool {
 	if contentType == "" {
 		return false
 	}
+	// A malformed parameter still returns the media type, which decides.
 	mediaType, _, err := mime.ParseMediaType(contentType)
-	if err != nil {
+	if err != nil && mediaType == "" {
 		return true
 	}
 	return mediaType != "text/plain" && mediaType != "application/json" && !strings.HasSuffix(mediaType, "+json")
