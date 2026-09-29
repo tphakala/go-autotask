@@ -107,8 +107,9 @@ func (e *ServerError) IsValidation() bool {
 
 // UnexpectedContentTypeError reports a successful (2xx) response whose body is
 // not blank, not labelled as JSON and not valid JSON. During planned
-// maintenance Autotask answers with HTTP 200 and an HTML page, so a caller can
-// treat this error as transient and back off.
+// maintenance Autotask answers with HTTP 200 and an HTML page, so IsTransient
+// reports this error as transient. A Create that got it may already have taken
+// effect, so sending it again can duplicate the record (see IsTransient).
 type UnexpectedContentTypeError struct {
 	Err         Error
 	ContentType string
