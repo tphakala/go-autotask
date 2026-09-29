@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A failed body read on a non-2xx response keeps the status-typed error** (#18). A 429 or 5xx whose body could not be read, for example after a connection reset mid-body, returned an untyped `autotask: reading response body: ...` error. It now returns the `*RateLimitError` (with `RetryAfter`), `*ServerError` or other typed error for the status, with no `Errors`, and the read error stays reachable through `errors.Is` and `errors.As`. A 2xx whose body cannot be read still returns the read error alone.
 - **Redirect handling**: a redirect to a different scheme or host no longer carries the Autotask API headers. This applies to a `Client` and to a monitor built with `middleware.NewThresholdMonitor`. A `CheckRedirect` set on the `*http.Client` passed to either still runs, after this check.
 - **`Delete` and `DeleteRaw` no longer report success for a 2xx body that is not blank, not labelled as JSON and not valid JSON** (#10). They decode no result, so the maintenance page read as a successful delete. They now return `UnexpectedContentTypeError`. The same applies to `Client.Do` called with a nil result.
 - **`Get` and `GetRaw` return `*NotFoundError` for a missing or null `item`** (#14). `Get` returned an untyped error that `errors.As` could not match, and `GetRaw` returned `(nil, nil)`, so a missing record looked like success. The error has `StatusCode` 200, which tells it apart from a 404.
