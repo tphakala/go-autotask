@@ -94,6 +94,17 @@ func (e *UnexpectedContentTypeError) Error() string {
 }
 func (e *UnexpectedContentTypeError) Unwrap() error { return &e.Err }
 
+// bodyReadError is returned when the body of a non-2xx response cannot be read.
+// It matches the status-typed error and the read error under errors.As and
+// errors.Is.
+type bodyReadError struct {
+	status error
+	read   error
+}
+
+func (e *bodyReadError) Error() string   { return e.status.Error() + ": " + e.read.Error() }
+func (e *bodyReadError) Unwrap() []error { return []error{e.status, e.read} }
+
 func statusToError(resp *http.Response, base Error) error {
 	switch {
 	case resp.StatusCode == http.StatusBadRequest:
@@ -123,7 +134,14 @@ func parseResponse(resp *http.Response, result any) error {
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("autotask: reading response body: %w", err)
+		readErr := fmt.Errorf("autotask: reading response body: %w", err)
+		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+			return readErr
+		}
+		// The status line already classifies the failure, so keep the typed
+		// error (and RetryAfter) and carry the read error beside it.
+		base := Error{StatusCode: resp.StatusCode, Message: http.StatusText(resp.StatusCode)}
+		return &bodyReadError{status: statusToError(resp, base), read: readErr}
 	}
 	apiErrors := extractErrors(body)
 	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {

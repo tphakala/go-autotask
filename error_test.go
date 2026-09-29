@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -89,6 +90,70 @@ func TestParseResponse500(t *testing.T) {
 	if _, ok := errors.AsType[*ServerError](err); !ok {
 		t.Fatalf("expected ServerError, got %T: %v", err, err)
 	}
+}
+
+// truncatedServer answers with status and a Content-Length larger than the body
+// it writes, so the client's body read fails with io.ErrUnexpectedEOF.
+func truncatedServer(t *testing.T, status int, header http.Header) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		for k, v := range header {
+			w.Header()[k] = v
+		}
+		w.Header().Set("Content-Length", "100")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(`{"errors":["par`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestDoBodyReadFailureKeepsStatusType(t *testing.T) {
+	t.Run("429 keeps RetryAfter", func(t *testing.T) {
+		srv := truncatedServer(t, http.StatusTooManyRequests, http.Header{"Retry-After": {"120"}})
+		c := &Client{httpClient: srv.Client(), baseURL: srv.URL}
+		err := c.do(t.Context(), http.MethodGet, "/x", nil, nil)
+		rle, ok := errors.AsType[*RateLimitError](err)
+		if !ok {
+			t.Fatalf("expected RateLimitError, got %T: %v", err, err)
+		}
+		if rle.RetryAfter != 120*time.Second {
+			t.Fatalf("RetryAfter = %v; want 120s", rle.RetryAfter)
+		}
+		if !errors.Is(err, io.ErrUnexpectedEOF) {
+			t.Fatalf("read error not preserved: %v", err)
+		}
+	})
+	t.Run("503", func(t *testing.T) {
+		srv := truncatedServer(t, http.StatusServiceUnavailable, nil)
+		c := &Client{httpClient: srv.Client(), baseURL: srv.URL}
+		err := c.do(t.Context(), http.MethodGet, "/x", nil, nil)
+		se, ok := errors.AsType[*ServerError](err)
+		if !ok {
+			t.Fatalf("expected ServerError, got %T: %v", err, err)
+		}
+		if se.Err.StatusCode != http.StatusServiceUnavailable || len(se.Err.Errors) != 0 {
+			t.Fatalf("unexpected Err: %+v", se.Err)
+		}
+		if !errors.Is(err, io.ErrUnexpectedEOF) {
+			t.Fatalf("read error not preserved: %v", err)
+		}
+		want := "autotask: 503 Service Unavailable: autotask: reading response body: unexpected EOF"
+		if err.Error() != want {
+			t.Fatalf("Error() = %q; want %q", err.Error(), want)
+		}
+	})
+	t.Run("2xx keeps the read error only", func(t *testing.T) {
+		srv := truncatedServer(t, http.StatusOK, nil)
+		c := &Client{httpClient: srv.Client(), baseURL: srv.URL}
+		err := c.do(t.Context(), http.MethodGet, "/x", nil, nil)
+		if !errors.Is(err, io.ErrUnexpectedEOF) {
+			t.Fatalf("expected read error, got %T: %v", err, err)
+		}
+		if _, ok := errors.AsType[*Error](err); ok {
+			t.Fatalf("2xx read failure must not be status-typed: %v", err)
+		}
+	})
 }
 
 func TestParseResponse200Success(t *testing.T) {
