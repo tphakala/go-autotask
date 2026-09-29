@@ -341,6 +341,7 @@ func TestMyCode(t *testing.T) {
 | `WithCircuitBreaker(opts...)` | Enable circuit breaker |
 | `WithMaxConcurrency(n)` | Cap the number of concurrent in-flight requests |
 | `WithThresholdMonitor(opts...)` | Enable API usage monitoring |
+| `WithMaxResponseBytes(n)` | Largest API or zone discovery response body the client reads (default 128 MiB) |
 
 ## Available entities
 
@@ -377,6 +378,10 @@ if nf, ok := errors.AsType[*autotask.NotFoundError](err); ok {
 `Get` and `GetRaw` also return `NotFoundError` when a GET succeeds but its `item` is missing or null, which is how Autotask can answer for an id that does not exist. That error has `StatusCode` 200.
 
 A 2xx response whose body is not blank (empty or only whitespace), not labelled as JSON and not valid JSON returns `UnexpectedContentTypeError`. Its `Err.StatusCode` holds the status, `ContentType` the header and `Snippet` up to the first 256 bytes of the body. It unwraps to `*Error` like the other typed errors, so check for it before a generic `*Error` branch. Autotask answers with HTTP 200 and an HTML page during planned maintenance, so treat this error as transient and retry later. `NewClient` returns it (wrapped) when zone discovery hits the same page.
+
+A 2xx response with an empty or whitespace-only body returns `EmptyResponseError` from any call that decodes a result, such as `Get`, `Count`, `Create`, `UpdateRaw` or a list page. It is not a `NotFoundError`: a blank body says nothing about whether the record exists. `Delete` and `DeleteRaw` still accept a blank body.
+
+The client reads at most 128 MiB of an API or zone discovery response body; change the limit with `WithMaxResponseBytes`. A longer 2xx body returns `ResponseTooLargeError`. For an API response with any other status the status-typed error is returned (a 503 is still a `ServerError`), with the `ResponseTooLargeError` reachable through `errors.As`. `EmptyResponseError` and `ResponseTooLargeError` unwrap to `*Error` and carry the status in `Err.StatusCode`, and `NewClient` returns them (wrapped) when a zone discovery response is blank or over the limit.
 
 ## License
 

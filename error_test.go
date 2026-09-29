@@ -46,7 +46,7 @@ func TestParseResponse400(t *testing.T) {
 		Body:       io.NopCloser(strings.NewReader(body)),
 		Header:     http.Header{},
 	}
-	err := parseResponse(resp, nil)
+	err := parseResponse(resp, nil, defaultMaxResponseBytes)
 	if _, ok := errors.AsType[*ValidationError](err); !ok {
 		t.Fatalf("expected ValidationError, got %T: %v", err, err)
 	}
@@ -58,7 +58,7 @@ func TestParseResponse401(t *testing.T) {
 		Body:       io.NopCloser(strings.NewReader(`{"errors":["Invalid credentials"]}`)),
 		Header:     http.Header{},
 	}
-	err := parseResponse(resp, nil)
+	err := parseResponse(resp, nil, defaultMaxResponseBytes)
 	if _, ok := errors.AsType[*AuthenticationError](err); !ok {
 		t.Fatalf("expected AuthenticationError, got %T: %v", err, err)
 	}
@@ -70,7 +70,7 @@ func TestParseResponse429WithRetryAfter(t *testing.T) {
 		Body:       io.NopCloser(strings.NewReader(`{"errors":["Rate limit exceeded"]}`)),
 		Header:     http.Header{"Retry-After": []string{"120"}},
 	}
-	err := parseResponse(resp, nil)
+	err := parseResponse(resp, nil, defaultMaxResponseBytes)
 	rle, ok := errors.AsType[*RateLimitError](err)
 	if !ok {
 		t.Fatalf("expected RateLimitError, got %T: %v", err, err)
@@ -86,7 +86,7 @@ func TestParseResponse500(t *testing.T) {
 		Body:       io.NopCloser(strings.NewReader(`{"errors":["Internal error"]}`)),
 		Header:     http.Header{},
 	}
-	err := parseResponse(resp, nil)
+	err := parseResponse(resp, nil, defaultMaxResponseBytes)
 	if _, ok := errors.AsType[*ServerError](err); !ok {
 		t.Fatalf("expected ServerError, got %T: %v", err, err)
 	}
@@ -111,7 +111,7 @@ func truncatedServer(t *testing.T, status int, header http.Header) *httptest.Ser
 func TestDoBodyReadFailureKeepsStatusType(t *testing.T) {
 	t.Run("429 keeps RetryAfter", func(t *testing.T) {
 		srv := truncatedServer(t, http.StatusTooManyRequests, http.Header{"Retry-After": {"120"}})
-		c := &Client{httpClient: srv.Client(), baseURL: srv.URL}
+		c := &Client{httpClient: srv.Client(), baseURL: srv.URL, maxResponseBytes: defaultMaxResponseBytes}
 		err := c.do(t.Context(), http.MethodGet, "/x", nil, nil)
 		rle, ok := errors.AsType[*RateLimitError](err)
 		if !ok {
@@ -126,7 +126,7 @@ func TestDoBodyReadFailureKeepsStatusType(t *testing.T) {
 	})
 	t.Run("503", func(t *testing.T) {
 		srv := truncatedServer(t, http.StatusServiceUnavailable, nil)
-		c := &Client{httpClient: srv.Client(), baseURL: srv.URL}
+		c := &Client{httpClient: srv.Client(), baseURL: srv.URL, maxResponseBytes: defaultMaxResponseBytes}
 		err := c.do(t.Context(), http.MethodGet, "/x", nil, nil)
 		se, ok := errors.AsType[*ServerError](err)
 		if !ok {
@@ -145,7 +145,7 @@ func TestDoBodyReadFailureKeepsStatusType(t *testing.T) {
 	})
 	t.Run("2xx keeps the read error only", func(t *testing.T) {
 		srv := truncatedServer(t, http.StatusOK, nil)
-		c := &Client{httpClient: srv.Client(), baseURL: srv.URL}
+		c := &Client{httpClient: srv.Client(), baseURL: srv.URL, maxResponseBytes: defaultMaxResponseBytes}
 		err := c.do(t.Context(), http.MethodGet, "/x", nil, nil)
 		if !errors.Is(err, io.ErrUnexpectedEOF) {
 			t.Fatalf("expected read error, got %T: %v", err, err)
@@ -168,7 +168,7 @@ func TestParseResponse200Success(t *testing.T) {
 			ID int `json:"id"`
 		} `json:"item"`
 	}
-	err := parseResponse(resp, &result)
+	err := parseResponse(resp, &result, defaultMaxResponseBytes)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestParseResponse200WithErrors(t *testing.T) {
 		Body:       io.NopCloser(strings.NewReader(body)),
 		Header:     http.Header{},
 	}
-	err := parseResponse(resp, nil)
+	err := parseResponse(resp, nil, defaultMaxResponseBytes)
 	if err == nil {
 		t.Fatal("expected error for 200 response with errors array")
 	}

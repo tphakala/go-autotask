@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"net/http"
 	"strconv"
@@ -16,6 +17,12 @@ const retryAfterDefault = 60 * time.Second
 
 // maxSnippetBytes caps how much of a non-JSON body UnexpectedContentTypeError keeps.
 const maxSnippetBytes = 256
+
+// defaultMaxResponseBytes is the default cap on a response body. A single
+// attachment read returns the file as base64, and the Autotask UI accepts
+// files up to 10 MB (about 13.4 MB as base64), so the default leaves room for
+// several of them on one page. WithMaxResponseBytes changes it.
+const defaultMaxResponseBytes int64 = 128 << 20
 
 type Error struct {
 	StatusCode int
@@ -94,8 +101,61 @@ func (e *UnexpectedContentTypeError) Error() string {
 }
 func (e *UnexpectedContentTypeError) Unwrap() error { return &e.Err }
 
-// bodyReadError is returned when the body of a non-2xx response cannot be read.
-// It matches the status-typed error and the read error under errors.As and
+// EmptyResponseError reports a successful (2xx) response with an empty or
+// whitespace-only body from a call that decodes a result, such as Get, Count,
+// Create or a list page. Err.StatusCode holds the response status. Calls that
+// decode no result, such as Delete, accept an empty body.
+type EmptyResponseError struct{ Err Error }
+
+func (e *EmptyResponseError) Error() string { return e.Err.Error() }
+func (e *EmptyResponseError) Unwrap() error { return &e.Err }
+
+// ResponseTooLargeError reports a response body longer than the client's
+// limit (see WithMaxResponseBytes). The client stops reading at the limit.
+// For a 2xx response it is returned as is; for an API response with any
+// other status the status-typed error is returned and this error is reachable
+// beside it with errors.As.
+type ResponseTooLargeError struct {
+	Err   Error
+	Limit int64
+}
+
+func (e *ResponseTooLargeError) Error() string { return e.Err.Error() }
+func (e *ResponseTooLargeError) Unwrap() error { return &e.Err }
+
+func newResponseTooLargeError(statusCode int, limit int64) *ResponseTooLargeError {
+	return &ResponseTooLargeError{
+		Err:   Error{StatusCode: statusCode, Message: fmt.Sprintf("response body exceeds %d bytes", limit)},
+		Limit: limit,
+	}
+}
+
+func newEmptyResponseError(statusCode int) *EmptyResponseError {
+	return &EmptyResponseError{Err: Error{StatusCode: statusCode, Message: "empty response body"}}
+}
+
+// readLimited reads r up to limit bytes. tooLarge reports that r had more.
+func readLimited(r io.Reader, limit int64) (body []byte, tooLarge bool, err error) {
+	n := limit
+	if n < math.MaxInt64 {
+		n++ // one extra byte tells a body of exactly limit bytes from a longer one
+	}
+	body, err = io.ReadAll(io.LimitReader(r, n))
+	if err != nil {
+		return nil, false, err
+	}
+	if int64(len(body)) > limit {
+		return nil, true, nil
+	}
+	return body, false, nil
+}
+
+func isSuccess(statusCode int) bool {
+	return statusCode >= http.StatusOK && statusCode < http.StatusMultipleChoices
+}
+
+// bodyReadError is returned when the body of a non-2xx response cannot be read
+// or exceeds the size limit. It matches the status-typed error and the read error under errors.As and
 // errors.Is.
 type bodyReadError struct {
 	status error
@@ -128,23 +188,29 @@ func statusToError(resp *http.Response, base Error) error {
 	}
 }
 
-func parseResponse(resp *http.Response, result any) error {
+// parseResponse reads at most limit bytes of resp's body and decodes it into
+// result. A 2xx body that is empty or only whitespace returns an
+// *EmptyResponseError when result is not nil.
+func parseResponse(resp *http.Response, result any, limit int64) error {
 	if resp == nil || resp.Body == nil {
 		return fmt.Errorf("autotask: nil HTTP response or body")
 	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		readErr := fmt.Errorf("autotask: reading response body: %w", err)
-		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-			return readErr
+	body, tooLarge, err := readLimited(resp.Body, limit)
+	if err != nil || tooLarge {
+		var cause error = newResponseTooLargeError(resp.StatusCode, limit)
+		if err != nil {
+			cause = fmt.Errorf("autotask: reading response body: %w", err)
+		}
+		if isSuccess(resp.StatusCode) {
+			return cause
 		}
 		// The status line already classifies the failure, so keep the typed
 		// error (and RetryAfter) and carry the read error beside it.
 		base := Error{StatusCode: resp.StatusCode, Message: http.StatusText(resp.StatusCode)}
-		return &bodyReadError{status: statusToError(resp, base), read: readErr}
+		return &bodyReadError{status: statusToError(resp, base), read: cause}
 	}
 	apiErrors := extractErrors(body)
-	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+	if isSuccess(resp.StatusCode) {
 		if len(apiErrors) > 0 {
 			return &Error{StatusCode: resp.StatusCode, Message: "unexpected error in success response", Errors: apiErrors}
 		}
@@ -153,10 +219,14 @@ func parseResponse(resp *http.Response, result any) error {
 		if err := checkJSONBody(resp, body); err != nil {
 			return err
 		}
-		if result != nil && len(body) > 0 {
-			if err := json.Unmarshal(body, result); err != nil {
-				return fmt.Errorf("autotask: decoding response: %w", err)
-			}
+		if result == nil {
+			return nil
+		}
+		if len(bytes.TrimSpace(body)) == 0 {
+			return newEmptyResponseError(resp.StatusCode)
+		}
+		if err := json.Unmarshal(body, result); err != nil {
+			return fmt.Errorf("autotask: decoding response: %w", err)
 		}
 		return nil
 	}

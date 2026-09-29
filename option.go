@@ -17,6 +17,19 @@ func WithHTTPClient(hc *http.Client) ClientOption {
 	return func(c *Client) { c.httpClient = hc }
 }
 
+// WithMaxResponseBytes sets the largest API or zone discovery response body
+// the client reads, in bytes. A longer body returns a *ResponseTooLargeError;
+// for an API response with a non-2xx status, the status-typed error is
+// returned with the size error beside it. The default is 128 MiB. Values <= 0
+// are ignored.
+func WithMaxResponseBytes(n int64) ClientOption {
+	return func(c *Client) {
+		if n > 0 {
+			c.maxResponseBytes = n
+		}
+	}
+}
+
 func WithLogger(l *slog.Logger) ClientOption {
 	return func(c *Client) { c.logger = l }
 }

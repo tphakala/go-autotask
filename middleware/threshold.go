@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -15,6 +16,9 @@ import (
 const (
 	defaultCheckInterval = 5 * time.Minute
 	percentMultiplier    = 100
+	// maxThresholdBodyBytes caps the threshold response read; the real body is
+	// a few dozen bytes.
+	maxThresholdBodyBytes = 1 << 20
 )
 
 // ThresholdInfo holds current API usage information relative to the threshold.
@@ -174,7 +178,16 @@ func (m *ThresholdMonitor) check(ctx context.Context) {
 		CurrentCount int `json:"currentTimeframeRequestCount"`
 		Threshold    int `json:"externalRequestThreshold"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxThresholdBodyBytes+1))
+	if err != nil {
+		m.reportError(fmt.Errorf("threshold monitor: reading response: %w", err))
+		return
+	}
+	if len(body) > maxThresholdBodyBytes {
+		m.reportError(fmt.Errorf("threshold monitor: response body exceeds %d bytes", maxThresholdBodyBytes))
+		return
+	}
+	if err := json.Unmarshal(body, &data); err != nil {
 		m.reportError(fmt.Errorf("threshold monitor: decoding response: %w", err))
 		return
 	}

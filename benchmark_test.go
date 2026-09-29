@@ -122,7 +122,7 @@ func BenchmarkParseResponseSuccess(b *testing.B) {
 			Header:     http.Header{},
 		}
 		var result map[string]any
-		benchSink = parseResponse(resp, &result)
+		benchSink = parseResponse(resp, &result, defaultMaxResponseBytes)
 	}
 }
 
@@ -134,7 +134,7 @@ func BenchmarkParseResponseError(b *testing.B) {
 			Body:       io.NopCloser(strings.NewReader(body)),
 			Header:     http.Header{},
 		}
-		benchSink = parseResponse(resp, nil)
+		benchSink = parseResponse(resp, nil, defaultMaxResponseBytes)
 	}
 }
 
