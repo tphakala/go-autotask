@@ -35,6 +35,7 @@ type Client struct {
 	userAgent            string
 	zoneBaseURL          string
 	impersonationID      int64
+	maxResponseBytes     int64
 	closers              []func() error
 }
 
@@ -64,6 +65,8 @@ func NewClient(ctx context.Context, auth AuthConfig, opts ...ClientOption) (*Cli
 		zoneCache:  newZoneCache(defaultZoneCacheTTL),
 		logger:     slog.New(discardHandler{}),
 		userAgent:  "go-autotask/" + version,
+
+		maxResponseBytes: defaultMaxResponseBytes,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -125,7 +128,7 @@ func (c *Client) resolveZone(ctx context.Context) (*ZoneInfo, error) {
 	if base == "" {
 		base = defaultZoneBaseURL
 	}
-	zone, err := discoverZone(ctx, c.httpClient, base, c.auth.Username)
+	zone, err := discoverZone(ctx, c.httpClient, base, c.auth.Username, c.maxResponseBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +177,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, result any) 
 		return fmt.Errorf("autotask: request failed: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // error ignored in defer, nothing useful to do with it
-	return parseResponse(resp, result)
+	return parseResponse(resp, result, c.maxResponseBytes)
 }
 
 // Do is the exported version of do for sub-packages (metadata, autotasktest).

@@ -173,7 +173,7 @@ func TestDiscoverZone(t *testing.T) {
 	// the supported V1.0 (not the last element) must drive discovery.
 	srv := zoneServer(t, []string{"V1.0", "V2.0"}, "V1.0")
 
-	zone, err := discoverZone(t.Context(), srv.Client(), srv.URL, "test@example.com")
+	zone, err := discoverZone(t.Context(), srv.Client(), srv.URL, "test@example.com", defaultMaxResponseBytes)
 	if err != nil {
 		t.Fatalf("discoverZone: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestDiscoverZoneVersionInMiddle(t *testing.T) {
 	// neither a first-element nor a last-element selection would land on it.
 	srv := zoneServer(t, []string{"V2.0", "V1.0", "V3.0"}, "V1.0")
 
-	zone, err := discoverZone(t.Context(), srv.Client(), srv.URL, "test@example.com")
+	zone, err := discoverZone(t.Context(), srv.Client(), srv.URL, "test@example.com", defaultMaxResponseBytes)
 	if err != nil {
 		t.Fatalf("discoverZone: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestDiscoverZoneNoSupportedVersion(t *testing.T) {
 	// The server advertises only versions this client does not implement.
 	srv := zoneServer(t, []string{"V2.0", "V3.0"}, "")
 
-	_, err := discoverZone(t.Context(), srv.Client(), srv.URL, "test@example.com")
+	_, err := discoverZone(t.Context(), srv.Client(), srv.URL, "test@example.com", defaultMaxResponseBytes)
 	if err == nil {
 		t.Fatal("expected error when no supported version is advertised, got nil")
 	}
@@ -226,7 +226,7 @@ func TestDiscoverZoneVersionFormTolerance(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			srv := zoneServer(t, []string{tc.advertised}, tc.served)
-			zone, err := discoverZone(t.Context(), srv.Client(), srv.URL, "test@example.com")
+			zone, err := discoverZone(t.Context(), srv.Client(), srv.URL, "test@example.com", defaultMaxResponseBytes)
 			if err != nil {
 				t.Fatalf("discoverZone(%q): %v", tc.advertised, err)
 			}

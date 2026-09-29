@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -73,7 +72,7 @@ func (c *ZoneCache) Set(username string, zone *ZoneInfo) {
 	}
 }
 
-func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, username string) (*ZoneInfo, error) {
+func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, username string, maxBodyBytes int64) (*ZoneInfo, error) {
 	baseURL = strings.TrimRight(baseURL, "/")
 	versionsURL := baseURL + "/atservicesrest/versioninformation"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, versionsURL, http.NoBody)
@@ -91,7 +90,7 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 	var versions struct {
 		Versions []string `json:"apiVersions"`
 	}
-	if err := decodeJSONBody(versionResp, &versions); err != nil {
+	if err := decodeJSONBody(versionResp, &versions, maxBodyBytes); err != nil {
 		return nil, fmt.Errorf("autotask: decoding version response: %w", err)
 	}
 	if len(versions.Versions) == 0 {
@@ -129,7 +128,7 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 		return nil, fmt.Errorf("autotask: zone discovery returned %d", zoneResp.StatusCode)
 	}
 	var zone ZoneInfo
-	if err := decodeJSONBody(zoneResp, &zone); err != nil {
+	if err := decodeJSONBody(zoneResp, &zone, maxBodyBytes); err != nil {
 		return nil, fmt.Errorf("autotask: decoding zone response: %w", err)
 	}
 	if zone.URL == "" {
@@ -138,16 +137,24 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 	return &zone, nil
 }
 
-// decodeJSONBody reads resp's body and decodes its first JSON value into v. A
-// body that is not blank, not labelled as JSON and not valid JSON, such as the
-// HTML maintenance page, returns an *UnexpectedContentTypeError.
-func decodeJSONBody(resp *http.Response, v any) error {
-	body, err := io.ReadAll(resp.Body)
+// decodeJSONBody reads at most limit bytes of resp's body and decodes its first
+// JSON value into v. A body that is not blank, not labelled as JSON and not
+// valid JSON, such as the HTML maintenance page, returns an
+// *UnexpectedContentTypeError; a blank body returns an *EmptyResponseError and
+// a longer one a *ResponseTooLargeError.
+func decodeJSONBody(resp *http.Response, v any, limit int64) error {
+	body, tooLarge, err := readLimited(resp.Body, limit)
 	if err != nil {
 		return err
 	}
+	if tooLarge {
+		return newResponseTooLargeError(resp.StatusCode, limit)
+	}
 	if err := checkJSONBody(resp, body); err != nil {
 		return err
+	}
+	if len(bytes.TrimSpace(body)) == 0 {
+		return newEmptyResponseError(resp.StatusCode)
 	}
 	return json.NewDecoder(bytes.NewReader(body)).Decode(v)
 }

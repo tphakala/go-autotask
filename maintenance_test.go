@@ -150,15 +150,7 @@ func TestZoneDiscoveryTruncatedBody(t *testing.T) {
 }
 
 func TestParseResponseContentType(t *testing.T) {
-	tests := []struct {
-		name        string
-		contentType string
-		body        string
-		wantTyped   bool // want *UnexpectedContentTypeError
-		wantErr     bool
-		// decodeErr: an untyped decode error, only when there is a result to decode.
-		decodeErr bool
-	}{
+	tests := []contentTypeCase{
 		{name: "html page", contentType: "text/html", body: maintenancePage, wantTyped: true, wantErr: true},
 		{name: "no content type, not json", body: "Service Unavailable", wantTyped: true, wantErr: true},
 		{name: "json", contentType: "application/json; charset=utf-8", body: `{"id":1}`},
@@ -166,9 +158,9 @@ func TestParseResponseContentType(t *testing.T) {
 		{name: "structured +json", contentType: "application/problem+json", body: `{"id":1}`},
 		{name: "json sniffed as text/plain", contentType: "text/plain; charset=utf-8", body: `{"id":1}`},
 		{name: "json without content type", body: `{"id":1}`},
-		{name: "empty html body", contentType: "text/html"},
-		// Passes the check; decoding it fails as it did before the check existed.
-		{name: "whitespace html body", contentType: "text/html", body: " \r\n", decodeErr: true},
+		// Blank bodies pass the check; a call that decodes a result rejects them.
+		{name: "empty html body", contentType: "text/html", emptyErr: true},
+		{name: "whitespace html body", contentType: "text/html", body: " \r\n", emptyErr: true},
 		// Labelled JSON but malformed: stays a decode error, not a content-type error.
 		{name: "malformed json", contentType: "application/json", body: `{"id":`, decodeErr: true},
 		{name: "malformed json mixed case", contentType: "Application/JSON", body: `{"id":`, decodeErr: true},
@@ -178,38 +170,66 @@ func TestParseResponseContentType(t *testing.T) {
 	for _, tt := range tests {
 		for _, withResult := range []bool{true, false} {
 			t.Run(tt.name, func(t *testing.T) {
-				resp := &http.Response{
-					StatusCode: http.StatusOK,
-					Header:     http.Header{},
-					Body:       io.NopCloser(strings.NewReader(tt.body)),
-				}
-				if tt.contentType != "" {
-					resp.Header.Set("Content-Type", tt.contentType)
-				}
-				var result struct {
-					ID int `json:"id"`
-				}
-				var target any
-				if withResult {
-					target = &result
-				}
-				err := parseResponse(resp, target)
-				wantErr := tt.wantErr || (withResult && tt.decodeErr)
-				if (err != nil) != wantErr {
-					t.Fatalf("withResult=%v: err = %v; wantErr %v", withResult, err, wantErr)
-				}
-				if _, typed := errors.AsType[*UnexpectedContentTypeError](err); typed != tt.wantTyped {
-					t.Fatalf("withResult=%v: typed = %v; want %v (err %v)", withResult, typed, tt.wantTyped, err)
-				}
-				if withResult && tt.decodeErr {
-					requireDecodeError(t, err)
-				}
-				if withResult && !wantErr && tt.body != "" && result.ID != 1 {
-					t.Fatalf("ID = %d; want 1", result.ID)
-				}
+				checkContentTypeCase(t, tt, withResult)
 			})
 		}
 	}
+}
+
+// contentTypeCase is one row of TestParseResponseContentType.
+type contentTypeCase struct {
+	name        string
+	contentType string
+	body        string
+	wantTyped   bool // want *UnexpectedContentTypeError
+	wantErr     bool
+	// decodeErr: an untyped decode error, only when there is a result to decode.
+	decodeErr bool
+	// emptyErr: an *EmptyResponseError, only when there is a result to decode.
+	emptyErr bool
+}
+
+func checkContentTypeCase(t *testing.T, tt contentTypeCase, withResult bool) {
+	t.Helper()
+	id, err := parseContentTypeCase(tt, withResult)
+	wantErr := tt.wantErr || (withResult && (tt.decodeErr || tt.emptyErr))
+	if (err != nil) != wantErr {
+		t.Fatalf("withResult=%v: err = %v; wantErr %v", withResult, err, wantErr)
+	}
+	if _, typed := errors.AsType[*UnexpectedContentTypeError](err); typed != tt.wantTyped {
+		t.Fatalf("withResult=%v: typed = %v; want %v (err %v)", withResult, typed, tt.wantTyped, err)
+	}
+	if withResult && tt.decodeErr {
+		requireDecodeError(t, err)
+	}
+	if _, empty := errors.AsType[*EmptyResponseError](err); empty != (withResult && tt.emptyErr) {
+		t.Fatalf("withResult=%v: empty = %v; want %v (err %v)", withResult, empty, withResult && tt.emptyErr, err)
+	}
+	if withResult && !wantErr && tt.body != "" && id != 1 {
+		t.Fatalf("ID = %d; want 1", id)
+	}
+}
+
+// parseContentTypeCase runs parseResponse on a 200 built from tt and returns
+// the decoded id.
+func parseContentTypeCase(tt contentTypeCase, withResult bool) (int, error) {
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{},
+		Body:       io.NopCloser(strings.NewReader(tt.body)),
+	}
+	if tt.contentType != "" {
+		resp.Header.Set("Content-Type", tt.contentType)
+	}
+	var result struct {
+		ID int `json:"id"`
+	}
+	var target any
+	if withResult {
+		target = &result
+	}
+	err := parseResponse(resp, target, defaultMaxResponseBytes)
+	return result.ID, err
 }
 
 func TestUnexpectedContentTypeSnippetBounded(t *testing.T) {
@@ -221,7 +241,7 @@ func TestUnexpectedContentTypeSnippetBounded(t *testing.T) {
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}
 	resp.Header.Set("Content-Type", "text/html")
-	ct, ok := errors.AsType[*UnexpectedContentTypeError](parseResponse(resp, nil))
+	ct, ok := errors.AsType[*UnexpectedContentTypeError](parseResponse(resp, nil, defaultMaxResponseBytes))
 	if !ok {
 		t.Fatal("expected UnexpectedContentTypeError")
 	}
@@ -243,7 +263,7 @@ func TestUnexpectedContentTypeNon200Status(t *testing.T) {
 		Body:       io.NopCloser(strings.NewReader(maintenancePage)),
 	}
 	resp.Header.Set("Content-Type", "text/html")
-	ct, ok := errors.AsType[*UnexpectedContentTypeError](parseResponse(resp, nil))
+	ct, ok := errors.AsType[*UnexpectedContentTypeError](parseResponse(resp, nil, defaultMaxResponseBytes))
 	if !ok {
 		t.Fatal("expected UnexpectedContentTypeError")
 	}
@@ -262,7 +282,7 @@ func TestNonSuccessHTMLKeepsStatusError(t *testing.T) {
 			Body:       io.NopCloser(strings.NewReader(maintenancePage)),
 		}
 		resp.Header.Set("Content-Type", "text/html")
-		err := parseResponse(resp, nil)
+		err := parseResponse(resp, nil, defaultMaxResponseBytes)
 		if _, ok := errors.AsType[*ServerError](err); !ok {
 			t.Fatalf("expected ServerError, got %T: %v", err, err)
 		}
@@ -279,7 +299,7 @@ func TestNonSuccessHTMLKeepsStatusError(t *testing.T) {
 		}
 		resp.Header.Set("Content-Type", "text/html")
 		resp.Header.Set("Retry-After", "7")
-		err := parseResponse(resp, nil)
+		err := parseResponse(resp, nil, defaultMaxResponseBytes)
 		rl, ok := errors.AsType[*RateLimitError](err)
 		if !ok {
 			t.Fatalf("expected RateLimitError, got %T: %v", err, err)
