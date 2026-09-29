@@ -227,6 +227,10 @@ func TestIsTransientPagesAndSentinels(t *testing.T) {
 		{"untrusted certificate is not a network blip", errors.New("tls: failed to verify certificate"), false},
 		{"validation error then eof", errors.Join(&autotask.ValidationError{}, io.ErrUnexpectedEOF), false},
 		{"cancel beats deadline", errors.Join(context.Canceled, context.DeadlineExceeded), false},
+		{"503 whose body read was cancelled keeps its status", errors.Join(&autotask.ServerError{Err: autotask.Error{StatusCode: 503}}, context.Canceled), true},
+		{"429 whose body read was cancelled keeps its status", errors.Join(&autotask.RateLimitError{Err: autotask.Error{StatusCode: 429}}, context.Canceled), true},
+		{"validation 500 whose body read was cancelled stays permanent", errors.Join(&autotask.ServerError{Err: autotask.Error{StatusCode: 500, Errors: []autotask.APIError{{Message: "exceeds maximum length"}}}}, context.Canceled), false},
+		{"400 whose body read was cancelled stays permanent", errors.Join(&autotask.ValidationError{Err: autotask.Error{StatusCode: 400}}, context.Canceled), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

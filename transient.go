@@ -21,7 +21,8 @@ import (
 // other response.
 //
 // Permanent: 400, 401, 403, 404 (including a null item), 409 and 422,
-// a cancelled context, a response over the size limit (ResponseTooLargeError),
+// a cancelled context (unless it cut short the body of a 429 or 5xx response,
+// which is classified by its status), a response over the size limit (ResponseTooLargeError),
 // MaxPagesExceededError, and zone discovery finding no usable version or URL.
 //
 // A response with a status-typed error and a body that could not be read is
@@ -30,14 +31,19 @@ import (
 // it was sent, by timeout, lost connection, 5xx or blank answer, may already
 // have taken effect.
 func IsTransient(err error) bool {
-	if err == nil || errors.Is(err, context.Canceled) {
+	if err == nil {
 		return false
 	}
+	// A status-typed error decides even when a cancelled context cut short the
+	// read of its body.
 	if _, ok := errors.AsType[*RateLimitError](err); ok {
 		return true
 	}
 	if se, ok := errors.AsType[*ServerError](err); ok {
 		return !se.IsValidation()
+	}
+	if errors.Is(err, context.Canceled) {
+		return false
 	}
 	if isPermanentAPIError(err) {
 		return false
