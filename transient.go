@@ -27,8 +27,9 @@ import (
 //
 // A response with a status-typed error and a body that could not be read is
 // classified by its status; a transient result says the failure may pass, not
-// that the request is safe to send again, because a Create that failed after
-// it was sent may already have taken effect.
+// that the request is safe to send again, because a create call, such as
+// Create or CreateChild, that failed after it was sent may already have taken
+// effect.
 func IsTransient(err error) bool {
 	if err == nil {
 		return false
