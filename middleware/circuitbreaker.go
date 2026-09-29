@@ -104,14 +104,15 @@ func StatusFailure(resp *http.Response, err error) bool {
 
 // DefaultFailure is the default failure predicate. It counts:
 //   - a transport error, except the caller's context cancellation;
-//   - status 429 and 5xx, except a 500 that reports a validation failure (for
-//     example a field value over its maximum length), which a retry does not
-//     fix and which says nothing about the health of the service;
+//   - status 429 and 5xx, except a 500 whose error message matches the
+//     validation wording that ServerError.IsValidation in the autotask package
+//     uses, which a retry does not fix and which says nothing about the health
+//     of the service;
 //   - a 2xx response whose Content-Type is present and not JSON, such as the
 //     HTML page Autotask serves with HTTP 200 during planned maintenance. Only
 //     the header is checked. text/plain is not counted, because a server that
-//     sets no Content-Type gets that label from net/http, and a 204 or an
-//     empty body is not counted.
+//     sets no Content-Type gets that label from net/http, and a 204 or a
+//     response that declares a Content-Length of 0 is not counted.
 //
 // A 500 body is read up to 64 KiB, so a caller that uses DefaultFailure
 // outside the circuit breaker must restore resp.Body afterwards.

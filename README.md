@@ -213,7 +213,7 @@ client, err := autotask.NewClient(ctx, auth,
 
 Three-state circuit breaker (closed, open, half-open) that stops sending requests after repeated failures. `WithFailureWindow` and `WithSuccessThreshold` tune the trip and recovery behavior.
 
-By default a round trip counts as a failure when it is a transport error (a caller's context cancellation excepted), a 429 or a 5xx, or a 2xx response with a non-JSON `Content-Type` such as the HTML maintenance page. A 500 that Autotask sends for a validation failure, for example a field value over its maximum length, does not count, so one bad record cannot open the breaker for all traffic. `WithFailurePredicate(fn)` replaces that rule. `middleware.DefaultFailure` is the default and `middleware.StatusFailure` is the plain status-only rule the breaker used before. The predicate can read the first 64 KiB of the response body and the caller still gets the whole body.
+By default a round trip counts as a failure when it is a transport error (a caller's context cancellation excepted), a 429 or a 5xx, or a 2xx response with a non-JSON `Content-Type` such as the HTML maintenance page. A 500 whose error message matches the validation wording that `(*ServerError).IsValidation` uses does not count, so repeated validation failures cannot open the breaker for all traffic. A validation 500 worded differently still counts. `WithFailurePredicate(fn)` replaces that rule. `middleware.DefaultFailure` is the default and `middleware.StatusFailure` is the rule the breaker used before: transport errors, 429 and 5xx. The predicate can read the first 64 KiB of the response body and the caller still gets the whole body.
 
 ### Concurrency limiter
 
@@ -393,7 +393,7 @@ if err != nil && autotask.IsTransient(err) {
 }
 ```
 
-`IsTransient` is true for rate limiting, server errors, a blank or non-JSON 2xx response, an open circuit breaker, timeouts, refused connections and truncated bodies. It is false for 400, 401, 403, 404, 409 and 422, a cancelled context, `ResponseTooLargeError`, `MaxPagesExceededError`, an unrecognised error and nil. A zone discovery failure is classified by its status. Autotask answers HTTP 500 for some validation failures, and a retry returns the same error. `(*ServerError).IsValidation()` reports such a 500, and `IsTransient` treats it as permanent. It matches the error message against a short list of known wording, so a validation 500 with other wording still looks like a server failure.
+`IsTransient` is true for rate limiting, server errors, a blank or non-JSON 2xx response, an open circuit breaker, timeouts, refused connections and truncated bodies. It is false for 400, 401, 403, 404, 409 and 422, a cancelled context, `ResponseTooLargeError`, `MaxPagesExceededError`, an unrecognised error and nil. A zone discovery failure is classified by its status. Autotask answers HTTP 500 for some validation failures, and a retry returns the same error. `(*ServerError).IsValidation()` reports such a 500, and `IsTransient` treats it as permanent. It matches the error message against a short list of known wording, so a validation 500 with other wording still looks like a server failure; a transient result says the failure may pass, not that the request is safe to send again, because a Create that failed after it was sent may already have taken effect.
 
 ## License
 
