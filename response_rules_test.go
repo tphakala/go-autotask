@@ -118,23 +118,41 @@ func TestTimesNonPositiveIsUnlimited(t *testing.T) {
 	}
 }
 
-func TestWithResponseOnEmptyContentTypeSendsNoHeader(t *testing.T) {
+func TestWithResponseOnEmptyBodyIsEmptyResponseError(t *testing.T) {
 	t.Parallel()
-	ts, client := autotasktest.NewServer(t,
+	_, client := autotasktest.NewServer(t,
 		autotasktest.WithResponseOn(http.MethodGet, "/Companies/1", http.StatusOK, "", ""),
 	)
 
+	_, err := autotask.Get[entities.Company](t.Context(), client, 1)
+	if _, ok := errors.AsType[*autotask.EmptyResponseError](err); !ok {
+		t.Fatalf("got %T: %v; want *EmptyResponseError", err, err)
+	}
+}
+
+// The body is not empty: net/http sniffs a Content-Type for a non-empty body
+// unless the mock leaves the header present with a nil value.
+func TestWithResponseOnEmptyContentTypeSendsNoHeader(t *testing.T) {
+	t.Parallel()
+	ts, client := autotasktest.NewServer(t,
+		autotasktest.WithResponseOn(http.MethodGet, "/Companies/1", http.StatusOK, "", maintenanceHTML),
+	)
+
 	status, header, body := rawGet(t, ts.URL+"/v1.0/Companies/1")
-	if status != http.StatusOK || body != "" {
-		t.Fatalf("got %d %q; want 200 with an empty body", status, body)
+	if status != http.StatusOK || body != maintenanceHTML {
+		t.Fatalf("got %d %q; want 200 with the served body", status, body)
 	}
 	if _, present := header["Content-Type"]; present {
 		t.Fatalf("Content-Type = %q; want the header absent", header.Get("Content-Type"))
 	}
 
 	_, err := autotask.Get[entities.Company](t.Context(), client, 1)
-	if _, ok := errors.AsType[*autotask.EmptyResponseError](err); !ok {
-		t.Fatalf("got %T: %v; want *EmptyResponseError", err, err)
+	ct, ok := errors.AsType[*autotask.UnexpectedContentTypeError](err)
+	if !ok {
+		t.Fatalf("got %T: %v; want *UnexpectedContentTypeError", err, err)
+	}
+	if ct.ContentType != "" {
+		t.Fatalf("ContentType = %q; want empty", ct.ContentType)
 	}
 }
 

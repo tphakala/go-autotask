@@ -35,12 +35,18 @@ func TestWithResponseOnServesRawBody(t *testing.T) {
 	}
 }
 
+// The body is not empty: net/http sniffs a Content-Type for a non-empty body
+// unless the header is present with a nil value, which is what
+// writeRawResponse does for an empty contentType.
 func TestWithResponseOnEmptyContentTypeSendsNoHeader(t *testing.T) {
 	ts, _ := NewServer(t,
-		WithResponseOn(http.MethodGet, "/Companies/1", http.StatusOK, "", ""),
+		WithResponseOn(http.MethodGet, "/Companies/1", http.StatusOK, "", "<html>x</html>"),
 	)
 
-	_, header, _ := ruleGet(t, ts)
+	_, header, body := ruleGet(t, ts)
+	if body != "<html>x</html>" {
+		t.Fatalf("body = %q; want the served body", body)
+	}
 	if _, present := header["Content-Type"]; present {
 		t.Fatalf("Content-Type = %q; want the header absent", header.Get("Content-Type"))
 	}
