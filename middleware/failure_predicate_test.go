@@ -46,6 +46,9 @@ func TestDefaultFailure(t *testing.T) {
 		{"unparsable content type", respWith(200, "///", "x"), nil, true},
 		{"json with a malformed parameter", respWith(200, "application/json; charset", `{}`), nil, false},
 		{"html with a malformed parameter", respWith(200, "text/html; charset", "<html>"), nil, true},
+		{"json with conflicting duplicate parameters", respWith(200, "application/json; charset=utf-8; charset=latin1", `{}`), nil, false},
+		{"text/plain with conflicting duplicate parameters", respWith(200, "Text/Plain; charset=utf-8; charset=latin1", `{}`), nil, false},
+		{"html with conflicting duplicate parameters", respWith(200, "text/html; charset=utf-8; charset=latin1", "<html>"), nil, true},
 		{"404", respWith(404, "application/json", `{}`), nil, false},
 		{"429", respWith(429, "", ""), nil, true},
 		{"503", respWith(503, "", validation500), nil, true},
@@ -324,6 +327,41 @@ func positional(n int) string {
 		b[i] = byte('a' + i%251%26 + i/251%3)
 	}
 	return string(b)
+}
+
+func TestPredicateStoppingEarlyLeavesRestOfBody(t *testing.T) {
+	t.Parallel()
+	for _, size := range []int{peekLimit + 1, 3*peekLimit + 7} {
+		for _, n := range []int{1, 10, peekLimit - 1, peekLimit} {
+			body := positional(size)
+			var seen string
+			cb := NewCircuitBreaker(&scripted{resps: []*http.Response{respWith(200, "text/plain", body)}},
+				WithFailurePredicate(func(resp *http.Response, _ error) bool {
+					b := make([]byte, n)
+					got, err := io.ReadFull(resp.Body, b)
+					if err != nil {
+						t.Error(err)
+					}
+					seen = string(b[:got])
+					return false
+				}))
+			resp, err := do(t, cb)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			drain(t, resp)
+			if string(got) != body {
+				t.Fatalf("size %d, predicate read %d: caller got %d bytes in a different order or length; want the whole body", size, n, len(got))
+			}
+			if seen != body[:n] {
+				t.Fatalf("size %d, predicate read %d: predicate saw the wrong bytes", size, n)
+			}
+		}
+	}
 }
 
 func TestPredicateThatReadsNothingLeavesBodyIntact(t *testing.T) {
