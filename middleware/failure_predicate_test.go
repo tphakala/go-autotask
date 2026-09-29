@@ -455,3 +455,68 @@ func TestBreakerClosesAfterGoodProbes(t *testing.T) {
 		t.Fatalf("state = %s; want closed after two good probes", cb.State())
 	}
 }
+
+// oneShotBroken returns its bytes with a read error once, then EOF.
+type oneShotBroken struct {
+	data []byte
+	err  error
+	done bool
+}
+
+func (o *oneShotBroken) Read(p []byte) (int, error) {
+	if o.done {
+		return 0, io.EOF
+	}
+	o.done = true
+	return copy(p, o.data), o.err
+}
+
+func TestReplayKeepsReadErrorThePredicateConsumed(t *testing.T) {
+	t.Parallel()
+	resp := respWith(200, "text/plain", "")
+	resp.Body = io.NopCloser(&oneShotBroken{data: []byte("hello"), err: io.ErrUnexpectedEOF})
+	cb := NewCircuitBreaker(&scripted{resps: []*http.Response{resp}},
+		WithFailurePredicate(func(r *http.Response, _ error) bool {
+			_, err := io.ReadAll(r.Body)
+			if !errors.Is(err, io.ErrUnexpectedEOF) {
+				t.Errorf("predicate read error = %v; want io.ErrUnexpectedEOF", err)
+			}
+			return false
+		}))
+	got, err := do(t, cb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(got.Body)
+	drain(t, got)
+	if string(body) != "hello" || !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("caller read %q, %v; want %q then io.ErrUnexpectedEOF", body, err, "hello")
+	}
+}
+
+func TestPredicateClosingItsBodyLeavesTheCallersBodyOpen(t *testing.T) {
+	t.Parallel()
+	closed := false
+	resp := respWith(200, "text/plain", "hello")
+	resp.Body = &closeSpy{Reader: strings.NewReader("hello"), closed: &closed}
+	cb := NewCircuitBreaker(&scripted{resps: []*http.Response{resp}},
+		WithFailurePredicate(func(r *http.Response, _ error) bool {
+			_ = r.Body.Close()
+			return false
+		}))
+	got, err := do(t, cb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closed {
+		t.Fatal("the predicate closed the caller's body")
+	}
+	body, _ := io.ReadAll(got.Body)
+	if string(body) != "hello" {
+		t.Fatalf("body = %q; want hello", body)
+	}
+	drain(t, got)
+	if !closed {
+		t.Fatal("closing the returned body must close the original body")
+	}
+}

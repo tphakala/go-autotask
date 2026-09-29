@@ -223,6 +223,7 @@ func TestIsTransientPagesAndSentinels(t *testing.T) {
 		{"wrapped rate limit", fmt.Errorf("wrap: %w", &autotask.RateLimitError{}), true},
 		{"max pages", &autotask.MaxPagesExceededError{EntityName: "Tickets", MaxPages: 3}, false},
 		{"unexpected eof", fmt.Errorf("autotask: reading response body: %w", io.ErrUnexpectedEOF), true},
+		{"bare eof from a dropped connection", fmt.Errorf("autotask: request failed: %w", io.EOF), true},
 		{"dns", &net.DNSError{Err: "no such host", Name: "x"}, true},
 		{"untrusted certificate is not a network blip", errors.New("tls: failed to verify certificate"), false},
 		{"validation error then eof", errors.Join(&autotask.ValidationError{}, io.ErrUnexpectedEOF), false},

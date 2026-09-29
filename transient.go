@@ -16,7 +16,7 @@ import (
 // Transient: rate limiting (429), server errors (5xx) other than a validation
 // 500 (see ServerError.IsValidation), a 2xx response with a blank body or with
 // a body that is not JSON (the maintenance page), an open circuit breaker,
-// timeouts, refused or reset connections and truncated bodies. A zone
+// timeouts, refused, reset or dropped connections and truncated bodies. A zone
 // discovery answer with status 429 or 5xx is classified by its status like any
 // other response.
 //
@@ -86,11 +86,11 @@ func isPermanentAPIError(err error) bool {
 	return ok
 }
 
-// isTransientNetworkError reports timeouts, connection failures and a body cut
-// short. A *url.Error alone does not qualify, because it also wraps permanent
+// isTransientNetworkError reports timeouts, connection failures (including a
+// connection closed with a bare EOF) and a body cut short. A *url.Error alone does not qualify, because it also wraps permanent
 // failures such as an untrusted certificate.
 func isTransientNetworkError(err error) bool {
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, io.ErrUnexpectedEOF) {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
 		return true
 	}
 	if ne, ok := errors.AsType[net.Error](err); ok && ne.Timeout() {

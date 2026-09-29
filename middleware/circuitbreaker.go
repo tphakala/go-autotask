@@ -81,7 +81,9 @@ func WithSuccessThreshold(n int) CircuitBreakerOption {
 // ignored. The default is DefaultFailure.
 //
 // The predicate may read resp.Body. It sees at most the first 64 KiB, and the
-// caller still receives the whole body. A round trip that returns an error the
+// caller still receives the whole body. The read runs inside RoundTrip, so a
+// body that stalls holds the response back until the request context or the
+// client timeout ends it. A round trip that returns an error the
 // predicate rejects is neither a failure nor, in the half-open state, a
 // success.
 func WithFailurePredicate(fn func(resp *http.Response, err error) bool) CircuitBreakerOption {
@@ -241,25 +243,58 @@ func (cb *CircuitBreaker) RoundTrip(req *http.Request) (*http.Response, error) {
 
 // responseFailed asks the failure predicate about resp. The predicate reads a
 // copy of the first peekLimit bytes of the body, and resp.Body is then rebuilt
-// from what it read and the rest of the stream.
+// from what it read, a read error it met if any, and the rest of the stream.
+// Closing the body the predicate sees does not close resp.Body.
 func (cb *CircuitBreaker) responseFailed(resp *http.Response) bool {
 	if resp.Body == nil {
 		return cb.config.isFailure(resp, nil)
 	}
-	var seen bytes.Buffer
+	tap := &probeBody{src: io.LimitReader(resp.Body, peekLimit)}
 	probe := *resp
-	probe.Body = io.NopCloser(io.TeeReader(io.LimitReader(resp.Body, peekLimit), &seen))
+	probe.Body = tap
 	failed := cb.config.isFailure(&probe, nil)
-	resp.Body = &replayBody{Reader: io.MultiReader(&seen, resp.Body), closer: resp.Body}
+	resp.Body = &replayBody{tap: tap, body: resp.Body}
 	return failed
 }
 
-type replayBody struct {
-	io.Reader
-	closer io.Closer
+// probeBody is the body a failure predicate reads. It keeps the bytes it
+// passes on, and a read error other than EOF, for replayBody.
+type probeBody struct {
+	src  io.Reader
+	seen bytes.Buffer
+	err  error
 }
 
-func (b *replayBody) Close() error { return b.closer.Close() }
+func (p *probeBody) Read(b []byte) (int, error) {
+	n, err := p.src.Read(b)
+	p.seen.Write(b[:n])
+	if err != nil && !errors.Is(err, io.EOF) {
+		p.err = err
+	}
+	return n, err
+}
+
+func (p *probeBody) Close() error { return nil }
+
+// replayBody gives the caller what the predicate read. If the predicate met a
+// read error, every later read returns it; otherwise the rest of the original
+// body follows.
+type replayBody struct {
+	tap  *probeBody
+	body io.ReadCloser
+}
+
+func (b *replayBody) Read(p []byte) (int, error) {
+	if b.tap.seen.Len() > 0 {
+		return b.tap.seen.Read(p)
+	}
+	if b.tap.err != nil {
+		return 0, b.tap.err
+	}
+	return b.body.Read(p)
+}
+
+func (b *replayBody) Close() error { return b.body.Close() }
 
 func (cb *CircuitBreaker) recordFailure() {
 	cb.mu.Lock()
