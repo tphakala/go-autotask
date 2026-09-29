@@ -112,9 +112,9 @@ func (e *EmptyResponseError) Unwrap() error { return &e.Err }
 
 // ResponseTooLargeError reports a response body longer than the client's
 // limit (see WithMaxResponseBytes). The client stops reading at the limit.
-// For a 2xx response it is returned as is; for any other status the
-// status-typed error is returned and this error is reachable beside it with
-// errors.As.
+// For a 2xx response it is returned as is; for an API response with any
+// other status the status-typed error is returned and this error is reachable
+// beside it with errors.As.
 type ResponseTooLargeError struct {
 	Err   Error
 	Limit int64
