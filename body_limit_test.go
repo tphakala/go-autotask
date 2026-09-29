@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -127,6 +128,19 @@ func TestSuccessBodyAtLimit(t *testing.T) {
 	got, err := CreateRaw(t.Context(), c, "Tickets", map[string]any{"a": 1})
 	if err != nil {
 		t.Fatalf("body of exactly the limit: %v", err)
+	}
+	if got["itemId"] != float64(123) {
+		t.Fatalf("itemId = %v; want 123", got["itemId"])
+	}
+}
+
+// A limit of math.MaxInt64 turns the cap off; the extra byte readLimited asks
+// for must not overflow into a negative read limit.
+func TestMaxInt64LimitReadsBody(t *testing.T) {
+	c := newStaticClient(t, http.StatusOK, `{"itemId":123}`, WithMaxResponseBytes(math.MaxInt64))
+	got, err := CreateRaw(t.Context(), c, "Tickets", map[string]any{"a": 1})
+	if err != nil {
+		t.Fatalf("CreateRaw with a MaxInt64 limit: %v", err)
 	}
 	if got["itemId"] != float64(123) {
 		t.Fatalf("itemId = %v; want 123", got["itemId"])
