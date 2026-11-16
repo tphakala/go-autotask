@@ -883,6 +883,16 @@ func TestChangeRequestLinkCRUD(t *testing.T) {
 	if !ok {
 		t.Fatal("queried link has no id")
 	}
+	got, err := autotask.Get[entities.ChangeRequestLink](t.Context(), client, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := got.ProblemOrIncidentTicketID.Get(); v != incidentID {
+		t.Fatalf("Get ProblemOrIncidentTicketID = %d, want %d", v, incidentID)
+	}
+	if v, _ := got.ChangeRequestTicketID.Get(); v != changeRequestID {
+		t.Fatalf("Get ChangeRequestTicketID = %d, want %d", v, changeRequestID)
+	}
 	if err := autotask.Delete[entities.ChangeRequestLink](t.Context(), client, id); err != nil {
 		t.Fatal(err)
 	}
