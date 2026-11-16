@@ -378,7 +378,7 @@ func TestMyCode(t *testing.T) {
 
 ## Available entities
 
-The `entities` package ships generated, type-safe structs for:
+The `entities` package ships type-safe structs, some generated with `autotask-gen` and some hand-written, for:
 
 `BillingCode`, `BillingItem`, `BillingItemApprovalLevel`, `ChangeRequestLink`, `Company`, `CompanyNote`, `ConfigurationItem`, `Contact`, `Contract`, `Department`, `ExpenseItem`, `ExpenseReport`, `Invoice`, `Opportunity`, `Product`, `Project`, `ProjectNote`, `Quote`, `QuoteItem`, `Resource`, `Service`, `ServiceBundle`, `Task`, `Ticket`, `TicketAttachment`, `TicketNote`, `TimeEntry`
 
