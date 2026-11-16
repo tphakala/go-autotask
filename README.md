@@ -285,7 +285,7 @@ incidents, err := autotask.List[entities.Ticket](ctx, client,
 )
 ```
 
-`ChangeRequestLink` links a Change Request ticket to a Problem or Incident ticket. Autotask has no update for this entity, so delete a link and create a new one instead of calling `Update`. `Create` does not return the new id; query for the link to get it.
+`ChangeRequestLink` links a Change Request ticket to a Problem or Incident ticket. Autotask has no update for this entity, so delete a link and create a new one instead of calling `Update`. `Create` does not return the new id; query for the link by both ticket ids to get it.
 
 ```go
 _, err := autotask.Create(ctx, client, &entities.ChangeRequestLink{
@@ -294,7 +294,9 @@ _, err := autotask.Create(ctx, client, &entities.ChangeRequestLink{
 })
 
 links, err := autotask.List[entities.ChangeRequestLink](ctx, client,
-    autotask.NewQuery().Where("changeRequestTicketID", autotask.OpEq, changeRequestID),
+    autotask.NewQuery().
+        Where("changeRequestTicketID", autotask.OpEq, changeRequestID).
+        Where("problemOrIncidentTicketID", autotask.OpEq, incidentID),
 )
 if len(links) > 0 {
     id, _ := links[0].ID.Get()
