@@ -296,10 +296,9 @@ _, err := autotask.Create(ctx, client, &entities.ChangeRequestLink{
 links, err := autotask.List[entities.ChangeRequestLink](ctx, client,
     autotask.NewQuery().Where("changeRequestTicketID", autotask.OpEq, changeRequestID),
 )
-for _, link := range links {
-    if id, ok := link.ID.Get(); ok {
-        err = autotask.Delete[entities.ChangeRequestLink](ctx, client, id)
-    }
+if len(links) > 0 {
+    id, _ := links[0].ID.Get()
+    err = autotask.Delete[entities.ChangeRequestLink](ctx, client, id)
 }
 ```
 

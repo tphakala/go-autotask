@@ -36,15 +36,11 @@ type Ticket struct {
 	ExternalID             autotask.Optional[string]    `json:"externalID,omitzero"`
 	LastModifiedDate       autotask.Optional[time.Time] `json:"lastModifiedDate,omitzero"`
 	// ProblemTicketID is the id of the problem ticket this incident belongs
-	// to. The JSON name is problemTicketId with a lowercase d, unlike the
-	// other ID fields. Per the Tickets entity reference
-	// (https://www.autotask.net/help/developerhelp/Content/APIs/REST/Entities/TicketsEntity.htm),
-	// only a ticket whose ticketType is Incident can hold one, and a ticket
-	// that already has a problem ticket cannot itself be used as one. The
-	// package defines no ticketType constants; read the values with
-	// metadata.GetPickList(ctx, client, "Tickets", "ticketType").
-	// autotask.Null[int64]() sends an explicit null; whether Autotask accepts
-	// that to unlink an incident is NOT MEASURED.
+	// to. The JSON name is problemTicketId with a lowercase d. Autotask
+	// accepts it only on Incident tickets, per
+	// https://www.autotask.net/help/developerhelp/Content/APIs/REST/Entities/TicketsEntity.htm.
+	// Whether an explicit null (autotask.Null) unlinks an incident is NOT
+	// MEASURED.
 	ProblemTicketID   autotask.Optional[int64] `json:"problemTicketId,omitzero"`
 	UserDefinedFields []autotask.UDF           `json:"userDefinedFields,omitempty"`
 }

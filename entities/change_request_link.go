@@ -5,21 +5,17 @@ import (
 )
 
 // ChangeRequestLink represents an Autotask ChangeRequestLink entity, which
-// associates a Change Request ticket with a Problem or Incident ticket.
+// links a Change Request ticket to a Problem or Incident ticket. Per
+// https://www.autotask.net/help/developerhelp/Content/APIs/REST/Entities/ChangeRequestLinksEntity.htm,
+// ChangeRequestTicketID must name a Change Request ticket and
+// ProblemOrIncidentTicketID a Problem or Incident ticket.
 //
-// Per the ChangeRequestLinks entity reference
-// (https://www.autotask.net/help/developerhelp/Content/APIs/REST/Entities/ChangeRequestLinksEntity.htm),
-// ChangeRequestTicketID must name a ticket whose ticketType is Change Request
-// and ProblemOrIncidentTicketID one whose ticketType is Problem or Incident.
-// A Change Request cannot be linked to a Service Request or to another Change
-// Request.
+// The API has no update for this entity (no PATCH or PUT in the REST
+// swagger), so do not pass it to autotask.Update; delete the link and create
+// a new one. It has no user-defined fields.
 //
-// The API supports create, query, count, get and delete for this entity but
-// not update: the reference leaves "Can Update" blank and the REST swagger
-// lists no PATCH or PUT for /V1.0/ChangeRequestLinks. Do not pass it to
-// autotask.Update; delete the link and create a new one instead. What
-// Autotask answers to such a PATCH is NOT MEASURED. The entity has no
-// user-defined fields, so the struct has no UserDefinedFields.
+// This file is hand-written: autotask-gen always emits UserDefinedFields, so
+// do not regenerate it.
 type ChangeRequestLink struct {
 	ID                        autotask.Optional[int64] `json:"id,omitzero"`
 	ChangeRequestTicketID     autotask.Optional[int64] `json:"changeRequestTicketID,omitzero"`

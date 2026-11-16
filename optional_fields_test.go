@@ -108,11 +108,11 @@ func TestTicketProblemTicketIDWireName(t *testing.T) {
 	tests := []struct {
 		name  string
 		field autotask.Optional[int64]
-		want  string // raw JSON value; "" means the key is absent
+		want  string
 	}{
-		{"set", autotask.Set(int64(555)), "555"},
-		{"null", autotask.Null[int64](), "null"},
-		{"unset", autotask.Optional[int64]{}, ""},
+		{"set", autotask.Set(int64(555)), `{"problemTicketId":555}`},
+		{"null", autotask.Null[int64](), `{"problemTicketId":null}`},
+		{"unset", autotask.Optional[int64]{}, `{}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -121,13 +121,8 @@ func TestTicketProblemTicketIDWireName(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			var m map[string]json.RawMessage
-			if err := json.Unmarshal(data, &m); err != nil {
-				t.Fatal(err)
-			}
-			got, ok := m["problemTicketId"]
-			if string(got) != tt.want || ok != (tt.want != "") {
-				t.Fatalf("JSON = %s, want problemTicketId = %q", data, tt.want)
+			if string(data) != tt.want {
+				t.Fatalf("JSON = %s, want %s", data, tt.want)
 			}
 		})
 	}
