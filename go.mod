@@ -1,6 +1,6 @@
 module github.com/tphakala/go-autotask
 
-go 1.27.0
+go 1.27
 
 require (
 	github.com/quasilyte/go-ruleguard/dsl v0.3.23
