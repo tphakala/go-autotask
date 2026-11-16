@@ -102,3 +102,28 @@ func TestOptionalTimeSerialization(t *testing.T) {
 		t.Fatalf("Marshal Set(time.Time) = %s; want %s", data, want)
 	}
 }
+
+func TestTicketProblemTicketIDWireName(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		field autotask.Optional[int64]
+		want  string
+	}{
+		{"set", autotask.Set(int64(555)), `{"problemTicketId":555}`},
+		{"null", autotask.Null[int64](), `{"problemTicketId":null}`},
+		{"unset", autotask.Optional[int64]{}, `{}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			data, err := json.Marshal(entities.Ticket{ProblemTicketID: tt.field})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(data) != tt.want {
+				t.Fatalf("JSON = %s, want %s", data, tt.want)
+			}
+		})
+	}
+}

@@ -275,6 +275,37 @@ note, err := autotask.CreateChild[entities.Ticket](ctx, client, ticketID, &entit
 })
 ```
 
+## Problem, incident and change request tickets
+
+An incident ticket points at its problem ticket through `Ticket.ProblemTicketID`. The JSON field is `problemTicketId`, with a lowercase d, and Autotask accepts it only on Incident tickets. List the incidents of a problem by filtering on it; the filter needs the field to be queryable in your instance, which `metadata.GetFields` reports as `IsQueryable`. Ticket type values come from `metadata.GetPickList(ctx, client, "Tickets", "ticketType")`.
+
+```go
+incidents, err := autotask.List[entities.Ticket](ctx, client,
+    autotask.NewQuery().Where("problemTicketId", autotask.OpEq, problemID),
+)
+```
+
+`ChangeRequestLink` links a Change Request ticket to a Problem or Incident ticket. Autotask has no update for this entity, so delete a link and create a new one instead of calling `Update`. `Create` does not return the new id; query for the link by both ticket ids to get it.
+
+```go
+_, err := autotask.Create(ctx, client, &entities.ChangeRequestLink{
+    ChangeRequestTicketID:     autotask.Set(changeRequestID),
+    ProblemOrIncidentTicketID: autotask.Set(incidentID),
+})
+
+links, err := autotask.List[entities.ChangeRequestLink](ctx, client,
+    autotask.NewQuery().
+        Where("changeRequestTicketID", autotask.OpEq, changeRequestID).
+        Where("problemOrIncidentTicketID", autotask.OpEq, incidentID),
+)
+if len(links) > 0 {
+    id, _ := links[0].ID.Get()
+    err = autotask.Delete[entities.ChangeRequestLink](ctx, client, id)
+}
+```
+
+The `autotasktest` server accepts PATCH for every entity. To make a test fail the way the API would for an update, add `autotasktest.WithErrorOn(http.MethodPatch, "/ChangeRequestLinks", ...)`.
+
 ## Metadata
 
 Query entity structure at runtime:
@@ -347,11 +378,11 @@ func TestMyCode(t *testing.T) {
 
 ## Available entities
 
-The `entities` package ships generated, type-safe structs for:
+The `entities` package ships type-safe structs, some generated with `autotask-gen` and some hand-written, for:
 
-`BillingCode`, `BillingItem`, `BillingItemApprovalLevel`, `Company`, `CompanyNote`, `ConfigurationItem`, `Contact`, `Contract`, `Department`, `ExpenseItem`, `ExpenseReport`, `Invoice`, `Opportunity`, `Product`, `Project`, `ProjectNote`, `Quote`, `QuoteItem`, `Resource`, `Service`, `ServiceBundle`, `Task`, `Ticket`, `TicketAttachment`, `TicketNote`, `TimeEntry`
+`BillingCode`, `BillingItem`, `BillingItemApprovalLevel`, `ChangeRequestLink`, `Company`, `CompanyNote`, `ConfigurationItem`, `Contact`, `Contract`, `Department`, `ExpenseItem`, `ExpenseReport`, `Invoice`, `Opportunity`, `Product`, `Project`, `ProjectNote`, `Quote`, `QuoteItem`, `Resource`, `Service`, `ServiceBundle`, `Task`, `Ticket`, `TicketAttachment`, `TicketNote`, `TimeEntry`
 
-All entities use `Optional[T]` fields and support user-defined fields via `UserDefinedFields []autotask.UDF`. For any entity without a generated struct, use the raw (`map[string]any`) API or generate one with `autotask-gen`.
+All entities use `Optional[T]` fields, and all except `ChangeRequestLink` (Autotask gives it none) support user-defined fields via `UserDefinedFields []autotask.UDF`. For an entity not listed here, use the raw (`map[string]any`) API or generate a struct with `autotask-gen`.
 
 ## Error handling
 
