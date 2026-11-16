@@ -840,3 +840,57 @@ func TestTimeEntryCRUD(t *testing.T) {
 		}
 	})
 }
+
+// ---------- ChangeRequestLink ----------
+
+func TestChangeRequestLinkCRUD(t *testing.T) {
+	t.Parallel()
+	const changeRequestID, incidentID, otherIncidentID int64 = 8001, 7002, 7003
+	_, client := autotasktest.NewServer(t, autotasktest.WithDeleteSupport("ChangeRequestLinks"))
+
+	for _, target := range []int64{incidentID, otherIncidentID} {
+		_, err := autotask.Create(t.Context(), client, &entities.ChangeRequestLink{
+			ChangeRequestTicketID:     autotask.Set(changeRequestID),
+			ProblemOrIncidentTicketID: autotask.Set(target),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	q := autotask.NewQuery().Where("problemOrIncidentTicketID", autotask.OpEq, incidentID)
+	links, err := autotask.List[entities.ChangeRequestLink](t.Context(), client, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("links for incident = %d, want 1", len(links))
+	}
+	if got, _ := links[0].ChangeRequestTicketID.Get(); got != changeRequestID {
+		t.Fatalf("ChangeRequestTicketID = %d, want %d", got, changeRequestID)
+	}
+
+	byChange := autotask.NewQuery().Where("changeRequestTicketID", autotask.OpEq, changeRequestID)
+	count, err := autotask.Count[entities.ChangeRequestLink](t.Context(), client, byChange)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("count = %d, want 2", count)
+	}
+
+	id, ok := links[0].ID.Get()
+	if !ok {
+		t.Fatal("queried link has no id")
+	}
+	if err := autotask.Delete[entities.ChangeRequestLink](t.Context(), client, id); err != nil {
+		t.Fatal(err)
+	}
+	count, err = autotask.Count[entities.ChangeRequestLink](t.Context(), client, byChange)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("count after delete = %d, want 1", count)
+	}
+}

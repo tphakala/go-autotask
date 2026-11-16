@@ -102,3 +102,33 @@ func TestOptionalTimeSerialization(t *testing.T) {
 		t.Fatalf("Marshal Set(time.Time) = %s; want %s", data, want)
 	}
 }
+
+func TestTicketProblemTicketIDWireName(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		field autotask.Optional[int64]
+		want  string // raw JSON value; "" means the key is absent
+	}{
+		{"set", autotask.Set(int64(555)), "555"},
+		{"null", autotask.Null[int64](), "null"},
+		{"unset", autotask.Optional[int64]{}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			data, err := json.Marshal(entities.Ticket{ProblemTicketID: tt.field})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var m map[string]json.RawMessage
+			if err := json.Unmarshal(data, &m); err != nil {
+				t.Fatal(err)
+			}
+			got, ok := m["problemTicketId"]
+			if string(got) != tt.want || ok != (tt.want != "") {
+				t.Fatalf("JSON = %s, want problemTicketId = %q", data, tt.want)
+			}
+		})
+	}
+}
