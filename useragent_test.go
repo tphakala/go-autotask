@@ -1,6 +1,8 @@
 package autotask
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"runtime/debug"
 	"testing"
 )
@@ -39,6 +41,43 @@ func TestUserAgentFor(t *testing.T) {
 			t.Parallel()
 			if got := userAgentFor(tt.info); got != tt.want {
 				t.Errorf("userAgentFor = %q; want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestNewClientUserAgent pins that a default client sends defaultUserAgent() on
+// an API request and that WithUserAgent replaces it. The content of the default
+// is pinned by TestUserAgentFor.
+func TestNewClientUserAgent(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name string
+		opts []ClientOption
+		want string
+	}{
+		{"default", nil, defaultUserAgent()},
+		{"override", []ClientOption{WithUserAgent("custom/1")}, "custom/1"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var got string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				got = r.Header.Get("User-Agent")
+				_, _ = w.Write([]byte(`{}`))
+			}))
+			t.Cleanup(srv.Close)
+			opts := append([]ClientOption{WithBaseURL(srv.URL)}, tt.opts...)
+			c, err := NewClient(t.Context(), AuthConfig{Username: "u", Secret: "s", IntegrationCode: "i"}, opts...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = c.Close() })
+			if err := c.do(t.Context(), http.MethodGet, "/v1.0/Tickets/1", nil, nil); err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.want {
+				t.Errorf("User-Agent = %q; want %q", got, tt.want)
 			}
 		})
 	}
