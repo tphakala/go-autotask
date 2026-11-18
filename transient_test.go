@@ -314,3 +314,15 @@ func TestIsTransientNetErrorTimeout(t *testing.T) {
 		t.Fatal("a net.Error timeout is transient")
 	}
 }
+
+func TestIsTransientMissingItems(t *testing.T) {
+	t.Parallel()
+	client := newAnswerClient(t, answer(200, "application/json", `{}`))
+	_, err := autotask.List[entities.Company](t.Context(), client, &autotask.Query{})
+	if _, ok := errors.AsType[*autotask.MissingItemsError](err); !ok {
+		t.Fatalf("got %T: %v; want *MissingItemsError", err, err)
+	}
+	if !autotask.IsTransient(err) {
+		t.Fatal("a list page without items should be transient")
+	}
+}

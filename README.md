@@ -418,6 +418,8 @@ A 2xx response whose body is not blank (empty or only whitespace), not labelled 
 
 A 2xx response with an empty or whitespace-only body returns `EmptyResponseError` from any call that decodes a result, such as `Get`, `Count`, `Create`, `UpdateRaw` or a list page. It is not a `NotFoundError`: a blank body says nothing about whether the record exists. `Delete` and `DeleteRaw` still accept a blank body.
 
+A 2xx list page whose JSON body has no `items` member, such as `{}`, returns `MissingItemsError` from `List`, `ListRaw`, `ListChild`, `ListChildRaw`, their iterators and `GetChild`. It is not an empty result, so do not read it as "no match" before a create. A page with `"items": []` or `"items": null` is an empty page. `MissingItemsError` unwraps to `*Error` with `StatusCode` 200, and `IsTransient` reports it as transient.
+
 The client reads at most 128 MiB of an API or zone discovery response body; change the limit with `WithMaxResponseBytes`. A longer 2xx body returns `ResponseTooLargeError`. For an API response with any other status the status-typed error is returned (a 503 is still a `ServerError`), with the `ResponseTooLargeError` reachable through `errors.As`. `EmptyResponseError` and `ResponseTooLargeError` unwrap to `*Error` and carry the status in `Err.StatusCode`, and `NewClient` returns them (wrapped) when a zone discovery response is blank or over the limit.
 
 ### Deciding whether to retry
@@ -428,7 +430,7 @@ if err != nil && autotask.IsTransient(err) {
 }
 ```
 
-`IsTransient` is true for rate limiting, server errors, a blank or non-JSON 2xx response, an open circuit breaker, timeouts, refused or dropped connections and truncated bodies. It is false for 400, 401, 403, 404, 409 and 422, a cancelled context (unless it cut short the body of a 429 or 5xx response, which is classified by its status), `ResponseTooLargeError`, `MaxPagesExceededError`, an unrecognised error and nil. A zone discovery failure is classified by its status. Autotask answers HTTP 500 for some validation failures, and a retry returns the same error. `(*ServerError).IsValidation()` reports such a 500, and `IsTransient` treats it as permanent. It matches the error message against a short list of known wording, so a validation 500 with other wording still looks like a server failure; a transient result says the failure may pass, not that the request is safe to send again, because a create call, such as `Create` or `CreateChild`, that failed after it was sent may already have taken effect.
+`IsTransient` is true for rate limiting, server errors, a blank or non-JSON 2xx response, a list page without `items`, an open circuit breaker, timeouts, refused or dropped connections and truncated bodies. It is false for 400, 401, 403, 404, 409 and 422, a cancelled context (unless it cut short the body of a 429 or 5xx response, which is classified by its status), `ResponseTooLargeError`, `MaxPagesExceededError`, an unrecognised error and nil. A zone discovery failure is classified by its status. Autotask answers HTTP 500 for some validation failures, and a retry returns the same error. `(*ServerError).IsValidation()` reports such a 500, and `IsTransient` treats it as permanent. It matches the error message against a short list of known wording, so a validation 500 with other wording still looks like a server failure; a transient result says the failure may pass, not that the request is safe to send again, because a create call, such as `Create` or `CreateChild`, that failed after it was sent may already have taken effect.
 
 ## License
 

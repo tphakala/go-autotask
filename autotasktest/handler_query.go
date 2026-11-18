@@ -126,7 +126,7 @@ func filterItems(items []json.RawMessage, queryBody []byte) []json.RawMessage {
 		return items
 	}
 
-	var result []json.RawMessage
+	result := []json.RawMessage{}
 	for _, item := range items {
 		var m map[string]any
 		if err := json.Unmarshal(item, &m); err != nil {
