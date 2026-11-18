@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -257,8 +258,13 @@ func TestGenerateSkipsCollisionsAndFailsWhenNothingIsGenerated(t *testing.T) {
 	}
 
 	g.Entities = []string{"Tickets"}
-	if err := g.Generate(t.Context()); err == nil {
+	var genErr error
+	stderr := captureStderr(t, func() { genErr = g.Generate(t.Context()) })
+	if genErr == nil {
 		t.Fatal("want an error when every entity is skipped")
+	}
+	if want := "warning: skipping Tickets: Ticket is already declared in ticket.go"; !strings.Contains(stderr, want) {
+		t.Fatalf("stderr = %q; want it to contain %q", stderr, want)
 	}
 }
 
@@ -280,4 +286,105 @@ func TestGenerateEntityIgnoresFilesTheGoToolIgnores(t *testing.T) {
 	if got := readFile(t, dir, "tickets.go"); !strings.HasPrefix(got, generatedHeader) {
 		t.Fatalf("tickets.go was not generated:\n%s", got)
 	}
+}
+
+// Only Go source files that are not tests can collide with a generated type;
+// a sibling that does not parse still counts as far as it parses.
+func TestGenerateEntityScansOnlyGoSourceFiles(t *testing.T) {
+	const declaresTicket = "package entities\n\ntype Ticket struct{}\n"
+	tests := []struct {
+		name  string
+		files map[string]string // content by file name
+		dirs  []string
+		want  string // file that must be named in the skip reason, "" for no skip
+	}{
+		{name: "non-Go file", files: map[string]string{"ticket.go.bak": declaresTicket}},
+		{name: "test file", files: map[string]string{"ticket_test.go": declaresTicket}},
+		{name: "directory named like a Go file", dirs: []string{"ticket.go"}},
+		{name: "syntax error after the declaration", files: map[string]string{"broken.go": declaresTicket + "\nfunc (\n"}, want: "broken.go"},
+		{name: "syntax error and no declaration", files: map[string]string{"broken.go": "package entities\n\nfunc (\n"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for name, content := range tt.files {
+				writeFile(t, dir, name, content)
+			}
+			for _, name := range tt.dirs {
+				if err := os.Mkdir(filepath.Join(dir, name), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			skip, err := (&Generator{OutputDir: dir}).generateEntity("Tickets", nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.want == "" && skip != "" {
+				t.Fatalf("skipped: %s", skip)
+			}
+			if tt.want != "" && !strings.Contains(skip, tt.want) {
+				t.Fatalf("skip reason = %q; want it to name %s", skip, tt.want)
+			}
+		})
+	}
+}
+
+// A path the generator cannot inspect must stop the entity, not fall through
+// to a write: both modes below leave the write itself possible.
+func TestGenerateEntityReturnsReadErrors(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("file modes do not restrict root")
+	}
+	t.Run("unreadable target", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, dir, "tickets.go", staleGeneratedTickets)
+		path := filepath.Join(dir, "tickets.go")
+		if err := os.Chmod(path, 0o200); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := (&Generator{OutputDir: dir}).generateEntity("Tickets", nil, nil); err == nil {
+			t.Fatal("want an error for a target that cannot be read")
+		}
+		if err := os.Chmod(path, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := readFile(t, dir, "tickets.go"); got != staleGeneratedTickets {
+			t.Fatalf("tickets.go changed:\n%s", got)
+		}
+	})
+	t.Run("unlistable directory", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.Chmod(dir, 0o300); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+		if _, err := (&Generator{OutputDir: dir}).generateEntity("Tickets", nil, nil); err == nil {
+			t.Fatal("want an error for a directory that cannot be listed")
+		}
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		requireNoFile(t, dir, "tickets.go")
+	})
+}
+
+// captureStderr runs fn and returns what it wrote to os.Stderr.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = orig }()
+	fn()
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
 }
