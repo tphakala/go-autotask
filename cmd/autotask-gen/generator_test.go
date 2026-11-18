@@ -268,6 +268,48 @@ func TestGenerateSkipsCollisionsAndFailsWhenNothingIsGenerated(t *testing.T) {
 	}
 }
 
+// An entity that would be skipped costs no metadata request: the check runs
+// before GetFields and GetUDFs.
+func TestGenerateSkipsBeforeFetchingMetadata(t *testing.T) {
+	srv, client := autotasktest.NewServer(t)
+	dir := t.TempDir()
+	writeFile(t, dir, "ticket.go", handWrittenTicket)
+
+	g := &Generator{Client: client, OutputDir: dir, Entities: []string{"Tickets", "Widgets"}}
+	if err := g.Generate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	fetchedWidgets := false
+	for _, r := range srv.Requests() {
+		if strings.Contains(r.Path, "/Tickets/") {
+			t.Errorf("skipped entity Tickets still sent %s %s", r.Method, r.Path)
+		}
+		fetchedWidgets = fetchedWidgets || strings.Contains(r.Path, "/Widgets/")
+	}
+	if !fetchedWidgets {
+		t.Fatal("no request for Widgets was recorded, so the check above proves nothing")
+	}
+}
+
+// A collision check that cannot read the target stops the run before any
+// metadata request.
+func TestGenerateStopsWhenTheCollisionCheckFails(t *testing.T) {
+	srv, client := autotasktest.NewServer(t)
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "tickets.go"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	g := &Generator{Client: client, OutputDir: dir, Entities: []string{"Tickets"}}
+	err := g.Generate(t.Context())
+	if err == nil || !strings.Contains(err.Error(), "generating Tickets") {
+		t.Fatalf("Generate() error = %v; want one naming Tickets", err)
+	}
+	if n := srv.RequestCount(); n != 0 {
+		t.Fatalf("%d requests were sent; want none", n)
+	}
+}
+
 // The go tool ignores names that start with "." or "_", so they cannot collide
 // with a generated type, and an editor lock file must not stop the run.
 func TestGenerateEntityIgnoresFilesTheGoToolIgnores(t *testing.T) {

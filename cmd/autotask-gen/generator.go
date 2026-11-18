@@ -58,6 +58,16 @@ func (g *Generator) Generate(ctx context.Context) error {
 	}
 	generated := 0
 	for _, entityName := range entities {
+		// Check before fetching, so a skipped entity costs no API request.
+		// generateEntity checks again right before it writes.
+		skipReason, err := g.checkTarget(toSnakeCase(entityName)+".go", singular(entityName))
+		if err != nil {
+			return fmt.Errorf("generating %s: %w", entityName, err)
+		}
+		if skipReason != "" {
+			fmt.Fprintf(os.Stderr, "warning: skipping %s: %s\n", entityName, skipReason)
+			continue
+		}
 		fields, err := metadata.GetFields(ctx, g.Client, entityName)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: skipping %s: %v\n", entityName, err)
@@ -67,7 +77,7 @@ func (g *Generator) Generate(ctx context.Context) error {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: %s: could not fetch UDFs: %v\n", entityName, err)
 		}
-		skipReason, err := g.generateEntity(entityName, fields, udfs)
+		skipReason, err = g.generateEntity(entityName, fields, udfs)
 		if err != nil {
 			return fmt.Errorf("generating %s: %w", entityName, err)
 		}
