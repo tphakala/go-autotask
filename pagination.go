@@ -33,8 +33,10 @@ type pageResponse[I any] struct {
 // pageItems decodes the items member of a page and records that the member was
 // present. encoding/json calls UnmarshalJSON only when the member exists, null
 // included, and not when it is absent or when the whole body is null (measured
-// with go1.27.4; TestListPageWithoutItemsIsMissingItemsError pins it). That
-// tells an absent member from an empty page, which a plain slice cannot.
+// with go1.27.4). TestListPageWithoutItemsIsMissingItemsError pins the absent
+// member and the null body, TestListPageWithEmptyOrNullItemsIsEmpty pins
+// "items": null. That tells an absent member from an empty page, which a plain
+// slice cannot.
 type pageItems[I any] struct {
 	present bool
 	list    []I
