@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime/debug"
+	"strings"
+	"sync"
 	"testing"
 )
 
@@ -62,9 +64,14 @@ func TestNewClientUserAgent(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			var got string
+			var (
+				mu  sync.Mutex
+				got string
+			)
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
 				got = r.Header.Get("User-Agent")
+				mu.Unlock()
 				_, _ = w.Write([]byte(`{}`))
 			}))
 			t.Cleanup(srv.Close)
@@ -77,9 +84,17 @@ func TestNewClientUserAgent(t *testing.T) {
 			if err := c.do(t.Context(), http.MethodGet, "/v1.0/Tickets/1", nil, nil); err != nil {
 				t.Fatal(err)
 			}
+			mu.Lock()
+			defer mu.Unlock()
 			if got != tt.want {
 				t.Errorf("User-Agent = %q; want %q", got, tt.want)
 			}
 		})
 	}
+}
+
+// isLibraryUserAgent reports whether ua is this library's default User-Agent:
+// the plain product token or the token with a version.
+func isLibraryUserAgent(ua string) bool {
+	return ua == "go-autotask" || strings.HasPrefix(ua, "go-autotask/")
 }
