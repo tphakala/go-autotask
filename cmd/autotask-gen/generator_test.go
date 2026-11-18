@@ -1,6 +1,13 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/tphakala/go-autotask/metadata"
+)
 
 func TestToSnakeCase(t *testing.T) {
 	tests := []struct {
@@ -88,5 +95,33 @@ func TestGoName(t *testing.T) {
 				t.Errorf("goName(%q) = %q; want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+// autotask.Create and CreateChild return the server-assigned id by decoding
+// {"id": N} into the entity, so a generated entity must carry its id as an
+// Optional[int64] member with the JSON name "id".
+func TestGenerateEntityIDMember(t *testing.T) {
+	dir := t.TempDir()
+	g := &Generator{OutputDir: dir}
+	fields := []metadata.FieldInfo{
+		{Name: "id", Type: "long"},
+		{Name: "title", Type: "string"},
+	}
+	if err := g.generateEntity("Widgets", fields, nil); err != nil {
+		t.Fatal(err)
+	}
+	src, err := os.ReadFile(filepath.Join(dir, "widgets.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var idLine string
+	for line := range strings.SplitSeq(string(src), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "ID ") {
+			idLine = strings.Join(strings.Fields(line), " ")
+		}
+	}
+	if want := "ID autotask.Optional[int64] `json:\"id,omitzero\"`"; idLine != want {
+		t.Fatalf("id member = %q, want %q\n%s", idLine, want, src)
 	}
 }
