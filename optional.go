@@ -57,10 +57,13 @@ func (o Optional[T]) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (o *Optional[T]) UnmarshalJSON(data []byte) error {
-	o.set = true
 	if bytes.Equal(data, []byte("null")) {
-		o.null = true
+		o.set, o.null = true, true
 		return nil
 	}
-	return json.Unmarshal(data, &o.value)
+	if err := json.Unmarshal(data, &o.value); err != nil {
+		return err
+	}
+	o.set, o.null = true, false
+	return nil
 }

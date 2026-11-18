@@ -129,3 +129,35 @@ func TestOptionalTime(t *testing.T) {
 		t.Fatalf("round-trip time = %v, %v; want %v, true", v, ok, ts)
 	}
 }
+
+func TestOptionalUnmarshalState(t *testing.T) {
+	t.Run("a decoded value clears null", func(t *testing.T) {
+		o := Null[int64]()
+		if err := json.Unmarshal([]byte("5"), &o); err != nil {
+			t.Fatal(err)
+		}
+		if v, ok := o.Get(); !ok || v != 5 {
+			t.Fatalf("Get() = %v, %v; want 5, true", v, ok)
+		}
+		if o.IsNull() {
+			t.Fatal("IsNull() = true after decoding a value")
+		}
+	})
+
+	t.Run("a failed decode keeps the previous state", func(t *testing.T) {
+		null := Null[string]()
+		if err := json.Unmarshal([]byte("5"), &null); err == nil {
+			t.Fatal("decoding a number into Optional[string] succeeded")
+		}
+		if !null.IsNull() {
+			t.Fatal("a failed decode changed an Optional that was null")
+		}
+		var unset Optional[string]
+		if err := json.Unmarshal([]byte("5"), &unset); err == nil {
+			t.Fatal("decoding a number into Optional[string] succeeded")
+		}
+		if unset.IsSet() {
+			t.Fatal("a failed decode marked an unset Optional as set")
+		}
+	})
+}
