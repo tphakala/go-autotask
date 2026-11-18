@@ -7,18 +7,17 @@ import (
 
 func TestUserAgentFor(t *testing.T) {
 	t.Parallel()
-	const self = "github.com/tphakala/go-autotask"
 	dep := func(version string, replace *debug.Module) *debug.BuildInfo {
 		return &debug.BuildInfo{
 			Main: debug.Module{Path: "example.com/app", Version: "v9.9.9"},
 			Deps: []*debug.Module{
 				{Path: "golang.org/x/time", Version: "v0.1.0"},
-				{Path: self, Version: version, Replace: replace},
+				{Path: modulePath, Version: version, Replace: replace},
 			},
 		}
 	}
 	main := func(version string) *debug.BuildInfo {
-		return &debug.BuildInfo{Main: debug.Module{Path: self, Version: version}}
+		return &debug.BuildInfo{Main: debug.Module{Path: modulePath, Version: version}}
 	}
 	for _, tt := range []struct {
 		name string
