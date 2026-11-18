@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime/debug"
-	"strings"
 	"sync"
 	"testing"
 )
@@ -91,10 +90,4 @@ func TestNewClientUserAgent(t *testing.T) {
 			}
 		})
 	}
-}
-
-// isLibraryUserAgent reports whether ua is this library's default User-Agent:
-// the plain product token or the token with a version.
-func isLibraryUserAgent(ua string) bool {
-	return ua == "go-autotask" || strings.HasPrefix(ua, "go-autotask/")
 }

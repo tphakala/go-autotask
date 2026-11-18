@@ -240,8 +240,7 @@ func newRedirector(t *testing.T, target string) *httptest.Server {
 var redirectCredentialHeaders = []string{"UserName", "Secret", "ApiIntegrationCode", "ImpersonationResourceId"}
 
 // isLibraryUserAgent reports whether ua is this library's default User-Agent:
-// the plain product token or the token with a version. The internal tests
-// have their own copy in useragent_test.go.
+// the plain product token or the token with a version.
 func isLibraryUserAgent(ua string) bool {
 	return ua == "go-autotask" || strings.HasPrefix(ua, "go-autotask/")
 }
