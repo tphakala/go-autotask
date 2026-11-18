@@ -69,6 +69,10 @@ func Count[T Entity](ctx context.Context, c *Client, q *Query) (int64, error) {
 	return resp.QueryCount, nil
 }
 
+// Create creates entity and, when the response carries an itemId, sets the
+// server-assigned id in its ID member (see EntityWithID for how it is stored).
+// A failed call may still have created the record; see the retry notes in the
+// README.
 func Create[T Entity](ctx context.Context, c *Client, entity *T) (*T, error) {
 	if entity == nil {
 		return nil, fmt.Errorf("autotask: entity must not be nil")
@@ -81,9 +85,7 @@ func Create[T Entity](ctx context.Context, c *Client, entity *T) (*T, error) {
 		return nil, err
 	}
 	if resp.ItemID != nil {
-		if setter, ok := any(entity).(EntityWithID); ok {
-			setter.SetID(*resp.ItemID)
-		}
+		assignCreatedID(entity, *resp.ItemID)
 	}
 	return entity, nil
 }

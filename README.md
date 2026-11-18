@@ -94,13 +94,14 @@ tickets, err := autotask.List[entities.Ticket](ctx, client,
 // Count
 n, err := autotask.Count[entities.Ticket](ctx, client, autotask.NewQuery())
 
-// Create
+// Create: the returned entity carries the server-assigned id in ID.
 created, err := autotask.Create(ctx, client, &entities.Ticket{
     Title:     autotask.Set("Server down"),
     CompanyID: autotask.Set(int64(123)),
     Status:    autotask.Set(int64(1)),
     Priority:  autotask.Set(int64(2)),
 })
+newID, _ := created.ID.Get()
 
 // Update
 updated, err := autotask.Update(ctx, client, ticket)
@@ -285,7 +286,7 @@ incidents, err := autotask.List[entities.Ticket](ctx, client,
 )
 ```
 
-`ChangeRequestLink` links a Change Request ticket to a Problem or Incident ticket. Autotask has no update for this entity, so delete a link and create a new one instead of calling `Update`. `Create` does not return the new id; query for the link by both ticket ids to get it.
+`ChangeRequestLink` links a Change Request ticket to a Problem or Incident ticket. Autotask has no update for this entity, so delete a link and create a new one instead of calling `Update`. `Create` sets the new link's `ID` on the returned entity.
 
 ```go
 _, err := autotask.Create(ctx, client, &entities.ChangeRequestLink{
