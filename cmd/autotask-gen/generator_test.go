@@ -261,3 +261,23 @@ func TestGenerateSkipsCollisionsAndFailsWhenNothingIsGenerated(t *testing.T) {
 		t.Fatal("want an error when every entity is skipped")
 	}
 }
+
+// The go tool ignores names that start with "." or "_", so they cannot collide
+// with a generated type, and an editor lock file must not stop the run.
+func TestGenerateEntityIgnoresFilesTheGoToolIgnores(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Symlink("missing-target", filepath.Join(dir, ".#ticket.go")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	writeFile(t, dir, "_old_ticket.go", handWrittenTicket)
+	skip, err := (&Generator{OutputDir: dir}).generateEntity("Tickets", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if skip != "" {
+		t.Fatalf("skipped because of a file the go tool ignores: %s", skip)
+	}
+	if got := readFile(t, dir, "tickets.go"); !strings.HasPrefix(got, generatedHeader) {
+		t.Fatalf("tickets.go was not generated:\n%s", got)
+	}
+}

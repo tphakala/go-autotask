@@ -119,7 +119,8 @@ func needsUnderscore(b []byte, i int) bool {
 // generateEntity writes the struct for the entity name to OutputDir. It
 // returns a non-empty skipReason, and writes nothing, when the file it would
 // write exists without the generated header or when the Go name of the struct
-// is already declared in another file of OutputDir.
+// is already declared in another Go source file of OutputDir. Test files and
+// names starting with "." or "_" are not read.
 func (g *Generator) generateEntity(name string, fields []metadata.FieldInfo, udfs []metadata.UDFInfo) (skipReason string, err error) {
 	filename := toSnakeCase(name) + ".go"
 	path := filepath.Join(g.OutputDir, filename)
@@ -161,7 +162,10 @@ func (g *Generator) checkTarget(filename, typeName string) (string, error) {
 
 // declaringFile returns the name of a Go file in dir, other than skip, that
 // declares the package-level type typeName, or "" when there is none. Test
-// files are not read.
+// files and names starting with "." or "_" (which go/build skips, build.go:1451
+// at go1.27.4) are not read. A file excluded by a build constraint, or in
+// another package, is read: it can still declare the type for another
+// platform or layout.
 func declaringFile(dir, skip, typeName string) (string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -170,7 +174,7 @@ func declaringFile(dir, skip, typeName string) (string, error) {
 	fset := token.NewFileSet()
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || name == skip || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+		if entry.IsDir() || name == skip || !isNonTestGoFile(name) {
 			continue
 		}
 		// A file with a syntax error still yields the declarations before
@@ -185,6 +189,13 @@ func declaringFile(dir, skip, typeName string) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// isNonTestGoFile reports whether the go tool builds name as a non-test Go
+// source file.
+func isNonTestGoFile(name string) bool {
+	return strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go") &&
+		!strings.HasPrefix(name, ".") && !strings.HasPrefix(name, "_")
 }
 
 // declaresType reports whether file declares the package-level type name.
