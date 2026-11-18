@@ -191,8 +191,9 @@ func declaringFile(dir, skip, typeName string) (string, error) {
 	return "", nil
 }
 
-// isNonTestGoFile reports whether the go tool builds name as a non-test Go
-// source file.
+// isNonTestGoFile reports whether name is a non-test Go source file by name:
+// a .go file that is not _test.go and not ignored by the go tool for a
+// leading "." or "_". Build constraints are not evaluated.
 func isNonTestGoFile(name string) bool {
 	return strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go") &&
 		!strings.HasPrefix(name, ".") && !strings.HasPrefix(name, "_")
