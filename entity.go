@@ -33,17 +33,19 @@ type ChildEntity interface {
 //
 // Entities that do not implement it still receive the id: Create and
 // CreateChild decode {"id": N} into the entity, which sets the member whose
-// JSON name is "id" (every type in the entities package) and leaves all other
-// members untouched. Implement EntityWithID for a type whose id member has a
-// different JSON name or type.
+// JSON name is "id" (matched without regard to case; every type in the
+// entities package uses exactly "id"). For a type without its own
+// UnmarshalJSON no other member changes. Implement EntityWithID for a type
+// whose id member has a different JSON name or type, or that has its own
+// UnmarshalJSON.
 type EntityWithID interface {
 	SetID(id int64)
 }
 
 // assignCreatedID stores the server-assigned id on a created entity. entity
-// must be a non-nil pointer. A failure to decode leaves the entity as it was:
-// the record already exists on the server, so Create must not report an error
-// that invites a duplicate.
+// must be a non-nil pointer. A decode error is ignored: the record already
+// exists on the server, so Create must not report an error that invites a
+// duplicate.
 func assignCreatedID(entity any, id int64) {
 	if setter, ok := entity.(EntityWithID); ok {
 		setter.SetID(id)
