@@ -169,6 +169,56 @@ func TestCreateSetsItemID(t *testing.T) {
 	}
 }
 
+// renamedIDEntity keeps its id under a JSON name other than "id", so only its
+// SetID method can receive the id from a create.
+type renamedIDEntity struct { //nolint:recvcheck // EntityName uses value receiver (Entity interface), SetID uses pointer receiver (EntityWithID)
+	TicketID Optional[int64] `json:"ticketId,omitzero"`
+}
+
+func (renamedIDEntity) EntityName() string { return "TestEntities" }
+
+func (e *renamedIDEntity) SetID(id int64) { e.TicketID = Set(id) }
+
+func TestCreateUsesSetIDWhenImplemented(t *testing.T) {
+	srv := newTypedTestServer(t)
+	client := testClient(t, srv)
+	result, err := Create(t.Context(), client, &renamedIDEntity{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, ok := result.TicketID.Get(); !ok || id != 99 {
+		t.Fatalf("TicketID = %v, %v; want 99, true", id, ok)
+	}
+}
+
+func TestCreateWithoutItemIDLeavesIDUnset(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1.0/TestEntities", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{}`))
+	})
+	mux.HandleFunc("POST /v1.0/TestEntities/{parentID}/Notes", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := testClient(t, srv)
+
+	created, err := Create(t.Context(), client, &testEntity{Title: Set("New")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.ID.IsSet() {
+		t.Fatalf("ID = %+v after Create without itemId; want unset", created.ID)
+	}
+	child, err := CreateChild[testEntity](t.Context(), client, 5, &testChildEntity{Message: Set("hi")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.ID.IsSet() {
+		t.Fatalf("ID = %+v after CreateChild without itemId; want unset", child.ID)
+	}
+}
+
 func TestListMaxPagesGuard(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1.0/TestEntities/query", func(w http.ResponseWriter, r *http.Request) {
