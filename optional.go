@@ -55,15 +55,18 @@ func (o Optional[T]) MarshalJSON() ([]byte, error) {
 	return json.Marshal(o.value)
 }
 
-// UnmarshalJSON implements json.Unmarshaler.
+// UnmarshalJSON implements json.Unmarshaler. It decodes into a new T, so a
+// failed decode leaves the Optional unchanged and a decoded value never
+// carries data from an earlier one.
 func (o *Optional[T]) UnmarshalJSON(data []byte) error {
 	if bytes.Equal(data, []byte("null")) {
-		o.set, o.null = true, true
+		*o = Null[T]()
 		return nil
 	}
-	if err := json.Unmarshal(data, &o.value); err != nil {
+	var v T
+	if err := json.Unmarshal(data, &v); err != nil {
 		return err
 	}
-	o.set, o.null = true, false
+	*o = Set(v)
 	return nil
 }

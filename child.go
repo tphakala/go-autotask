@@ -124,7 +124,9 @@ func CreateChildRaw(ctx context.Context, c *Client, parentEntityName string, par
 
 // CreateChild creates a child entity under a parent and, when the response
 // carries an itemId, sets the server-assigned id in child (see EntityWithID),
-// so create each record from a new value.
+// so create each record from a new value. As with Create, a nil error does
+// not guarantee the id is set: check ID before relying on it, and do not
+// repeat the create because it is unset.
 func CreateChild[P Entity, C Entity](ctx context.Context, c *Client, parentID int64, child *C) (*C, error) {
 	if child == nil {
 		return nil, fmt.Errorf("autotask: child entity must not be nil")

@@ -101,7 +101,10 @@ created, err := autotask.Create(ctx, client, &entities.Ticket{
     Status:    autotask.Set(int64(1)),
     Priority:  autotask.Set(int64(2)),
 })
-newID, _ := created.ID.Get()
+if err != nil {
+    return err
+}
+newID, ok := created.ID.Get() // ok is false if the id was not set
 
 // Update
 updated, err := autotask.Update(ctx, client, ticket)

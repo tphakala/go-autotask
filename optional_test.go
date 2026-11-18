@@ -161,3 +161,28 @@ func TestOptionalUnmarshalState(t *testing.T) {
 		}
 	})
 }
+
+func TestOptionalUnmarshalFreshValue(t *testing.T) {
+	t.Run("a failed decode keeps the previous value", func(t *testing.T) {
+		o := Set([]int{9, 8})
+		if err := json.Unmarshal([]byte(`[1, "bad"]`), &o); err == nil {
+			t.Fatal("decoding a string element into Optional[[]int] succeeded")
+		}
+		if v, ok := o.Get(); !ok || len(v) != 2 || v[0] != 9 || v[1] != 8 {
+			t.Fatalf("Get() = %v, %v; want [9 8], true", v, ok)
+		}
+	})
+
+	t.Run("a value decoded after another value holds only the new value", func(t *testing.T) {
+		o := Set(map[string]int{"old": 1})
+		if err := json.Unmarshal([]byte("null"), &o); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal([]byte(`{}`), &o); err != nil {
+			t.Fatal(err)
+		}
+		if v, ok := o.Get(); !ok || len(v) != 0 {
+			t.Fatalf("Get() = %v, %v; want an empty map, true", v, ok)
+		}
+	})
+}
