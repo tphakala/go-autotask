@@ -52,8 +52,8 @@ func TestClientAuthHeaders(t *testing.T) {
 	if gotHeaders.Get("ApiIntegrationcode") != "INT123" {
 		t.Fatalf("ApiIntegrationcode header = %q", gotHeaders.Get("ApiIntegrationcode"))
 	}
-	if !strings.HasPrefix(gotHeaders.Get("User-Agent"), "go-autotask/") {
-		t.Fatalf("User-Agent header = %q", gotHeaders.Get("User-Agent"))
+	if got := gotHeaders.Get("User-Agent"); got != defaultUserAgent() {
+		t.Fatalf("User-Agent header = %q; want %q", got, defaultUserAgent())
 	}
 }
 

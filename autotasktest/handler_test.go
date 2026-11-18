@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -43,5 +44,40 @@ func TestHandleVersionInfoUsesAPIVersionsKey(t *testing.T) {
 	}
 	if !slices.Contains(decoded.Versions, "V1.0") {
 		t.Fatalf("apiVersions = %v; want it to advertise the supported V1.0", decoded.Versions)
+	}
+}
+
+// TestHandleQueryNoMatchSendsEmptyItemsArray pins the wire shape of a query that
+// matches no stored item: "items": [] like the Autotask API, not null.
+func TestHandleQueryNoMatchSendsEmptyItemsArray(t *testing.T) {
+	ts, _ := NewServer(t, WithEntity(CompanyFixture()))
+
+	body := strings.NewReader(`{"filter":[{"op":"eq","field":"id","value":-1}]}`)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ts.URL+"/v1.0/Companies/query", body)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("UserName", "test-user")
+	req.Header.Set("Secret", "test-secret")
+	req.Header.Set("ApiIntegrationCode", "test-code")
+
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	var decoded struct {
+		Items json.RawMessage `json:"items"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got := string(decoded.Items); got != "[]" {
+		t.Errorf("items = %s, want []", got)
 	}
 }

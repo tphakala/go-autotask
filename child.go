@@ -19,17 +19,18 @@ func resolveChildName[C Entity](c C) string {
 }
 
 // Deprecated: Use ListChild which provides automatic pagination.
-// GetChild fetches child entities for a parent entity (first page only).
+// GetChild fetches child entities for a parent entity (first page only). A
+// response without an items member returns *MissingItemsError.
 func GetChild[P Entity, C Entity](ctx context.Context, c *Client, parentID int64) ([]*C, error) {
 	var parent P
 	var child C
 	path := fmt.Sprintf("/v1.0/%s/%d/%s", parent.EntityName(), parentID, resolveChildName(child))
-	var resp pageResponse[json.RawMessage]
-	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+	items, _, err := fetchPage[json.RawMessage](ctx, c, http.MethodGet, path, nil)
+	if err != nil {
 		return nil, err
 	}
 	var result []*C
-	for _, raw := range resp.Items {
+	for _, raw := range items {
 		var entity C
 		if err := json.Unmarshal(raw, &entity); err != nil {
 			return nil, fmt.Errorf("autotask: decoding %s child: %w", child.EntityName(), err)

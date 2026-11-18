@@ -132,6 +132,15 @@ type EmptyResponseError struct{ Err Error }
 func (e *EmptyResponseError) Error() string { return e.Err.Error() }
 func (e *EmptyResponseError) Unwrap() error { return &e.Err }
 
+// MissingItemsError reports a successful list, query or child list response
+// whose JSON body has no items member, such as {}. It says nothing about which
+// records exist, so do not read it as an empty result. A page with "items": []
+// or "items": null is an empty page, not this error. Err.StatusCode is 200.
+type MissingItemsError struct{ Err Error }
+
+func (e *MissingItemsError) Error() string { return e.Err.Error() }
+func (e *MissingItemsError) Unwrap() error { return &e.Err }
+
 // ResponseTooLargeError reports a response body longer than the client's
 // limit (see WithMaxResponseBytes). The client stops reading at the limit.
 // For a 2xx response it is returned as is; for an API response with any
@@ -154,6 +163,10 @@ func newResponseTooLargeError(statusCode int, limit int64) *ResponseTooLargeErro
 
 func newEmptyResponseError(statusCode int) *EmptyResponseError {
 	return &EmptyResponseError{Err: Error{StatusCode: statusCode, Message: "empty response body"}}
+}
+
+func newMissingItemsError() *MissingItemsError {
+	return &MissingItemsError{Err: Error{StatusCode: http.StatusOK, Message: "response has no items member"}}
 }
 
 // readLimited reads r up to limit bytes. tooLarge reports that r had more.

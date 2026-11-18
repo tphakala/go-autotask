@@ -121,8 +121,8 @@ func TestAuthContentTypeAndUserAgent(t *testing.T) {
 	if got := gotHeaders.Get("Content-Type"); got != "application/json" {
 		t.Errorf("Content-Type = %q; want %q", got, "application/json")
 	}
-	if got := gotHeaders.Get("User-Agent"); !strings.HasPrefix(got, "go-autotask/") {
-		t.Errorf("User-Agent = %q; want prefix %q", got, "go-autotask/")
+	if got := gotHeaders.Get("User-Agent"); !isLibraryUserAgent(got) {
+		t.Errorf("User-Agent = %q; want go-autotask or go-autotask/<version>", got)
 	}
 }
 
@@ -151,7 +151,7 @@ func TestAuthSameOriginValidation(t *testing.T) {
 				map[string]any{"id": 1, "companyName": "Acme"},
 			},
 			"pageDetails": map[string]any{
-				"count":      1,
+				"count":       1,
 				"nextPageUrl": evilServer.URL + "/v1.0/Companies/query?page=2",
 			},
 		})
@@ -193,8 +193,8 @@ func TestAuthSameOriginValidation(t *testing.T) {
 	if got := evilHeaders.Get("Content-Type"); got != "application/json" {
 		t.Errorf("cross-origin Content-Type = %q; want %q", got, "application/json")
 	}
-	if got := evilHeaders.Get("User-Agent"); !strings.HasPrefix(got, "go-autotask/") {
-		t.Errorf("cross-origin User-Agent = %q; want prefix %q", got, "go-autotask/")
+	if got := evilHeaders.Get("User-Agent"); !isLibraryUserAgent(got) {
+		t.Errorf("cross-origin User-Agent = %q; want go-autotask or go-autotask/<version>", got)
 	}
 }
 
@@ -239,6 +239,12 @@ func newRedirector(t *testing.T, target string) *httptest.Server {
 
 var redirectCredentialHeaders = []string{"UserName", "Secret", "ApiIntegrationCode", "ImpersonationResourceId"}
 
+// isLibraryUserAgent reports whether ua is this library's default User-Agent:
+// the plain product token or the token with a version.
+func isLibraryUserAgent(ua string) bool {
+	return ua == "go-autotask" || strings.HasPrefix(ua, "go-autotask/")
+}
+
 func requireNoCredentials(t *testing.T, h http.Header) {
 	t.Helper()
 	for _, name := range redirectCredentialHeaders {
@@ -273,8 +279,8 @@ func TestAuthCrossOriginRedirectDropsCredentials(t *testing.T) {
 	}
 	requireNoCredentials(t, reqs[0])
 	// Headers that are not credentials still follow the redirect.
-	if got := reqs[0].Get("User-Agent"); !strings.HasPrefix(got, "go-autotask/") {
-		t.Errorf("redirect target User-Agent = %q; want prefix %q", got, "go-autotask/")
+	if got := reqs[0].Get("User-Agent"); !isLibraryUserAgent(got) {
+		t.Errorf("redirect target User-Agent = %q; want go-autotask or go-autotask/<version>", got)
 	}
 }
 
