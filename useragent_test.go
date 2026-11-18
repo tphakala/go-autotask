@@ -47,8 +47,9 @@ func TestUserAgentFor(t *testing.T) {
 }
 
 // TestNewClientUserAgent pins that a default client sends defaultUserAgent() on
-// an API request and that WithUserAgent replaces it. The content of the default
-// is pinned by TestUserAgentFor.
+// an API request and that WithUserAgent replaces it. TestUserAgentFor pins how
+// userAgentFor picks the version; that defaultUserAgent passes it the real
+// build info is not pinned, because a test binary carries no module version.
 func TestNewClientUserAgent(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
