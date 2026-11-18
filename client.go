@@ -17,10 +17,7 @@ import (
 	"github.com/tphakala/go-autotask/middleware"
 )
 
-const (
-	version            = "1.3.0"
-	defaultHTTPTimeout = 30 * time.Second
-)
+const defaultHTTPTimeout = 30 * time.Second
 
 var _ interface{ Close() error } = (*Client)(nil)
 
@@ -64,7 +61,7 @@ func NewClient(ctx context.Context, auth AuthConfig, opts ...ClientOption) (*Cli
 		auth:       auth,
 		zoneCache:  newZoneCache(defaultZoneCacheTTL),
 		logger:     slog.New(discardHandler{}),
-		userAgent:  "go-autotask/" + version,
+		userAgent:  defaultUserAgent(),
 
 		maxResponseBytes: defaultMaxResponseBytes,
 	}

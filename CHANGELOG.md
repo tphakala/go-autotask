@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`Delete` and `DeleteRaw` no longer report success for a 2xx body that is not blank, not labelled as JSON and not valid JSON** (#10). They decode no result, so the maintenance page read as a successful delete. They now return `UnexpectedContentTypeError`. The same applies to `Client.Do` called with a nil result.
 - **`Get` and `GetRaw` return `*NotFoundError` for a missing or null `item`** (#14). `Get` returned an untyped error that `errors.As` could not match, and `GetRaw` returned `(nil, nil)`, so a missing record looked like success. The error has `StatusCode` 200, which tells it apart from a 404.
 - **`UpdateRaw` returns the PATCH response body** (#15). It decoded an `item` field that the Autotask PATCH response does not carry, so a successful update returned a nil map. It now returns the decoded body, for example `{"itemId": 123}`, the same way `CreateRaw` does. It no longer unwraps an `item` field, so a PATCH response that carries one comes back as `{"item": {...}}`.
+- **The User-Agent version comes from the build info** (#38). It was a constant that still said `go-autotask/1.3.0`. It is now `go-autotask/<module version>`, for example `go-autotask/1.6.0` in a program that depends on that release, and plain `go-autotask` when the build info has no version for the module (a local `replace`, a workspace, the module's own tests). `WithUserAgent` still overrides it.
 
 ## [1.5.1] - 2026-09-07
 

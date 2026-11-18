@@ -38,6 +38,10 @@ func WithBaseURL(url string) ClientOption {
 	return func(c *Client) { c.baseURL = url }
 }
 
+// WithUserAgent sets the User-Agent header. The default is go-autotask/<module
+// version>, taken from the build info, or plain go-autotask when the build info
+// has no version for this module (a local replace directive, a workspace, the
+// module's own tests).
 func WithUserAgent(ua string) ClientOption {
 	return func(c *Client) { c.userAgent = ua }
 }
