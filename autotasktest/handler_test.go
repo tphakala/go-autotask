@@ -131,14 +131,16 @@ func TestDiscoveryRulesRunBeforeDiscovery(t *testing.T) {
 	}
 }
 
-// TestDiscoveryBypassIsLimitedToDiscoveryGETs pins that only the discovery
-// GETs skip the auth check: the same path suffix with another method, or
-// outside /atservicesrest/, still needs credentials.
+// TestDiscoveryBypassIsLimitedToDiscoveryGETs pins that only the two discovery
+// GETs at the server root skip the auth check: another method, the same suffix
+// on another path, or an extra path segment still needs credentials.
 func TestDiscoveryBypassIsLimitedToDiscoveryGETs(t *testing.T) {
 	ts, _ := NewServer(t)
 	for _, tc := range []struct{ method, path string }{
 		{http.MethodPost, "/atservicesrest/versioninformation"},
 		{http.MethodGet, "/v1.0/Companies/7/zoneInformation"},
+		{http.MethodGet, "/v1.0/Companies/7/atservicesrest/versioninformation"},
+		{http.MethodGet, "/atservicesrest/V1.0/x/zoneInformation"},
 	} {
 		req, err := http.NewRequestWithContext(t.Context(), tc.method, ts.URL+tc.path, http.NoBody)
 		if err != nil {
@@ -152,23 +154,5 @@ func TestDiscoveryBypassIsLimitedToDiscoveryGETs(t *testing.T) {
 		if resp.StatusCode != http.StatusUnauthorized {
 			t.Errorf("%s %s without credentials: status = %d, want 401", tc.method, tc.path, resp.StatusCode)
 		}
-	}
-}
-
-// TestDiscoveryBypassAllowsBasePathPrefix pins that a zone discovery base URL
-// with a path, such as a proxy prefix, is still answered without credentials.
-func TestDiscoveryBypassAllowsBasePathPrefix(t *testing.T) {
-	ts, _ := NewServer(t)
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, ts.URL+"/proxy/atservicesrest/versioninformation", http.NoBody)
-	if err != nil {
-		t.Fatalf("new request: %v", err)
-	}
-	resp, err := ts.Client().Do(req)
-	if err != nil {
-		t.Fatalf("do: %v", err)
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("prefixed discovery GET without credentials: status = %d, want 200", resp.StatusCode)
 	}
 }

@@ -223,12 +223,12 @@ func (ts *TestServer) handler() http.Handler {
 		// The client sends no credentials for zone discovery (discoverZone,
 		// zone.go:103), so the two discovery GETs are answered before the
 		// auth check.
-		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/atservicesrest/") {
+		if r.Method == http.MethodGet {
 			switch {
-			case strings.HasSuffix(r.URL.Path, "/zoneInformation"):
+			case isZoneInfoPath(r.URL.Path):
 				ts.handleZoneInfo(w, r)
 				return
-			case strings.HasSuffix(r.URL.Path, "/versioninformation"):
+			case r.URL.Path == "/atservicesrest/versioninformation":
 				ts.handleVersionInfo(w, r)
 				return
 			}
@@ -242,6 +242,17 @@ func (ts *TestServer) handler() http.Handler {
 
 		ts.route(w, r)
 	})
+}
+
+// isZoneInfoPath reports whether path is /atservicesrest/<version>/zoneInformation,
+// the zone request discoverZone sends to the server root.
+func isZoneInfoPath(path string) bool {
+	version, ok := strings.CutPrefix(path, "/atservicesrest/")
+	if !ok {
+		return false
+	}
+	version, ok = strings.CutSuffix(version, "/zoneInformation")
+	return ok && version != "" && !strings.Contains(version, "/")
 }
 
 // matchRule returns a copy of the first rule that matches r and still has

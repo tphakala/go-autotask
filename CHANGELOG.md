@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **`autotasktest.NewServer` answers zone discovery without checking credentials.** The client sends no credentials for the `versioninformation` and `zoneInformation` requests, and the test server checked them on every path, so a client that ran zone discovery against it (no `WithBaseURL` or `WithZoneInfo`) failed with `version request returned 401`. The two discovery GETs under `/atservicesrest/` are now answered before the auth check; every other request still requires the credentials. Rules added with `WithErrorOn` or `WithResponseOn` still run first.
+- **`autotasktest.NewServer` answers zone discovery without checking credentials.** The client sends no credentials for the `versioninformation` and `zoneInformation` requests, and the test server checked them on every path, so a client that ran zone discovery against it (no `WithBaseURL` or `WithZoneInfo`) failed with `version request returned 401`. The two discovery GETs, `/atservicesrest/versioninformation` and `/atservicesrest/<version>/zoneInformation` at the server root, are now answered before the auth check; every other request still requires the credentials. Rules added with `WithErrorOn` or `WithResponseOn` still run first.
 
 ## [1.6.0] - 2026-11-18
 
