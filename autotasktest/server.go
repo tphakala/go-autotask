@@ -218,15 +218,41 @@ func (ts *TestServer) handler() http.Handler {
 			return
 		}
 
+		w.Header().Set("Content-Type", "application/json")
+
+		// The client sends no credentials for zone discovery (discoverZone,
+		// zone.go:103), so the two discovery GETs are answered before the
+		// auth check.
+		if r.Method == http.MethodGet {
+			switch {
+			case isZoneInfoPath(r.URL.Path):
+				ts.handleZoneInfo(w, r)
+				return
+			case r.URL.Path == "/atservicesrest/versioninformation":
+				ts.handleVersionInfo(w, r)
+				return
+			}
+		}
+
 		// Validate auth headers.
 		if err := ts.validateAuth(r); err != nil {
 			writeErrorResponse(w, http.StatusUnauthorized, []string{err.Error()})
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
 		ts.route(w, r)
 	})
+}
+
+// isZoneInfoPath reports whether path is /atservicesrest/<version>/zoneInformation,
+// the zone request discoverZone sends to the server root.
+func isZoneInfoPath(path string) bool {
+	version, ok := strings.CutPrefix(path, "/atservicesrest/")
+	if !ok {
+		return false
+	}
+	version, ok = strings.CutSuffix(version, "/zoneInformation")
+	return ok && version != "" && !strings.Contains(version, "/")
 }
 
 // matchRule returns a copy of the first rule that matches r and still has
@@ -254,16 +280,6 @@ func (ts *TestServer) matchRule(r *http.Request) (errorRule, bool) {
 
 func (ts *TestServer) route(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
-
-	// Zone discovery.
-	if strings.HasSuffix(path, "/zoneInformation") {
-		ts.handleZoneInfo(w, r)
-		return
-	}
-	if strings.HasSuffix(path, "/versioninformation") {
-		ts.handleVersionInfo(w, r)
-		return
-	}
 
 	// Threshold info.
 	if strings.HasSuffix(path, "/ThresholdInformation") {

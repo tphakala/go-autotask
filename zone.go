@@ -24,11 +24,39 @@ const (
 	defaultZoneCacheTTL = 24 * time.Hour
 )
 
+// ZoneInfo describes the Autotask zone an API user belongs to, as zone
+// discovery returns it. URL is the API base URL. The JSON names are those of
+// the zone information response, so a ZoneInfo can be stored as JSON and given
+// back to NewClient with WithZoneInfo.
 type ZoneInfo struct {
 	ZoneName string `json:"zoneName"`
 	URL      string `json:"url"`
 	WebURL   string `json:"webUrl"`
 	CI       int    `json:"ci"`
+}
+
+// validateZoneURL checks the URL of a zone given with WithZoneInfo: it must be
+// an absolute http or https URL with a host and no "@", query or fragment.
+// joinURL appends API paths to it, which a query or fragment would swallow. An
+// "@" anywhere is rejected, not only in parsed user info: net/url ends the
+// authority at the first "/" (go1.27.4 net/url/url.go:489), so it reads
+// "https://user:1234/x@host/" as host "user", port 1234, no user info.
+// The errors leave the URL out, so a password in it is not repeated.
+func validateZoneURL(raw string) error {
+	if raw == "" {
+		return fmt.Errorf("autotask: WithZoneInfo: zone URL is empty")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		// Not wrapped: *url.Error prints the whole URL (go1.27.4
+		// net/url/url.go:40), and its cause can quote part of the user info,
+		// such as `invalid port ":pw" after host` (url.go:631).
+		return fmt.Errorf("autotask: WithZoneInfo: zone URL does not parse")
+	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || strings.ContainsAny(raw, "@?#") {
+		return fmt.Errorf("autotask: WithZoneInfo: zone URL is not an absolute http or https URL with a host and no @, query or fragment")
+	}
+	return nil
 }
 
 type ZoneCache struct {

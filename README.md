@@ -31,7 +31,7 @@ client, err := autotask.NewClient(ctx, autotask.AuthConfig{
 - **Metadata introspection**: query field definitions, picklists, UDFs, and entity capabilities at runtime
 - **Code generation**: `autotask-gen` generates entity structs from live API metadata
 - **Test support**: `autotasktest.NewMockClient` for in-memory testing with fixtures
-- **Automatic zone discovery**: resolves the correct API endpoint for your account
+- **Automatic zone discovery**: resolves the correct API endpoint for your account, and can reuse a saved zone
 
 ## Install
 
@@ -365,11 +365,60 @@ func TestMyCode(t *testing.T) {
 }
 ```
 
+## Zone discovery
+
+`NewClient` finds the API endpoint for the account with two requests (the API version list, then the zone information for the username) before it returns. `Client.Zone` returns what it found:
+
+```go
+zone, ok := client.Zone() // ok is false for a client built with a non-empty WithBaseURL
+fmt.Println(zone.ZoneName, zone.URL, zone.WebURL)
+```
+
+A process that starts often, such as one run per event, can save the zone and skip both requests on later runs. `ZoneInfo` marshals to JSON as it is. This loads a saved zone when there is one, and saves the discovered zone when there is not:
+
+```go
+var opts []autotask.ClientOption
+loaded := false
+data, err := os.ReadFile(zonePath)
+switch {
+case err == nil:
+    var zone autotask.ZoneInfo
+    if err := json.Unmarshal(data, &zone); err != nil {
+        return err
+    }
+    opts = append(opts, autotask.WithZoneInfo(zone))
+    loaded = true
+case !errors.Is(err, fs.ErrNotExist):
+    return err
+}
+
+client, err := autotask.NewClient(ctx, auth, opts...)
+if err != nil {
+    return err
+}
+
+// First run: no saved zone, so NewClient discovered it. Save it.
+if !loaded {
+    if zone, ok := client.Zone(); ok {
+        data, err := json.Marshal(zone)
+        if err != nil {
+            return err
+        }
+        if err := os.WriteFile(zonePath, data, 0o600); err != nil {
+            return err
+        }
+    }
+}
+```
+
+With `WithZoneInfo`, `NewClient` sends no zone discovery request, uses `zone.URL` as the base URL, and `client.Zone()` returns the same value, `WebURL` included. `NewClient` returns an error when `zone.URL` is not an absolute `http` or `https` URL with a host and no `@`, query or fragment, or when a non-empty `WithBaseURL` is also set. The client sends the API credentials to `zone.URL`, so protect the saved file like the credentials and keep one per API username. A saved zone does not expire: if calls start to fail in a way that points at the endpoint, delete it and let `NewClient` discover the zone again.
+
 ## Client options
 
 | Option | Description |
 |--------|-------------|
-| `WithBaseURL(url)` | Override automatic zone discovery with a fixed API base URL |
+| `WithBaseURL(url)` | Override automatic zone discovery with a fixed API base URL; with a non-empty URL, `Client.Zone` reports no zone |
+| `WithZoneInfo(z)` | Use a zone saved from `Client.Zone` on an earlier run; no zone discovery request is made (see [Zone discovery](#zone-discovery)) |
 | `WithZoneBaseURL(url)` | Override the base URL used for zone discovery (mainly for testing) |
 | `WithHTTPClient(hc)` | Use a custom `*http.Client` |
 | `WithLogger(l)` | Structured logging via `*slog.Logger` |

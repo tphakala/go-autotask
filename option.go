@@ -34,8 +34,29 @@ func WithLogger(l *slog.Logger) ClientOption {
 	return func(c *Client) { c.logger = l }
 }
 
+// WithBaseURL sets a fixed API base URL and skips zone discovery, so
+// Client.Zone reports no zone. An empty url leaves discovery on. A non-empty
+// url cannot be combined with WithZoneInfo.
 func WithBaseURL(url string) ClientOption {
 	return func(c *Client) { c.baseURL = url }
+}
+
+// WithZoneInfo makes NewClient use a zone that is already known, such as one
+// saved from Client.Zone on an earlier run, instead of discovering it.
+// NewClient uses z.URL as the API base URL and sends no zone discovery
+// request, and Client.Zone returns z unchanged. The client uses only z.URL;
+// the other fields are kept for the caller.
+//
+// NewClient returns an error when z.URL is empty or is not an absolute http or
+// https URL with a host and no "@", query or fragment, and when
+// WithZoneInfo is combined with a non-empty WithBaseURL. WithZoneBaseURL has
+// no effect together with WithZoneInfo.
+//
+// The client sends the API credentials to z.URL, so load z only from storage
+// you trust as much as the credentials. Zone discovery is per username, so
+// store one zone per API user.
+func WithZoneInfo(z ZoneInfo) ClientOption {
+	return func(c *Client) { c.zone, c.hasZone = z, true }
 }
 
 // WithUserAgent sets the User-Agent header. The default is go-autotask/<module
