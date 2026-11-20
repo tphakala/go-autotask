@@ -271,29 +271,31 @@ func TestWithZoneInfoValidation(t *testing.T) {
 	t.Parallel()
 	valid := ZoneInfo{ZoneName: "Zone 5", URL: "https://webservices5.autotask.net/atservicesrest/", WebURL: "https://ww5.autotask.net/", CI: 5}
 	withURL := func(u string) ZoneInfo { z := valid; z.URL = u; return z }
+	slashURL := "http://127.0.0.1:1/atservicesrest/"
 	tests := []struct {
 		name    string
 		opts    []ClientOption
 		wantErr bool
+		want    ZoneInfo // the zone a success row passes in
 	}{
-		{"empty URL", []ClientOption{WithZoneInfo(withURL(""))}, true},
-		{"no scheme", []ClientOption{WithZoneInfo(withURL("webservices5.autotask.net/atservicesrest"))}, true},
-		{"other scheme", []ClientOption{WithZoneInfo(withURL("ftp://webservices5.autotask.net"))}, true},
-		{"no host", []ClientOption{WithZoneInfo(withURL("https://"))}, true},
-		{"port without host", []ClientOption{WithZoneInfo(withURL("http://:8080"))}, true},
-		{"trailing newline", []ClientOption{WithZoneInfo(withURL("https://webservices5.autotask.net\n"))}, true},
-		{"query", []ClientOption{WithZoneInfo(withURL("https://webservices5.autotask.net/atservicesrest?x=1"))}, true},
-		{"empty query", []ClientOption{WithZoneInfo(withURL("https://webservices5.autotask.net/atservicesrest?"))}, true},
-		{"fragment", []ClientOption{WithZoneInfo(withURL("https://webservices5.autotask.net/atservicesrest#x"))}, true},
-		{"user info", []ClientOption{WithZoneInfo(withURL("https://apiuser:" + zoneSecret + "@webservices5.autotask.net/atservicesrest/"))}, true},
-		{"user info, missing slash", []ClientOption{WithZoneInfo(withURL("https:/apiuser:" + zoneSecret + "@webservices5.autotask.net"))}, true},
-		{"user info, parse failure", []ClientOption{WithZoneInfo(withURL("https://apiuser:" + zoneSecret + "@webservices5.autotask.net:abc"))}, true},
-		{"password with slash", []ClientOption{WithZoneInfo(withURL("https://apiuser:" + zoneSecret + "/x@webservices5.autotask.net/"))}, true},
-		{"password with hash", []ClientOption{WithZoneInfo(withURL("https://apiuser:" + zoneSecret + "#x@webservices5.autotask.net/"))}, true},
-		{"zone then base URL", []ClientOption{WithZoneInfo(valid), WithBaseURL("https://other.example")}, true},
-		{"base URL then zone", []ClientOption{WithBaseURL("https://other.example"), WithZoneInfo(valid)}, true},
-		{"empty base URL then zone", []ClientOption{WithBaseURL(""), WithZoneInfo(valid)}, false},
-		{"http with path and trailing slash", []ClientOption{WithZoneInfo(withURL("http://127.0.0.1:1/atservicesrest/"))}, false},
+		{"empty URL", []ClientOption{WithZoneInfo(withURL(""))}, true, ZoneInfo{}},
+		{"no scheme", []ClientOption{WithZoneInfo(withURL("webservices5.autotask.net/atservicesrest"))}, true, ZoneInfo{}},
+		{"other scheme", []ClientOption{WithZoneInfo(withURL("ftp://webservices5.autotask.net"))}, true, ZoneInfo{}},
+		{"no host", []ClientOption{WithZoneInfo(withURL("https://"))}, true, ZoneInfo{}},
+		{"port without host", []ClientOption{WithZoneInfo(withURL("http://:8080"))}, true, ZoneInfo{}},
+		{"trailing newline", []ClientOption{WithZoneInfo(withURL("https://webservices5.autotask.net\n"))}, true, ZoneInfo{}},
+		{"query", []ClientOption{WithZoneInfo(withURL("https://webservices5.autotask.net/atservicesrest?x=1"))}, true, ZoneInfo{}},
+		{"empty query", []ClientOption{WithZoneInfo(withURL("https://webservices5.autotask.net/atservicesrest?"))}, true, ZoneInfo{}},
+		{"fragment", []ClientOption{WithZoneInfo(withURL("https://webservices5.autotask.net/atservicesrest#x"))}, true, ZoneInfo{}},
+		{"user info", []ClientOption{WithZoneInfo(withURL("https://apiuser:" + zoneSecret + "@webservices5.autotask.net/atservicesrest/"))}, true, ZoneInfo{}},
+		{"user info, missing slash", []ClientOption{WithZoneInfo(withURL("https:/apiuser:" + zoneSecret + "@webservices5.autotask.net"))}, true, ZoneInfo{}},
+		{"user info, parse failure", []ClientOption{WithZoneInfo(withURL("https://apiuser:" + zoneSecret + "@webservices5.autotask.net:abc"))}, true, ZoneInfo{}},
+		{"password with slash", []ClientOption{WithZoneInfo(withURL("https://apiuser:" + zoneSecret + "/x@webservices5.autotask.net/"))}, true, ZoneInfo{}},
+		{"password with hash", []ClientOption{WithZoneInfo(withURL("https://apiuser:" + zoneSecret + "#x@webservices5.autotask.net/"))}, true, ZoneInfo{}},
+		{"zone then base URL", []ClientOption{WithZoneInfo(valid), WithBaseURL("https://other.example")}, true, ZoneInfo{}},
+		{"base URL then zone", []ClientOption{WithBaseURL("https://other.example"), WithZoneInfo(valid)}, true, ZoneInfo{}},
+		{"empty base URL then zone", []ClientOption{WithBaseURL(""), WithZoneInfo(valid)}, false, valid},
+		{"http with path and trailing slash", []ClientOption{WithZoneInfo(withURL(slashURL))}, false, withURL(slashURL)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -322,12 +324,11 @@ func TestWithZoneInfoValidation(t *testing.T) {
 				t.Fatalf("NewClient: %v", err)
 			}
 			t.Cleanup(func() { _ = client.Close() })
-			got, ok := client.Zone()
-			if !ok {
-				t.Fatal("Zone() reported no zone")
+			if got, ok := client.Zone(); !ok || got != tt.want {
+				t.Fatalf("Zone() = %+v, %v; want the given zone %+v, true", got, ok, tt.want)
 			}
-			if client.baseURL != got.URL {
-				t.Fatalf("baseURL = %q; want the given zone URL %q verbatim", client.baseURL, got.URL)
+			if client.baseURL != tt.want.URL {
+				t.Fatalf("baseURL = %q; want the given zone URL %q verbatim", client.baseURL, tt.want.URL)
 			}
 		})
 	}
