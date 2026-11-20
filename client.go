@@ -22,13 +22,8 @@ const defaultHTTPTimeout = 30 * time.Second
 var _ interface{ Close() error } = (*Client)(nil)
 
 type Client struct {
-	httpClient *http.Client
-	baseURL    string
-	// zone is the zone the client runs in; hasZone is false when the base URL
-	// came from WithBaseURL. Both are written only inside NewClient, so Zone
-	// reads them without a lock.
-	zone                 ZoneInfo
-	hasZone              bool
+	httpClient           *http.Client
+	baseURL              string
 	auth                 AuthConfig
 	zoneCache            *ZoneCache
 	middlewares          []Middleware
@@ -39,6 +34,11 @@ type Client struct {
 	impersonationID      int64
 	maxResponseBytes     int64
 	closers              []func() error
+	// zone is the zone the client runs in; hasZone is false when the base URL
+	// came from WithBaseURL. Both are written only inside NewClient, so Zone
+	// reads them without a lock.
+	zone    ZoneInfo
+	hasZone bool
 }
 
 type AuthConfig struct {
