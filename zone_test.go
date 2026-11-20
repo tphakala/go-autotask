@@ -292,6 +292,7 @@ func TestWithZoneInfoValidation(t *testing.T) {
 		{"user info, parse failure", []ClientOption{WithZoneInfo(withURL("https://apiuser:" + zoneSecret + "@webservices5.autotask.net:abc"))}, true, ZoneInfo{}},
 		{"password with slash", []ClientOption{WithZoneInfo(withURL("https://apiuser:" + zoneSecret + "/x@webservices5.autotask.net/"))}, true, ZoneInfo{}},
 		{"password with hash", []ClientOption{WithZoneInfo(withURL("https://apiuser:" + zoneSecret + "#x@webservices5.autotask.net/"))}, true, ZoneInfo{}},
+		{"digit password with slash", []ClientOption{WithZoneInfo(withURL("https://apiuser:1234/" + zoneSecret + "@webservices5.autotask.net/"))}, true, ZoneInfo{}},
 		{"zone then base URL", []ClientOption{WithZoneInfo(valid), WithBaseURL("https://other.example")}, true, ZoneInfo{}},
 		{"base URL then zone", []ClientOption{WithBaseURL("https://other.example"), WithZoneInfo(valid)}, true, ZoneInfo{}},
 		{"empty base URL then zone", []ClientOption{WithBaseURL(""), WithZoneInfo(valid)}, false, valid},

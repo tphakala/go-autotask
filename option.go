@@ -35,8 +35,8 @@ func WithLogger(l *slog.Logger) ClientOption {
 }
 
 // WithBaseURL sets a fixed API base URL and skips zone discovery, so
-// Client.Zone reports no zone. An empty url leaves discovery on. It cannot be
-// combined with WithZoneInfo.
+// Client.Zone reports no zone. An empty url leaves discovery on. A non-empty
+// url cannot be combined with WithZoneInfo.
 func WithBaseURL(url string) ClientOption {
 	return func(c *Client) { c.baseURL = url }
 }
@@ -48,7 +48,7 @@ func WithBaseURL(url string) ClientOption {
 // the other fields are kept for the caller.
 //
 // NewClient returns an error when z.URL is empty or is not an absolute http or
-// https URL with a host and no user info, query or fragment, and when
+// https URL with a host and no "@", query or fragment, and when
 // WithZoneInfo is combined with a non-empty WithBaseURL. WithZoneBaseURL has
 // no effect together with WithZoneInfo.
 //

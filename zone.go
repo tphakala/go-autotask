@@ -36,9 +36,11 @@ type ZoneInfo struct {
 }
 
 // validateZoneURL checks the URL of a zone given with WithZoneInfo: it must be
-// an absolute http or https URL with a host and no user info, query or
-// fragment. joinURL appends API paths to it, which a query or fragment would
-// swallow. The errors leave the URL out, so a password in it is not repeated.
+// an absolute http or https URL with a host and no "@", query or fragment.
+// joinURL appends API paths to it, which a query or fragment would swallow. An
+// "@" anywhere is rejected, not only in parsed user info: net/url (go1.27.4)
+// reads "https://user:1234/x@host/" as host "user", port 1234, no user info.
+// The errors leave the URL out, so a password in it is not repeated.
 func validateZoneURL(raw string) error {
 	if raw == "" {
 		return fmt.Errorf("autotask: WithZoneInfo: zone URL is empty")
@@ -50,8 +52,8 @@ func validateZoneURL(raw string) error {
 		// such as `invalid port ":pw" after host` (url.go:631).
 		return fmt.Errorf("autotask: WithZoneInfo: zone URL does not parse")
 	}
-	if (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || strings.ContainsAny(raw, "?#") {
-		return fmt.Errorf("autotask: WithZoneInfo: zone URL is not an absolute http or https URL with a host and no user info, query or fragment")
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || strings.ContainsAny(raw, "@?#") {
+		return fmt.Errorf("autotask: WithZoneInfo: zone URL is not an absolute http or https URL with a host and no @, query or fragment")
 	}
 	return nil
 }
