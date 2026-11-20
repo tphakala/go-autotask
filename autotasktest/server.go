@@ -221,14 +221,17 @@ func (ts *TestServer) handler() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 
 		// The client sends no credentials for zone discovery (discoverZone,
-		// zone.go:103), so discovery is answered before the auth check.
-		if strings.HasSuffix(r.URL.Path, "/zoneInformation") {
-			ts.handleZoneInfo(w, r)
-			return
-		}
-		if strings.HasSuffix(r.URL.Path, "/versioninformation") {
-			ts.handleVersionInfo(w, r)
-			return
+		// zone.go:103), so the two discovery GETs are answered before the
+		// auth check.
+		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/atservicesrest/") {
+			switch {
+			case strings.HasSuffix(r.URL.Path, "/zoneInformation"):
+				ts.handleZoneInfo(w, r)
+				return
+			case strings.HasSuffix(r.URL.Path, "/versioninformation"):
+				ts.handleVersionInfo(w, r)
+				return
+			}
 		}
 
 		// Validate auth headers.

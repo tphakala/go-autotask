@@ -35,8 +35,8 @@ type Client struct {
 	maxResponseBytes     int64
 	closers              []func() error
 	// zone is the zone the client runs in; hasZone is false when the base URL
-	// came from a non-empty WithBaseURL. Both are written only inside NewClient, so Zone
-	// reads them without a lock.
+	// came from a non-empty WithBaseURL. Both are written only inside
+	// NewClient, so Zone reads them without a lock.
 	zone    ZoneInfo
 	hasZone bool
 }
@@ -144,8 +144,8 @@ func (c *Client) useGivenZone() error {
 
 // Zone returns the zone the client resolved in NewClient: the one zone
 // discovery returned, or the one given with WithZoneInfo. The second result is
-// false for a client built with a non-empty WithBaseURL, which has no zone. The value is a
-// copy and does not change for the life of the client.
+// false for a client built with a non-empty WithBaseURL, which has no zone.
+// The value is a copy and does not change for the life of the client.
 func (c *Client) Zone() (ZoneInfo, bool) {
 	return c.zone, c.hasZone
 }

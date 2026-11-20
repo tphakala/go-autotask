@@ -114,3 +114,43 @@ func TestNewClientDiscoversZoneFromServer(t *testing.T) {
 		t.Fatalf("entity GET without credentials: status = %d, want 401", resp.StatusCode)
 	}
 }
+
+// TestDiscoveryRulesRunBeforeDiscovery pins that a rule on a discovery path
+// still answers first, so a test can make zone discovery fail.
+func TestDiscoveryRulesRunBeforeDiscovery(t *testing.T) {
+	ts, _ := NewServer(t, WithErrorOn(http.MethodGet, "/versioninformation", http.StatusServiceUnavailable, []string{"maintenance"}))
+	auth := autotask.AuthConfig{Username: "test-user", Secret: "test-secret", IntegrationCode: "test-code"}
+
+	client, err := autotask.NewClient(t.Context(), auth, autotask.WithZoneBaseURL(ts.URL))
+	if err == nil {
+		_ = client.Close()
+		t.Fatal("NewClient succeeded; want the 503 the rule serves for the version request")
+	}
+	if !strings.Contains(err.Error(), "503") {
+		t.Fatalf("NewClient error = %v; want the rule's 503", err)
+	}
+}
+
+// TestDiscoveryBypassIsLimitedToDiscoveryGETs pins that only the discovery
+// GETs skip the auth check: the same path suffix with another method, or
+// outside /atservicesrest/, still needs credentials.
+func TestDiscoveryBypassIsLimitedToDiscoveryGETs(t *testing.T) {
+	ts, _ := NewServer(t)
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodPost, "/atservicesrest/versioninformation"},
+		{http.MethodGet, "/v1.0/Companies/7/zoneInformation"},
+	} {
+		req, err := http.NewRequestWithContext(t.Context(), tc.method, ts.URL+tc.path, http.NoBody)
+		if err != nil {
+			t.Fatalf("new request: %v", err)
+		}
+		resp, err := ts.Client().Do(req)
+		if err != nil {
+			t.Fatalf("do: %v", err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("%s %s without credentials: status = %d, want 401", tc.method, tc.path, resp.StatusCode)
+		}
+	}
+}
