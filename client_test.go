@@ -25,6 +25,9 @@ func TestNewClientWithBaseURL(t *testing.T) {
 	if client.baseURL != srv.URL {
 		t.Fatalf("baseURL = %q; want %q", client.baseURL, srv.URL)
 	}
+	if zone, ok := client.Zone(); ok || zone != (ZoneInfo{}) {
+		t.Fatalf("Zone() = %+v, %v; want zero value, false", zone, ok)
+	}
 }
 
 func TestClientAuthHeaders(t *testing.T) {

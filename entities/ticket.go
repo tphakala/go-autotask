@@ -11,6 +11,7 @@ type Ticket struct {
 	ID                     autotask.Optional[int64]     `json:"id,omitzero"`
 	Title                  autotask.Optional[string]    `json:"title,omitzero"`
 	Description            autotask.Optional[string]    `json:"description,omitzero"`
+	Resolution             autotask.Optional[string]    `json:"resolution,omitzero"`
 	TicketNumber           autotask.Optional[string]    `json:"ticketNumber,omitzero"`
 	Status                 autotask.Optional[int64]     `json:"status,omitzero"`
 	Priority               autotask.Optional[int64]     `json:"priority,omitzero"`

@@ -24,11 +24,31 @@ const (
 	defaultZoneCacheTTL = 24 * time.Hour
 )
 
+// ZoneInfo describes the Autotask zone an API user belongs to, as zone
+// discovery returns it. URL is the API base URL. The JSON names are those of
+// the zone information response, so a ZoneInfo can be stored as JSON and given
+// back to NewClient with WithZoneInfo.
 type ZoneInfo struct {
 	ZoneName string `json:"zoneName"`
 	URL      string `json:"url"`
 	WebURL   string `json:"webUrl"`
 	CI       int    `json:"ci"`
+}
+
+// validateZoneURL checks the URL of a zone given with WithZoneInfo: it must be
+// an absolute http or https URL with a host.
+func validateZoneURL(raw string) error {
+	if raw == "" {
+		return fmt.Errorf("autotask: WithZoneInfo: zone URL is empty")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("autotask: WithZoneInfo: %w", err)
+	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return fmt.Errorf("autotask: WithZoneInfo: zone URL %q is not an absolute http or https URL with a host", raw)
+	}
+	return nil
 }
 
 type ZoneCache struct {

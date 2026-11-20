@@ -22,8 +22,13 @@ const defaultHTTPTimeout = 30 * time.Second
 var _ interface{ Close() error } = (*Client)(nil)
 
 type Client struct {
-	httpClient           *http.Client
-	baseURL              string
+	httpClient *http.Client
+	baseURL    string
+	// zone is the zone the client runs in; hasZone is false when the base URL
+	// came from WithBaseURL. Both are written only inside NewClient, so Zone
+	// reads them without a lock.
+	zone                 ZoneInfo
+	hasZone              bool
 	auth                 AuthConfig
 	zoneCache            *ZoneCache
 	middlewares          []Middleware
@@ -68,6 +73,9 @@ func NewClient(ctx context.Context, auth AuthConfig, opts ...ClientOption) (*Cli
 	for _, opt := range opts {
 		opt(c)
 	}
+	if err := c.useGivenZone(); err != nil {
+		return nil, err
+	}
 	// Apply middlewares to the HTTP transport. Clone the http.Client
 	// to avoid mutating a user-provided or shared client (e.g., http.DefaultClient).
 	if len(c.middlewares) > 0 {
@@ -82,13 +90,14 @@ func NewClient(ctx context.Context, auth AuthConfig, opts ...ClientOption) (*Cli
 		cloned.Transport = transport
 		c.httpClient = &cloned
 	}
-	// If no base URL override, perform zone discovery.
+	// Without a base URL or a given zone, perform zone discovery.
 	if c.baseURL == "" {
 		zone, err := c.resolveZone(ctx)
 		if err != nil {
 			return nil, err
 		}
 		c.baseURL = zone.URL
+		c.zone, c.hasZone = *zone, true
 	}
 	// Installed after zone discovery so the guard compares against the final
 	// baseURL.
@@ -115,6 +124,30 @@ func (c *Client) Close() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// useGivenZone applies a zone set with WithZoneInfo. It runs straight after
+// the options, where hasZone can only have been set by that option.
+func (c *Client) useGivenZone() error {
+	if !c.hasZone {
+		return nil
+	}
+	if c.baseURL != "" {
+		return fmt.Errorf("autotask: WithZoneInfo and WithBaseURL cannot be combined")
+	}
+	if err := validateZoneURL(c.zone.URL); err != nil {
+		return err
+	}
+	c.baseURL = c.zone.URL
+	return nil
+}
+
+// Zone returns the zone the client resolved in NewClient: the one zone
+// discovery returned, or the one given with WithZoneInfo. The second result is
+// false for a client built with WithBaseURL, which has no zone. The value is a
+// copy and does not change for the life of the client.
+func (c *Client) Zone() (ZoneInfo, bool) {
+	return c.zone, c.hasZone
 }
 
 func (c *Client) resolveZone(ctx context.Context) (*ZoneInfo, error) {

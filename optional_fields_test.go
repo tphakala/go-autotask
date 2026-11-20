@@ -127,3 +127,44 @@ func TestTicketProblemTicketIDWireName(t *testing.T) {
 		})
 	}
 }
+
+func TestTicketResolutionPartialUpdate(t *testing.T) {
+	t.Parallel()
+	ticket := entities.Ticket{
+		ID:         autotask.Set(int64(1)),
+		Status:     autotask.Set(int64(5)),
+		Resolution: autotask.Set("Restarted the service"),
+	}
+	data, err := json.Marshal(ticket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"id":1,"resolution":"Restarted the service","status":5}`
+	if string(data) != want {
+		t.Fatalf("JSON = %s, want %s", data, want)
+	}
+}
+
+func TestCompanyTerritoryIDWireName(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		field autotask.Optional[int64]
+		want  string
+	}{
+		{"set", autotask.Set(int64(7)), `{"territoryID":7}`},
+		{"unset", autotask.Optional[int64]{}, `{}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			data, err := json.Marshal(entities.Company{TerritoryID: tt.field})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(data) != tt.want {
+				t.Fatalf("JSON = %s, want %s", data, tt.want)
+			}
+		})
+	}
+}

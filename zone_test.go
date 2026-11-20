@@ -262,3 +262,58 @@ func TestJoinURL(t *testing.T) {
 		})
 	}
 }
+
+func TestWithZoneInfoValidation(t *testing.T) {
+	t.Parallel()
+	valid := ZoneInfo{ZoneName: "Zone 5", URL: "https://webservices5.autotask.net/atservicesrest/", WebURL: "https://ww5.autotask.net/", CI: 5}
+	withURL := func(u string) ZoneInfo { z := valid; z.URL = u; return z }
+	tests := []struct {
+		name    string
+		opts    []ClientOption
+		wantErr bool
+	}{
+		{"empty URL", []ClientOption{WithZoneInfo(withURL(""))}, true},
+		{"no scheme", []ClientOption{WithZoneInfo(withURL("webservices5.autotask.net/atservicesrest"))}, true},
+		{"other scheme", []ClientOption{WithZoneInfo(withURL("ftp://webservices5.autotask.net"))}, true},
+		{"no host", []ClientOption{WithZoneInfo(withURL("https://"))}, true},
+		{"port without host", []ClientOption{WithZoneInfo(withURL("http://:8080"))}, true},
+		{"trailing newline", []ClientOption{WithZoneInfo(withURL("https://webservices5.autotask.net\n"))}, true},
+		{"zone then base URL", []ClientOption{WithZoneInfo(valid), WithBaseURL("https://other.example")}, true},
+		{"base URL then zone", []ClientOption{WithBaseURL("https://other.example"), WithZoneInfo(valid)}, true},
+		{"empty base URL then zone", []ClientOption{WithBaseURL(""), WithZoneInfo(valid)}, false},
+		{"http with path and trailing slash", []ClientOption{WithZoneInfo(withURL("http://127.0.0.1:1/atservicesrest/"))}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Every request fails the test: building a client from a given zone
+			// must send none, valid or not.
+			noNetwork := &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+				t.Errorf("unexpected request %s %s", r.Method, r.URL)
+				return nil, http.ErrHandlerTimeout
+			})}
+			opts := append([]ClientOption{WithHTTPClient(noNetwork)}, tt.opts...)
+			client, err := NewClient(t.Context(), AuthConfig{Username: "user"}, opts...)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("NewClient succeeded with zone URL %q; want an error", client.zone.URL)
+				}
+				if client != nil {
+					t.Fatal("NewClient returned a client with an error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("NewClient: %v", err)
+			}
+			t.Cleanup(func() { _ = client.Close() })
+			got, ok := client.Zone()
+			if !ok {
+				t.Fatal("Zone() reported no zone")
+			}
+			if client.baseURL != got.URL {
+				t.Fatalf("baseURL = %q; want the given zone URL %q verbatim", client.baseURL, got.URL)
+			}
+		})
+	}
+}
