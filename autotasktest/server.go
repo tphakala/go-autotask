@@ -218,13 +218,25 @@ func (ts *TestServer) handler() http.Handler {
 			return
 		}
 
+		w.Header().Set("Content-Type", "application/json")
+
+		// The client sends no credentials for zone discovery (discoverZone,
+		// zone.go:103), so discovery is answered before the auth check.
+		if strings.HasSuffix(r.URL.Path, "/zoneInformation") {
+			ts.handleZoneInfo(w, r)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/versioninformation") {
+			ts.handleVersionInfo(w, r)
+			return
+		}
+
 		// Validate auth headers.
 		if err := ts.validateAuth(r); err != nil {
 			writeErrorResponse(w, http.StatusUnauthorized, []string{err.Error()})
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
 		ts.route(w, r)
 	})
 }
@@ -254,16 +266,6 @@ func (ts *TestServer) matchRule(r *http.Request) (errorRule, bool) {
 
 func (ts *TestServer) route(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
-
-	// Zone discovery.
-	if strings.HasSuffix(path, "/zoneInformation") {
-		ts.handleZoneInfo(w, r)
-		return
-	}
-	if strings.HasSuffix(path, "/versioninformation") {
-		ts.handleVersionInfo(w, r)
-		return
-	}
 
 	// Threshold info.
 	if strings.HasSuffix(path, "/ThresholdInformation") {

@@ -9,8 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`Client.Zone` and `WithZoneInfo`**: `Zone()` returns the `ZoneInfo` (`ZoneName`, `URL`, `WebURL`, `CI`) the client resolved in `NewClient`, and false for a client built with `WithBaseURL`. `WithZoneInfo(z)` builds a client on `z.URL` without the two zone discovery requests, and `Zone()` then returns `z`. `ZoneInfo` marshals to JSON, so a short-lived process can discover the zone once, store it and reuse it on later runs. `NewClient` returns an error when `z.URL` is not an absolute `http` or `https` URL with a host and no `@`, query or fragment, or when `WithZoneInfo` is combined with a non-empty `WithBaseURL`; `WithZoneBaseURL` has no effect together with it. A `NewClient` call without `WithZoneInfo` behaves as before.
+- **`Client.Zone` and `WithZoneInfo`**: `Zone()` returns the `ZoneInfo` (`ZoneName`, `URL`, `WebURL`, `CI`) the client resolved in `NewClient`, and false for a client built with a non-empty `WithBaseURL`. `WithZoneInfo(z)` builds a client on `z.URL` without the two zone discovery requests, and `Zone()` then returns `z`. `ZoneInfo` marshals to JSON, so a short-lived process can discover the zone once, store it and reuse it on later runs. `NewClient` returns an error when `z.URL` is not an absolute `http` or `https` URL with a host and no `@`, query or fragment, or when `WithZoneInfo` is combined with a non-empty `WithBaseURL`; `WithZoneBaseURL` has no effect together with it. A `NewClient` call without `WithZoneInfo` behaves as before.
 - **`entities.Ticket.Resolution` and `entities.Company.TerritoryID`**: `Resolution` (JSON `resolution`, a string of up to 32000 characters) and `TerritoryID` (JSON `territoryID`) are `Optional` fields like the others, so they are sent only when set. `Resolution` sits after `Description` and `TerritoryID` after `OwnerResourceID`, so an unkeyed struct literal of either type needs updating.
+
+### Fixed
+
+- **`autotasktest.NewServer` answers zone discovery without checking credentials.** The client sends no credentials for the `versioninformation` and `zoneInformation` requests, and the test server checked them on every path, so a client that ran zone discovery against it (no `WithBaseURL` or `WithZoneInfo`) failed with `version request returned 401`. The two discovery paths are now answered before the auth check; every other path still requires the credentials. Rules added with `WithErrorOn` or `WithResponseOn` still run first.
 
 ## [1.6.0] - 2026-11-18
 

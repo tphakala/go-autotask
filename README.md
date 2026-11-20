@@ -370,7 +370,7 @@ func TestMyCode(t *testing.T) {
 `NewClient` finds the API endpoint for the account with two requests (the API version list, then the zone information for the username) before it returns. `Client.Zone` returns what it found:
 
 ```go
-zone, ok := client.Zone() // ok is false for a client built with WithBaseURL
+zone, ok := client.Zone() // ok is false for a client built with a non-empty WithBaseURL
 fmt.Println(zone.ZoneName, zone.URL, zone.WebURL)
 ```
 
@@ -378,6 +378,7 @@ A process that starts often, such as one run per event, can save the zone and sk
 
 ```go
 var opts []autotask.ClientOption
+loaded := false
 data, err := os.ReadFile(zonePath)
 switch {
 case err == nil:
@@ -386,6 +387,7 @@ case err == nil:
         return err
     }
     opts = append(opts, autotask.WithZoneInfo(zone))
+    loaded = true
 case !errors.Is(err, fs.ErrNotExist):
     return err
 }
@@ -396,7 +398,7 @@ if err != nil {
 }
 
 // First run: no saved zone, so NewClient discovered it. Save it.
-if len(opts) == 0 {
+if !loaded {
     if zone, ok := client.Zone(); ok {
         data, err := json.Marshal(zone)
         if err != nil {
