@@ -223,7 +223,7 @@ func (ts *TestServer) handler() http.Handler {
 		// The client sends no credentials for zone discovery (discoverZone,
 		// zone.go:103), so the two discovery GETs are answered before the
 		// auth check.
-		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/atservicesrest/") {
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/atservicesrest/") {
 			switch {
 			case strings.HasSuffix(r.URL.Path, "/zoneInformation"):
 				ts.handleZoneInfo(w, r)

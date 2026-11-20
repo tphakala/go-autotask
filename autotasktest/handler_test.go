@@ -154,3 +154,21 @@ func TestDiscoveryBypassIsLimitedToDiscoveryGETs(t *testing.T) {
 		}
 	}
 }
+
+// TestDiscoveryBypassAllowsBasePathPrefix pins that a zone discovery base URL
+// with a path, such as a proxy prefix, is still answered without credentials.
+func TestDiscoveryBypassAllowsBasePathPrefix(t *testing.T) {
+	ts, _ := NewServer(t)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, ts.URL+"/proxy/atservicesrest/versioninformation", http.NoBody)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("prefixed discovery GET without credentials: status = %d, want 200", resp.StatusCode)
+	}
+}
