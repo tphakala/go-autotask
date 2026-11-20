@@ -48,8 +48,9 @@ func WithBaseURL(url string) ClientOption {
 // the other fields are kept for the caller.
 //
 // NewClient returns an error when z.URL is empty or is not an absolute http or
-// https URL with a host, and when WithZoneInfo is combined with a non-empty
-// WithBaseURL. WithZoneBaseURL has no effect together with WithZoneInfo.
+// https URL with a host and no user info, query or fragment, and when
+// WithZoneInfo is combined with a non-empty WithBaseURL. WithZoneBaseURL has
+// no effect together with WithZoneInfo.
 //
 // The client sends the API credentials to z.URL, so load z only from storage
 // you trust as much as the credentials. Zone discovery is per username, so

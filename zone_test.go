@@ -263,6 +263,10 @@ func TestJoinURL(t *testing.T) {
 	}
 }
 
+// zoneSecret is a password placed in zone URLs to check that NewClient's
+// error never repeats it.
+const zoneSecret = "s3cret-pw"
+
 func TestWithZoneInfoValidation(t *testing.T) {
 	t.Parallel()
 	valid := ZoneInfo{ZoneName: "Zone 5", URL: "https://webservices5.autotask.net/atservicesrest/", WebURL: "https://ww5.autotask.net/", CI: 5}
@@ -278,6 +282,14 @@ func TestWithZoneInfoValidation(t *testing.T) {
 		{"no host", []ClientOption{WithZoneInfo(withURL("https://"))}, true},
 		{"port without host", []ClientOption{WithZoneInfo(withURL("http://:8080"))}, true},
 		{"trailing newline", []ClientOption{WithZoneInfo(withURL("https://webservices5.autotask.net\n"))}, true},
+		{"query", []ClientOption{WithZoneInfo(withURL("https://webservices5.autotask.net/atservicesrest?x=1"))}, true},
+		{"empty query", []ClientOption{WithZoneInfo(withURL("https://webservices5.autotask.net/atservicesrest?"))}, true},
+		{"fragment", []ClientOption{WithZoneInfo(withURL("https://webservices5.autotask.net/atservicesrest#x"))}, true},
+		{"user info", []ClientOption{WithZoneInfo(withURL("https://apiuser:" + zoneSecret + "@webservices5.autotask.net/atservicesrest/"))}, true},
+		{"user info, missing slash", []ClientOption{WithZoneInfo(withURL("https:/apiuser:" + zoneSecret + "@webservices5.autotask.net"))}, true},
+		{"user info, parse failure", []ClientOption{WithZoneInfo(withURL("https://apiuser:" + zoneSecret + "@webservices5.autotask.net:abc"))}, true},
+		{"password with slash", []ClientOption{WithZoneInfo(withURL("https://apiuser:" + zoneSecret + "/x@webservices5.autotask.net/"))}, true},
+		{"password with hash", []ClientOption{WithZoneInfo(withURL("https://apiuser:" + zoneSecret + "#x@webservices5.autotask.net/"))}, true},
 		{"zone then base URL", []ClientOption{WithZoneInfo(valid), WithBaseURL("https://other.example")}, true},
 		{"base URL then zone", []ClientOption{WithBaseURL("https://other.example"), WithZoneInfo(valid)}, true},
 		{"empty base URL then zone", []ClientOption{WithBaseURL(""), WithZoneInfo(valid)}, false},
@@ -297,6 +309,9 @@ func TestWithZoneInfoValidation(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("NewClient succeeded with zone URL %q; want an error", client.zone.URL)
+				}
+				if strings.Contains(err.Error(), zoneSecret) {
+					t.Fatalf("error %q repeats the password from the zone URL", err)
 				}
 				if client != nil {
 					t.Fatal("NewClient returned a client with an error")

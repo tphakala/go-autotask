@@ -406,7 +406,7 @@ if err := json.Unmarshal(data, &zone); err != nil {
 client, err := autotask.NewClient(ctx, auth, autotask.WithZoneInfo(zone))
 ```
 
-With `WithZoneInfo`, `NewClient` sends no zone discovery request, uses `zone.URL` as the base URL, and `client.Zone()` returns the same value, `WebURL` included. `NewClient` returns an error when `zone.URL` is not an absolute `http` or `https` URL with a host, or when `WithBaseURL` is also set. The client sends the API credentials to `zone.URL`, so protect the saved file like the credentials and keep one per API username. A saved zone does not expire: if calls start to fail in a way that points at the endpoint, delete it and let `NewClient` discover the zone again.
+With `WithZoneInfo`, `NewClient` sends no zone discovery request, uses `zone.URL` as the base URL, and `client.Zone()` returns the same value, `WebURL` included. `NewClient` returns an error when `zone.URL` is not an absolute `http` or `https` URL with a host and no user info, query or fragment, or when `WithBaseURL` is also set. The client sends the API credentials to `zone.URL`, so protect the saved file like the credentials and keep one per API username. A saved zone does not expire: if calls start to fail in a way that points at the endpoint, delete it and let `NewClient` discover the zone again.
 
 ## Client options
 

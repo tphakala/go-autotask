@@ -36,17 +36,22 @@ type ZoneInfo struct {
 }
 
 // validateZoneURL checks the URL of a zone given with WithZoneInfo: it must be
-// an absolute http or https URL with a host.
+// an absolute http or https URL with a host and no user info, query or
+// fragment. joinURL appends API paths to it, which a query or fragment would
+// swallow. The errors leave the URL out, so a password in it is not repeated.
 func validateZoneURL(raw string) error {
 	if raw == "" {
 		return fmt.Errorf("autotask: WithZoneInfo: zone URL is empty")
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("autotask: WithZoneInfo: %w", err)
+		// Not wrapped: *url.Error prints the whole URL (go1.27.4
+		// net/url/url.go:40), and its cause can quote part of the user info,
+		// such as `invalid port ":pw" after host` (url.go:631).
+		return fmt.Errorf("autotask: WithZoneInfo: zone URL does not parse")
 	}
-	if (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
-		return fmt.Errorf("autotask: WithZoneInfo: zone URL %q is not an absolute http or https URL with a host", raw)
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || strings.ContainsAny(raw, "?#") {
+		return fmt.Errorf("autotask: WithZoneInfo: zone URL is not an absolute http or https URL with a host and no user info, query or fragment")
 	}
 	return nil
 }
