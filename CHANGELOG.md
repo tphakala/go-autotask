@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-20
+
 ### Added
 
 - **`Client.Zone` and `WithZoneInfo`**: `Zone()` returns the `ZoneInfo` (`ZoneName`, `URL`, `WebURL`, `CI`) the client resolved in `NewClient`, and false for a client built with a non-empty `WithBaseURL`. `WithZoneInfo(z)` builds a client on `z.URL` without the two zone discovery requests, and `Zone()` then returns `z`. `ZoneInfo` marshals to JSON, so a short-lived process can discover the zone once, store it and reuse it on later runs. `NewClient` returns an error when `z.URL` is not an absolute `http` or `https` URL with a host and no `@`, query or fragment, or when `WithZoneInfo` is combined with a non-empty `WithBaseURL`; `WithZoneBaseURL` has no effect together with it. A `NewClient` call without `WithZoneInfo` behaves as before.
@@ -191,7 +193,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Entity types: Company, Contact, Ticket, Resource, Contract, Project, Task, ConfigurationItem, TicketNote, TimeEntry
 - GitHub Actions: CI (test and lint), CodeQL, govulncheck, Dependabot, automated releases, stale issue cleanup
 
-[Unreleased]: https://github.com/tphakala/go-autotask/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/tphakala/go-autotask/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/tphakala/go-autotask/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/tphakala/go-autotask/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/tphakala/go-autotask/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/tphakala/go-autotask/compare/v1.4.4...v1.5.0
