@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptrace"
@@ -58,6 +59,8 @@ type tlsFallbackTransport struct {
 	// ttl is how long a host stays pinned to TLS 1.2 after a downgrade before a
 	// request re-probes TLS 1.3. Zero defaults to forced12TTL.
 	ttl time.Duration
+	// logger receives the downgrade record; nil discards it.
+	logger *slog.Logger
 
 	mu       sync.RWMutex
 	forced12 map[string]time.Time // host -> time its TLS 1.2 downgrade was recorded
@@ -102,10 +105,25 @@ func (t *tlsFallbackTransport) hostForced12(host string) bool {
 	return t.clock().Sub(downgradedAt) < t.forcedTTL()
 }
 
-func (t *tlsFallbackTransport) markHostForced12(host string) {
+// markHostForced12 pins host to TLS 1.2 and reports whether this call created
+// the pin, that is, whether host had no unexpired entry before it. Concurrent
+// requests that all missed the pin each call it, and only one gets true.
+func (t *tlsFallbackTransport) markHostForced12(host string) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.forced12[host] = t.clock()
+	now := t.clock()
+	downgradedAt, ok := t.forced12[host]
+	created := !ok || now.Sub(downgradedAt) >= t.forcedTTL()
+	t.forced12[host] = now
+	return created
+}
+
+// log returns the transport's logger, or a discarding one when none is set.
+func (t *tlsFallbackTransport) log() *slog.Logger {
+	if t.logger != nil {
+		return t.logger
+	}
+	return slog.New(slog.DiscardHandler)
 }
 
 func (t *tlsFallbackTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -137,7 +155,12 @@ func (t *tlsFallbackTransport) RoundTrip(req *http.Request) (*http.Response, err
 		// mark the host.
 		return resp, err
 	}
-	t.markHostForced12(req.URL.Host)
+	if t.markHostForced12(req.URL.Host) {
+		t.log().LogAttrs(req.Context(), slog.LevelWarn, "autotask: TLS 1.3 handshake failed, using TLS 1.2",
+			slog.String("host", req.URL.Host),
+			slog.Duration("pin_ttl", t.forcedTTL()),
+			slog.Any("error", err))
+	}
 	return fResp, nil
 }
 

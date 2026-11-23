@@ -9,8 +9,9 @@ import (
 
 type ClientOption func(*Client)
 
-// WithHTTPClient sets the HTTP client used for all requests. NewClient uses a
-// copy of hc, so setting hc's fields after NewClient returns has no effect.
+// WithHTTPClient sets the HTTP client used for all requests. A nil hc keeps the
+// default client. NewClient uses a copy of hc, so setting hc's fields after
+// NewClient returns has no effect.
 // The copy's CheckRedirect removes the Autotask credential headers from any
 // redirect to another scheme or host, then calls hc.CheckRedirect if it is set.
 func WithHTTPClient(hc *http.Client) ClientOption {
@@ -30,8 +31,40 @@ func WithMaxResponseBytes(n int64) ClientOption {
 	}
 }
 
+// WithLogger sets the logger the client writes to. A nil l is ignored. The
+// default discards everything.
+//
+// The client logs these events, every message starting with "autotask: ":
+//   - Warn: the circuit breaker changed state (closed, open, half-open).
+//   - Warn: the server answered 429 with a Retry-After header.
+//   - Info: a request waited for that Retry-After period.
+//   - Debug: a request waited for a rate limit token, or for the adaptive delay.
+//   - Warn: API usage reached the warning (75%) or critical (90%) level, on
+//     every check at or above it, and a threshold check failed.
+//   - Info: zone discovery found the zone. Warn: it failed.
+//   - Warn: a host refused TLS 1.3 and is now pinned to TLS 1.2, once per pin.
+//
+// The logger reaches the rate limiter, circuit breaker and threshold monitor
+// that WithRateLimiter, WithCircuitBreaker and WithThresholdMonitor build,
+// wherever WithLogger is listed among the options. A logger passed to
+// middleware.WithRateLimitLogger, middleware.WithCircuitBreakerLogger or
+// middleware.WithThresholdMonitorLogger in those options replaces it for that
+// component. Middleware added with WithMiddleware or WithMaxConcurrency is not
+// logged. The TLS records need the default HTTP client, not one set with
+// WithHTTPClient.
+//
+// A record carries method, URL path, host, counts, durations, state
+// names and error values. It never carries credentials, request or
+// response bodies, or a URL query string. Error values are logged as returned
+// to the caller, so two cases are not redacted: a Location header that does not
+// parse, which net/http copies into the error of a redirect, and the list of
+// API versions a zone discovery response advertised.
 func WithLogger(l *slog.Logger) ClientOption {
-	return func(c *Client) { c.logger = l }
+	return func(c *Client) {
+		if l != nil {
+			c.logger = l
+		}
+	}
 }
 
 // WithBaseURL sets a fixed API base URL and skips zone discovery, so
@@ -81,7 +114,7 @@ func WithMiddleware(m Middleware) ClientOption {
 func WithRateLimiter(opts ...middleware.RateLimitOption) ClientOption {
 	return func(c *Client) {
 		c.middlewares = append(c.middlewares, func(next http.RoundTripper) http.RoundTripper {
-			return middleware.NewRateLimiter(next, opts...)
+			return middleware.NewRateLimiter(next, withLogger(c.logger, middleware.WithRateLimitLogger, opts)...)
 		})
 	}
 }
@@ -90,7 +123,7 @@ func WithRateLimiter(opts ...middleware.RateLimitOption) ClientOption {
 func WithCircuitBreaker(opts ...middleware.CircuitBreakerOption) ClientOption {
 	return func(c *Client) {
 		c.middlewares = append(c.middlewares, func(next http.RoundTripper) http.RoundTripper {
-			return middleware.NewCircuitBreaker(next, opts...)
+			return middleware.NewCircuitBreaker(next, withLogger(c.logger, middleware.WithCircuitBreakerLogger, opts)...)
 		})
 	}
 }
@@ -132,4 +165,12 @@ func WithMaxConcurrency(n int) ClientOption {
 // This is primarily useful for testing.
 func WithZoneBaseURL(url string) ClientOption {
 	return func(c *Client) { c.zoneBaseURL = url }
+}
+
+// withLogger returns opts with the option that sets the client's logger in
+// front, so an option the caller passed for the same component comes later and
+// wins. It reads the logger when the middleware is built, after every client
+// option has run.
+func withLogger[O any](l *slog.Logger, set func(*slog.Logger) O, opts []O) []O {
+	return append([]O{set(l)}, opts...)
 }

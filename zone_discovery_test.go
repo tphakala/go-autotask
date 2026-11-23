@@ -2,13 +2,16 @@ package autotask_test
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
 	autotask "github.com/tphakala/go-autotask"
 	"github.com/tphakala/go-autotask/entities"
+	"github.com/tphakala/go-autotask/internal/logtest"
 )
 
 // newZoneDiscoveryServer creates an httptest.Server that handles zone discovery
@@ -229,5 +232,99 @@ func TestZoneRoundTripThroughJSON(t *testing.T) {
 	}
 	if _, err := autotask.Get[entities.Company](t.Context(), second, 1); err != nil {
 		t.Fatalf("Get through saved zone: %v", err)
+	}
+}
+
+func TestZoneDiscoveryLogsAndRedactsUsername(t *testing.T) {
+	t.Parallel()
+	const username = "svc-secret@example.com"
+	tests := []struct {
+		name      string
+		handler   func(srv *httptest.Server) http.Handler
+		wantLevel slog.Level
+		wantMsg   string
+		wantErr   bool
+	}{
+		{
+			name: "success",
+			handler: func(srv *httptest.Server) http.Handler {
+				mux := http.NewServeMux()
+				mux.HandleFunc("GET /atservicesrest/versioninformation", func(w http.ResponseWriter, _ *http.Request) {
+					_ = json.NewEncoder(w).Encode(map[string]any{"apiVersions": []string{"V1.0"}})
+				})
+				mux.HandleFunc("GET /atservicesrest/V1.0/zoneInformation", func(w http.ResponseWriter, _ *http.Request) {
+					_ = json.NewEncoder(w).Encode(map[string]any{"zoneName": "Test Zone", "url": srv.URL})
+				})
+				return mux
+			},
+			wantLevel: slog.LevelInfo, wantMsg: "autotask: zone discovered",
+		},
+		{
+			name: "version endpoint fails",
+			handler: func(*httptest.Server) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) })
+			},
+			wantLevel: slog.LevelWarn, wantMsg: "autotask: zone discovery failed", wantErr: true,
+		},
+		{
+			name: "zone request connection dropped",
+			handler: func(*httptest.Server) http.Handler {
+				mux := http.NewServeMux()
+				mux.HandleFunc("GET /atservicesrest/versioninformation", func(w http.ResponseWriter, _ *http.Request) {
+					_ = json.NewEncoder(w).Encode(map[string]any{"apiVersions": []string{"V1.0"}})
+				})
+				mux.HandleFunc("GET /atservicesrest/V1.0/zoneInformation", func(w http.ResponseWriter, _ *http.Request) {
+					hj, ok := w.(http.Hijacker)
+					if !ok {
+						return
+					}
+					if conn, _, err := hj.Hijack(); err == nil {
+						_ = conn.Close()
+					}
+				})
+				return mux
+			},
+			wantLevel: slog.LevelWarn, wantMsg: "autotask: zone discovery failed", wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var srv *httptest.Server
+			srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				tt.handler(srv).ServeHTTP(w, r)
+			}))
+			t.Cleanup(srv.Close)
+			rec := logtest.New()
+			client, err := autotask.NewClient(t.Context(), autotask.AuthConfig{Username: username},
+				autotask.WithZoneBaseURL(srv.URL), autotask.WithLogger(rec.Logger()))
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("NewClient error = %v; want error %v", err, tt.wantErr)
+			}
+			if client != nil {
+				t.Cleanup(func() { _ = client.Close() })
+			}
+			recs := rec.Records()
+			if len(recs) != 1 {
+				t.Fatalf("got %d records; want 1", len(recs))
+			}
+			if recs[0].Level != tt.wantLevel || recs[0].Message != tt.wantMsg {
+				t.Errorf("record = %s %q; want %s %q", recs[0].Level, recs[0].Message, tt.wantLevel, tt.wantMsg)
+			}
+			if !tt.wantErr {
+				if name := recs[0].Str("zone_name"); name != "Test Zone" {
+					t.Errorf("zone_name = %q; want Test Zone", name)
+				}
+			}
+			texts := []string{recs[0].Text}
+			if err != nil {
+				texts = append(texts, err.Error())
+			}
+			for _, text := range texts {
+				if strings.Contains(text, "svc-secret") || strings.Contains(text, "user=") {
+					t.Errorf("the username or the query reached %q", text)
+				}
+			}
+		})
 	}
 }

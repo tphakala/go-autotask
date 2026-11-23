@@ -2,10 +2,16 @@ package middleware
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
+
+	"github.com/tphakala/go-autotask/internal/logtest"
 )
 
 func TestCircuitBreakerClosedState(t *testing.T) {
@@ -102,4 +108,107 @@ func TestCircuitBreakerOpenError(t *testing.T) {
 	if _, ok := errors.AsType[*CircuitBreakerOpenError](err); !ok {
 		t.Fatal("should match CircuitBreakerOpenError")
 	}
+}
+
+// transitions returns the (from, to) pairs of the circuit breaker records in
+// rec and fails the test on a record that is not a Warn state change.
+func transitions(t *testing.T, rec *logtest.Recorder) [][2]string {
+	t.Helper()
+	var got [][2]string
+	for _, r := range rec.Records() {
+		if r.Level != slog.LevelWarn || r.Message != "autotask: circuit breaker state changed" {
+			t.Errorf("record = %s %q; want Warn state change", r.Level, r.Message)
+			continue
+		}
+		got = append(got, [2]string{r.Str("from"), r.Str("to")})
+	}
+	return got
+}
+
+// send makes one request through rt and closes the response body.
+func send(t *testing.T, rt http.RoundTripper) error {
+	t.Helper()
+	resp, err := rt.RoundTrip(newReq(t))
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	return err
+}
+
+func TestCircuitBreakerLogsStateChanges(t *testing.T) {
+	t.Run("every transition once and no rejected request", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			rec := logtest.New()
+			inner := &mockTransport{responses: []*http.Response{
+				{StatusCode: http.StatusServiceUnavailable, Body: http.NoBody}, // closed to open
+				{StatusCode: http.StatusOK, Body: http.NoBody},                 // open to half-open, half-open to closed
+				{StatusCode: http.StatusServiceUnavailable, Body: http.NoBody}, // closed to open
+				{StatusCode: http.StatusServiceUnavailable, Body: http.NoBody}, // open to half-open, half-open to open
+			}}
+			cb := NewCircuitBreaker(inner, WithFailureThreshold(1), WithOpenTimeout(time.Second),
+				WithSuccessThreshold(1), WithCircuitBreakerLogger(rec.Logger()))
+
+			_ = send(t, cb)
+			if err := send(t, cb); err == nil {
+				t.Fatal("request while open: want a CircuitBreakerOpenError")
+			}
+			synctest.Sleep(time.Second)
+			if err := send(t, cb); err != nil {
+				t.Fatal(err)
+			}
+			_ = send(t, cb)
+			synctest.Sleep(time.Second)
+			_ = send(t, cb)
+
+			want := [][2]string{
+				{"closed", "open"},
+				{"open", "half-open"}, {"half-open", "closed"},
+				{"closed", "open"},
+				{"open", "half-open"}, {"half-open", "open"},
+			}
+			if got := transitions(t, rec); !slices.Equal(got, want) {
+				t.Errorf("transitions = %v; want %v", got, want)
+			}
+		})
+	})
+
+	t.Run("State reports the open to half-open change once", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			rec := logtest.New()
+			cb := NewCircuitBreaker(&mockTransport{responses: []*http.Response{{StatusCode: http.StatusServiceUnavailable, Body: http.NoBody}}},
+				WithFailureThreshold(1), WithOpenTimeout(time.Second), WithCircuitBreakerLogger(rec.Logger()))
+			_ = send(t, cb)
+			synctest.Sleep(time.Second)
+			for range 2 {
+				if got := cb.State(); got != StateHalfOpen {
+					t.Fatalf("state = %s; want half-open", got)
+				}
+			}
+			want := [][2]string{{"closed", "open"}, {"open", "half-open"}}
+			if got := transitions(t, rec); !slices.Equal(got, want) {
+				t.Errorf("transitions = %v; want %v", got, want)
+			}
+		})
+	})
+
+	t.Run("two in-flight failures open the breaker once", func(t *testing.T) {
+		rec := logtest.New()
+		var inFlight sync.WaitGroup
+		inFlight.Add(2)
+		both := roundTripFunc(func(*http.Request) (*http.Response, error) {
+			inFlight.Done()
+			inFlight.Wait()
+			return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: http.NoBody}, nil
+		})
+		cb := NewCircuitBreaker(both, WithFailureThreshold(1), WithCircuitBreakerLogger(rec.Logger()))
+		var done sync.WaitGroup
+		for range 2 {
+			done.Go(func() { _ = send(t, cb) })
+		}
+		done.Wait()
+		want := [][2]string{{"closed", "open"}}
+		if got := transitions(t, rec); !slices.Equal(got, want) {
+			t.Errorf("transitions = %v; want %v", got, want)
+		}
+	})
 }
