@@ -345,3 +345,48 @@ func TestURLErrorKeepsTheTimeoutOfARebuiltCause(t *testing.T) {
 		t.Errorf("error text %q still contains the nested query", got.Error())
 	}
 }
+
+// extraTextError wraps an error and adds text of its own after the wrapped
+// text.
+type extraTextError struct {
+	err   error
+	extra string
+}
+
+func (e extraTextError) Error() string { return e.err.Error() + e.extra }
+func (e extraTextError) Unwrap() error { return e.err }
+
+func TestURLErrorDropsTheOwnTextOfAWrapperThatHoldsAURLError(t *testing.T) {
+	t.Parallel()
+	// A wrapper can show any part of a nested URL in any form: a fragment, a
+	// password, a reordered or decoded query value. None of it may survive.
+	inner := &url.Error{Op: "Get", URL: "https://bob:PWSECRET@in.example/x?token=a%20QSECRET&b=2#FRAGSECRET", Err: io.EOF}
+	for name, extra := range map[string]string{
+		"fragment":        " frag=FRAGSECRET",
+		"password":        " pw=PWSECRET",
+		"reordered query": " b=2&token=a%20QSECRET",
+		"decoded query":   " token=a QSECRET",
+		"empty":           "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			got := URLError(&url.Error{Op: "Get", URL: "https://h.example/a", Err: extraTextError{inner, extra}})
+			if strings.Contains(got.Error(), "SECRET") {
+				t.Errorf("error text %q still contains a nested secret", got.Error())
+			}
+			if !errors.Is(got, io.EOF) {
+				t.Errorf("errors.Is(%v, io.EOF) = false", got)
+			}
+		})
+	}
+}
+
+func TestURLErrorKeepsTheTextOfAnEmptyWrapperSane(t *testing.T) {
+	t.Parallel()
+	inner := &url.Error{Op: "Get", URL: "https://in.example/x?token=SECRET", Err: io.EOF}
+	got := URLError(&url.Error{Op: "Get", URL: "https://h.example/a", Err: extraTextError{extraTextError{inner, ""}, "outer"}})
+	want := `Get "https://h.example/a": Get "https://in.example/x": EOF`
+	if got.Error() != want {
+		t.Errorf("error text = %q; want %q", got.Error(), want)
+	}
+}

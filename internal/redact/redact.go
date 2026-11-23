@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/url"
 	"reflect"
-	"strconv"
 	"strings"
 )
 
@@ -40,11 +39,13 @@ var errInvalidURL = errors.New("invalid URL")
 // *url.Error are kept as they are, so errors.Is still finds a joined
 // context.DeadlineExceeded or io.EOF, and errors.As returns only redacted
 // copies of a *url.Error. A join or wrapper that holds one is replaced by an
-// error with the same branches, redacted; its own type is not kept. Nil branches
-// and typed-nil *url.Error values are skipped. An err with no *url.Error is
-// returned as it is. The wrappers above the first *url.Error are not kept, and
-// err and the errors it wraps are not modified, so an error that other callers
-// share is safe to pass.
+// error with the same branches, redacted, whose text is the redacted branches'
+// texts joined by newlines: the wrapper's own text is dropped, because it can
+// show URL text in any form. Its own type is not kept, and its Timeout answer
+// is. Nil branches and typed-nil *url.Error values are skipped. An err with no
+// *url.Error is returned as it is. The wrappers above the first *url.Error are
+// not kept, and err and the errors it wraps are not modified, so an error that
+// other callers share is safe to pass.
 //
 // When the parsed URL contains "@" the cause of a parse error is replaced too,
 // because url.Parse can quote part of the user info in it, such as
@@ -74,22 +75,17 @@ func redactURLError(ue *url.Error) *url.Error {
 	return &redacted
 }
 
-// redactTree returns err unchanged when no *url.Error is in its tree, or when
-// the only one is a typed nil, and otherwise a copy built from redacted
-// branches, skipping nil ones. The copy keeps err's own text
-// with each branch's text swapped for its redacted text, unless that text
-// would still show a nested URL, query, fragment or user info; then it is the redacted
-// branch texts joined by newlines.
+// redactTree returns err unchanged when no non-nil *url.Error is in its tree,
+// and otherwise a copy built from its redacted branches, skipping nil ones,
+// whose text is the branches' redacted texts joined by newlines.
 func redactTree(err error) error {
-	found, ok := errors.AsType[*url.Error](err)
-	if !ok {
+	found := urlErrors(err)
+	if len(found) == 0 {
 		return err
 	}
 	if reflect.TypeOf(err) == reflect.TypeFor[*url.Error]() {
-		if found == nil {
-			return err
-		}
-		return redactURLError(found)
+		// err is the non-nil *url.Error urlErrors visited first.
+		return redactURLError(found[0])
 	}
 	var branches []error
 	if multi, isMulti := err.(interface{ Unwrap() []error }); isMulti {
@@ -97,60 +93,21 @@ func redactTree(err error) error {
 	} else if child := errors.Unwrap(err); child != nil {
 		branches = []error{child}
 	} else {
-		// err reaches the *url.Error through an As method; keep only that.
-		if found == nil {
-			return err
-		}
-		return redactURLError(found)
+		// err reaches the *url.Error only through an As method; keep only that.
+		return redactURLError(found[0])
 	}
-	msg := err.Error()
-	redacted := make([]error, len(branches))
-	texts := make([]string, len(branches))
-	for i, branch := range branches {
+	var redacted []error
+	var texts []string
+	for _, branch := range branches {
 		if isNil(branch) {
 			continue
 		}
-		redacted[i] = redactTree(branch)
-		texts[i] = redacted[i].Error()
-		msg = replaceBranchText(msg, branch, redacted[i])
-	}
-	if showsSecret(msg, err) {
-		// A wrapper printed URL text of its own; keep only the redacted
-		// branches.
-		msg = strings.Join(texts, "\n")
+		r := redactTree(branch)
+		redacted = append(redacted, r)
+		texts = append(texts, r.Error())
 	}
 	timeout, isTimeout := err.(interface{ Timeout() bool })
-	return &redactedError{msg: msg, errs: redacted, timeout: isTimeout && timeout.Timeout()}
-}
-
-// showsSecret reports whether msg still holds, as it is or quoted, a URL of a
-// *url.Error in err's tree that URL would change, or that URL's query,
-// fragment or user info.
-func showsSecret(msg string, err error) bool {
-	for _, ue := range urlErrors(err) {
-		if ue.URL == "" || URL(ue.URL) == ue.URL {
-			continue
-		}
-		secrets := []string{ue.URL}
-		if u, perr := url.Parse(ue.URL); perr == nil {
-			secrets = append(secrets, u.RawQuery, u.RawFragment, u.Fragment)
-			if u.User != nil {
-				secrets = append(secrets, u.User.String())
-			}
-		}
-		for _, secret := range secrets {
-			if secret != "" && containsAsIsOrQuoted(msg, secret) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// containsAsIsOrQuoted reports whether msg holds s as it is or as %q writes it.
-func containsAsIsOrQuoted(msg, s string) bool {
-	quoted := strconv.Quote(s)
-	return strings.Contains(msg, s) || strings.Contains(msg, quoted[1:len(quoted)-1])
+	return &redactedError{msg: strings.Join(texts, "\n"), errs: redacted, timeout: isTimeout && timeout.Timeout()}
 }
 
 // urlErrors returns every non-nil *url.Error in err's tree. Each node is
@@ -181,21 +138,6 @@ func urlErrors(err error) []*url.Error {
 	return found
 }
 
-// replaceBranchText swaps the text of branch in msg for the text of its
-// redacted copy. When msg does not hold the branch text as it is (a wrapper
-// that quotes or reformats it), the wrapper's own text cannot be rewritten
-// safely, so only the redacted text is kept.
-func replaceBranchText(msg string, branch, redacted error) string {
-	before, after := branch.Error(), redacted.Error()
-	if before == after {
-		return msg
-	}
-	if strings.Contains(msg, before) {
-		return strings.ReplaceAll(msg, before, after)
-	}
-	return after
-}
-
 // isNil reports whether err is nil or a nil pointer, whose Error method can
 // panic.
 func isNil(err error) bool {
@@ -207,7 +149,7 @@ func isNil(err error) bool {
 }
 
 // redactedError stands in for a join or wrapper that held a *url.Error: its
-// text is built by redactTree, it unwraps to the redacted branches, and its
+// text is its redacted branches' texts, it unwraps to those branches, and its
 // Timeout reports what the replaced error's Timeout did, because
 // (*url.Error).Timeout asks only its direct cause.
 type redactedError struct {
