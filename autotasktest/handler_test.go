@@ -380,60 +380,169 @@ func TestChildDeleteNeedsDeleteSupport(t *testing.T) {
 	}
 }
 
-// TestWithChildEntityReusesExistingStore pins that option order does not matter:
-// WithChildEntity adds to a store WithDeleteSupport or WithEntity created first,
-// and a store it creates is reused by a later WithEntity.
+// TestWithChildEntityReusesExistingStore pins that option order does not
+// matter: WithChildEntity adds to a store WithDeleteSupport or WithEntity
+// created first, and a store it creates is reused by a later WithDeleteSupport
+// or WithEntity. Each case ends with one store, delete support kept, and every
+// seeded item listed under the parent.
 func TestWithChildEntityReusesExistingStore(t *testing.T) {
 	att := entities.TicketNoteAttachment{Title: autotask.Set("child")}
 	root := entities.TicketNoteAttachment{Title: autotask.Set("root")}
-	for name, opts := range map[string][]ServerOption{
-		"delete support first": {WithDeleteSupport("TicketNoteAttachments"), WithChildEntity[entities.TicketNote](10, att)},
-		"child first":          {WithChildEntity[entities.TicketNote](10, att), WithDeleteSupport("TicketNoteAttachments"), WithEntity(root)},
+	const store = "TicketNoteAttachments"
+	for _, tt := range []struct {
+		name string
+		opts []ServerOption
+		want []string
+	}{
+		{"delete support first", []ServerOption{WithDeleteSupport(store), WithChildEntity[entities.TicketNote](10, att)}, []string{"child"}},
+		{"child first", []ServerOption{WithChildEntity[entities.TicketNote](10, att), WithDeleteSupport(store), WithEntity(root)}, []string{"child", "root"}},
+		{"entity first", []ServerOption{WithEntity(root), WithChildEntity[entities.TicketNote](10, att), WithDeleteSupport(store)}, []string{"child", "root"}},
 	} {
-		t.Run(name, func(t *testing.T) {
-			ts, client := NewServer(t, opts...)
+		t.Run(tt.name, func(t *testing.T) {
+			ts, client := NewServer(t, tt.opts...)
 			stores := 0
 			for key, st := range ts.entities {
-				if st.name == "TicketNoteAttachments" {
+				if st.name == store {
 					stores++
-					if key != "TicketNoteAttachments" {
+					if key != store {
 						t.Errorf("store registered under %q", key)
 					}
 				}
 			}
 			if stores != 1 {
-				t.Fatalf("stores named TicketNoteAttachments = %d, want 1", stores)
+				t.Fatalf("stores named %s = %d, want 1", store, stores)
 			}
-			if !ts.entities["TicketNoteAttachments"].canDelete {
+			if !ts.entities[store].canDelete {
 				t.Error("delete support was lost")
 			}
 			list, err := autotask.ListChild[entities.TicketNote, entities.TicketNoteAttachment](t.Context(), client, 10)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(list) == 0 {
-				t.Error("seeded child missing under its parent")
-			}
+			assertTitles(t, "note 10 attachments", titlesOf(list, noteAttachmentTitle), tt.want)
 		})
 	}
 }
 
+// TestWithChildEntityRouteConflict pins that registering one parent and segment
+// for two entity types fails the test and keeps the first route.
+func TestWithChildEntityRouteConflict(t *testing.T) {
+	rec := &recordingTB{TB: t}
+	ts := &TestServer{
+		t:           rec,
+		entities:    map[string]*entityStore{},
+		childRoutes: map[string]string{},
+	}
+	WithChildEntity[entities.Ticket, entities.TicketNote](1)(ts)
+	if len(rec.fatal) != 0 {
+		t.Fatalf("first registration failed: %v", rec.fatal)
+	}
+	// ProjectNote also has the segment Notes, so under Tickets it conflicts.
+	WithChildEntity[entities.Ticket, entities.ProjectNote](1)(ts)
+	if len(rec.fatal) != 1 || !strings.Contains(rec.fatal[0], "Tickets/Notes") {
+		t.Fatalf("fatal messages = %v, want one naming Tickets/Notes", rec.fatal)
+	}
+	if got := ts.childRoutes["Tickets/Notes"]; got != "TicketNotes" {
+		t.Errorf("route Tickets/Notes = %q, want TicketNotes", got)
+	}
+}
+
+// recordingTB records Fatalf calls instead of stopping the test. Other methods
+// fall through to the embedded TB.
+type recordingTB struct {
+	testing.TB
+	fatal []string
+}
+
+func (r *recordingTB) Fatalf(format string, args ...any) {
+	r.fatal = append(r.fatal, fmt.Sprintf(format, args...))
+}
+
+// TestSeededItemsAreVisibleUnderEveryParent pins that an item seeded without a
+// parent answers child GET by id, UpdateChild and DeleteChild under any parent.
+func TestSeededItemsAreVisibleUnderEveryParent(t *testing.T) {
+	seeded := entities.TicketNoteAttachment{ID: autotask.Set(int64(5)), Title: autotask.Set("seeded")}
+	_, client := NewServer(t, WithEntity(seeded), WithDeleteSupport("TicketNoteAttachments"))
+	ctx := t.Context()
+
+	var resp struct {
+		Item json.RawMessage `json:"item"`
+	}
+	if err := client.Do(ctx, http.MethodGet, "/v1.0/TicketNotes/77/Attachments/5", nil, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(resp.Item), `"title":"seeded"`) {
+		t.Errorf("child GET by id of a seeded item under another parent = %s, want the item", resp.Item)
+	}
+	edited := entities.TicketNoteAttachment{ID: autotask.Set(int64(5)), Title: autotask.Set("edited")}
+	if _, err := autotask.UpdateChild[entities.TicketNote](ctx, client, 78, &edited); err != nil {
+		t.Fatalf("UpdateChild of a seeded item: %v", err)
+	}
+	got, err := autotask.Get[entities.TicketNoteAttachment](ctx, client, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if title, _ := got.Title.Get(); title != "edited" {
+		t.Errorf("title after UpdateChild = %q, want edited", title)
+	}
+	if err := autotask.DeleteChild[entities.TicketNote, entities.TicketNoteAttachment](ctx, client, 79, 5); err != nil {
+		t.Fatalf("DeleteChild of a seeded item: %v", err)
+	}
+}
+
 // TestChildListPages pins that child lists page by ?page=N and filter by parent
-// before paging.
+// before paging: the other parent's item is stored first, so paging the whole
+// store and filtering each page would need more requests than the two pages of
+// parent 1.
 func TestChildListPages(t *testing.T) {
 	mk := func(title string) entities.TicketNote {
 		return TicketNoteFixture(func(n *entities.TicketNote) { n.Title = autotask.Set(title) })
 	}
-	_, client := NewServer(t,
+	ts, client := NewServer(t,
 		WithPageSize(1),
-		WithChildEntity[entities.Ticket](1, mk("a1"), mk("a2")),
 		WithChildEntity[entities.Ticket](2, mk("b1")),
+		WithChildEntity[entities.Ticket](1, mk("a1"), mk("a2")),
 	)
+	before := ts.RequestCount()
 	got, err := autotask.ListChild[entities.Ticket, entities.TicketNote](t.Context(), client, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertTitles(t, "ticket 1 notes", titlesOf(got, noteTitle), []string{"a1", "a2"})
+	if requests := ts.RequestCount() - before; requests != 2 {
+		t.Errorf("requests = %d, want 2 (one page per item of parent 1)", requests)
+	}
+}
+
+// TestPageSizeZeroPutsEverythingOnOnePage pins that a page size of 0 or less
+// answers every item on one page, with no next link, for a child list and a query.
+func TestPageSizeZeroPutsEverythingOnOnePage(t *testing.T) {
+	mk := func(title string) entities.TicketNote {
+		return TicketNoteFixture(func(n *entities.TicketNote) { n.Title = autotask.Set(title) })
+	}
+	_, client := NewServer(t, WithPageSize(0), WithChildEntity[entities.Ticket](1, mk("n1"), mk("n2")))
+	ctx := t.Context()
+
+	for _, path := range []string{"/v1.0/Tickets/1/Notes", "/v1.0/TicketNotes/query"} {
+		method := http.MethodGet
+		var body any
+		if strings.HasSuffix(path, "/query") {
+			method = http.MethodPost
+			body = map[string]any{"filter": []any{}}
+		}
+		var resp struct {
+			Items       []json.RawMessage `json:"items"`
+			PageDetails struct {
+				NextPageURL *string `json:"nextPageUrl"`
+			} `json:"pageDetails"`
+		}
+		if err := client.Do(ctx, method, path, body, &resp); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		if len(resp.Items) != 2 || resp.PageDetails.NextPageURL != nil {
+			t.Errorf("%s: %d items, next page %v; want 2 items and no next page", path, len(resp.Items), resp.PageDetails.NextPageURL)
+		}
+	}
 }
 
 // TestChildSegmentResolvesThroughSingularParent pins the store a child URL
