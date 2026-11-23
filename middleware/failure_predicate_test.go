@@ -521,8 +521,35 @@ func TestPredicateClosingItsBodyLeavesTheCallersBodyOpen(t *testing.T) {
 	}
 }
 
+// assertLimiterWait checks that err is a *LimiterWaitError from the named
+// limiter, that its text names the limiter, and that it wraps the deadline
+// (wantDeadline) or the cancellation (cancelled) that ended the wait.
+func assertLimiterWait(t *testing.T, err error, limiter string, wantDeadline, cancelled bool) {
+	t.Helper()
+	lw, isWait := errors.AsType[*LimiterWaitError](err)
+	if !isWait {
+		t.Fatalf("error = %v (%T); want *LimiterWaitError", err, err)
+	}
+	if lw.Limiter != limiter {
+		t.Errorf("Limiter = %q; want %q", lw.Limiter, limiter)
+	}
+	if want := "autotask: " + limiter + " limiter: "; !strings.HasPrefix(err.Error(), want) {
+		t.Errorf("error text = %q; want prefix %q", err.Error(), want)
+	}
+	if got := errors.Is(err, context.DeadlineExceeded); got != wantDeadline {
+		t.Errorf("errors.Is(err, DeadlineExceeded) = %v; want %v", got, wantDeadline)
+	}
+	if got := errors.Is(err, context.Canceled); got != cancelled {
+		t.Errorf("errors.Is(err, Canceled) = %v; want %v", got, cancelled)
+	}
+	if lw.Timeout() != wantDeadline {
+		t.Errorf("Timeout() = %v; want %v", lw.Timeout(), wantDeadline)
+	}
+}
+
 // TestBreakerIgnoresLimiterWaits composes the breaker in front of each limiter
-// wait exit, the order WithMaxConcurrency recommends, and ends one wait. Each
+// wait exit, the order WithMaxConcurrency recommends, and ends one wait, by a
+// deadline and by a cancel. Each
 // row has a failure threshold that a single counted error would reach, so the
 // circuit must stay closed.
 func TestBreakerIgnoresLimiterWaits(t *testing.T) {
@@ -543,6 +570,7 @@ func TestBreakerIgnoresLimiterWaits(t *testing.T) {
 		limiter      string
 		deadline     time.Duration
 		wantDeadline bool // the wait ended on the context deadline
+		noCancel     bool // the row has no pending wait a cancel could end
 		build        func(t *testing.T) *CircuitBreaker
 	}{
 		{
@@ -571,7 +599,7 @@ func TestBreakerIgnoresLimiterWaits(t *testing.T) {
 			},
 		},
 		{
-			name: "rate token", limiter: "rate", deadline: 10 * time.Minute,
+			name: "rate token", limiter: "rate", deadline: 10 * time.Minute, noCancel: true,
 			build: func(t *testing.T) *CircuitBreaker {
 				t.Helper()
 				cb := NewCircuitBreaker(
@@ -607,33 +635,32 @@ func TestBreakerIgnoresLimiterWaits(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			cb := tt.build(t)
-			ctx, cancel := context.WithTimeout(t.Context(), tt.deadline)
-			defer cancel()
-			resp, err := cb.RoundTrip(newReq(t).WithContext(ctx))
-			drain(t, resp)
-			lw, isWait := errors.AsType[*LimiterWaitError](err)
-			if !isWait {
-				t.Fatalf("error = %v (%T); want *LimiterWaitError", err, err)
+		for _, cancelled := range []bool{false, true} {
+			name := tt.name + "/deadline"
+			if cancelled {
+				if tt.noCancel {
+					continue // the token refusal is immediate; a cancel-only context would wait for the token
+				}
+				name = tt.name + "/cancel"
 			}
-			if lw.Limiter != tt.limiter {
-				t.Errorf("Limiter = %q; want %q", lw.Limiter, tt.limiter)
-			}
-			if want := "autotask: " + tt.limiter + " limiter: "; !strings.HasPrefix(err.Error(), want) {
-				t.Errorf("error text = %q; want prefix %q", err.Error(), want)
-			}
-			if got := errors.Is(err, context.DeadlineExceeded); got != tt.wantDeadline {
-				t.Errorf("errors.Is(err, DeadlineExceeded) = %v; want %v", got, tt.wantDeadline)
-			}
-			if lw.Timeout() != tt.wantDeadline {
-				t.Errorf("Timeout() = %v; want %v", lw.Timeout(), tt.wantDeadline)
-			}
-			if cb.State() != StateClosed {
-				t.Fatalf("state = %s; want closed, a limiter wait is not a breaker failure", cb.State())
-			}
-		})
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+				cb := tt.build(t)
+				ctx, cancel := context.WithTimeout(t.Context(), tt.deadline)
+				if cancelled {
+					ctx, cancel = context.WithCancel(t.Context())
+					stop := time.AfterFunc(20*time.Millisecond, cancel)
+					defer stop.Stop()
+				}
+				defer cancel()
+				resp, err := cb.RoundTrip(newReq(t).WithContext(ctx))
+				drain(t, resp)
+				assertLimiterWait(t, err, tt.limiter, tt.wantDeadline && !cancelled, cancelled)
+				if cb.State() != StateClosed {
+					t.Fatalf("state = %s; want closed, a limiter wait is not a breaker failure", cb.State())
+				}
+			})
+		}
 	}
 }
 
@@ -700,7 +727,12 @@ func TestBreakerLimiterWaitIsNeitherFailureNorProbeSuccess(t *testing.T) {
 	if _, isWait := errors.AsType[*LimiterWaitError](err); !isWait {
 		t.Fatalf("error = %v (%T); want *LimiterWaitError from the Retry-After wait", err, err)
 	}
-	if cb.State() != StateHalfOpen {
-		t.Fatalf("state = %s; want half-open after a limiter wait", cb.State())
+	// Read the field, not State(): State() turns an open breaker half-open once
+	// the open timeout has passed, which would hide a wait counted as a failure.
+	cb.mu.RLock()
+	state := cb.state
+	cb.mu.RUnlock()
+	if state != StateHalfOpen {
+		t.Fatalf("state = %s; want half-open after a limiter wait", state)
 	}
 }
