@@ -27,12 +27,12 @@ func run() error {
 			IntegrationCode: os.Getenv("AUTOTASK_INTEGRATION_CODE"),
 		},
 		autotask.WithLogger(slog.Default()),
+		autotask.WithCircuitBreaker(
+			middleware.WithFailureThreshold(5), //nolint:mnd // configuration values for example
+		),
 		autotask.WithRateLimiter(
 			middleware.WithRequestsPerHour(8000),         //nolint:mnd // configuration values for example
 			middleware.WithBurstSize(10),                //nolint:mnd // configuration values for example
-		),
-		autotask.WithCircuitBreaker(
-			middleware.WithFailureThreshold(5), //nolint:mnd // configuration values for example
 		),
 		autotask.WithThresholdMonitor(
 			middleware.WithCriticalCallback(func(info middleware.ThresholdInfo) {

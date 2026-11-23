@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -95,6 +96,44 @@ func TestConcurrencyLimiterContextCancellation(t *testing.T) {
 	}
 
 	cancel1() // cleanup
+}
+
+// TestConcurrencyLimiterDoneContextNeverReachesTransport pins that a request
+// whose context has ended is refused with a *LimiterWaitError even when a slot
+// is free. A select over a free slot and a done context picks either at
+// random, so the loop makes a wrong pick on the old code certain in practice.
+func TestConcurrencyLimiterDoneContextNeverReachesTransport(t *testing.T) {
+	t.Parallel()
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+	for name, tc := range map[string]struct {
+		ctx  context.Context //nolint:containedctx // table of contexts under test
+		want error
+	}{
+		"canceled": {canceled, context.Canceled},
+		"expired":  {expired, context.DeadlineExceeded},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			inner := roundTripFunc(func(*http.Request) (*http.Response, error) {
+				t.Error("a request with a done context reached the transport")
+				return nil, errors.New("transport reached")
+			})
+			cl := NewConcurrencyLimiter(inner, 1)
+			req, _ := http.NewRequestWithContext(tc.ctx, http.MethodGet, "https://example.com/test", http.NoBody)
+			for range 200 {
+				resp, err := cl.RoundTrip(req) //nolint:bodyclose // error path returns nil response
+				if resp != nil {
+					t.Fatal("got a response for a done context")
+				}
+				if _, ok := errors.AsType[*LimiterWaitError](err); !ok || !errors.Is(err, tc.want) {
+					t.Fatalf("error = %v (%T); want *LimiterWaitError wrapping %v", err, err, tc.want)
+				}
+			}
+		})
+	}
 }
 
 func TestConcurrencyLimiterDefaultsToThree(t *testing.T) {

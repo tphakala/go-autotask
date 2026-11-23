@@ -105,7 +105,9 @@ func StatusFailure(resp *http.Response, err error) bool {
 }
 
 // DefaultFailure is the default failure predicate. It counts:
-//   - a transport error, except the caller's context cancellation;
+//   - a transport error, except the caller's context cancellation and a
+//     *LimiterWaitError, which means the request gave up waiting in a limiter
+//     and was never sent;
 //   - status 429 and 5xx, except a 500 whose error message matches the
 //     validation wording that ServerError.IsValidation in the autotask package
 //     uses, which a retry does not fix and which says nothing about the health
@@ -120,6 +122,9 @@ func StatusFailure(resp *http.Response, err error) bool {
 // outside the circuit breaker must restore resp.Body afterwards.
 func DefaultFailure(resp *http.Response, err error) bool {
 	if err != nil {
+		if _, ok := errors.AsType[*LimiterWaitError](err); ok {
+			return false
+		}
 		return !errors.Is(err, context.Canceled)
 	}
 	switch {

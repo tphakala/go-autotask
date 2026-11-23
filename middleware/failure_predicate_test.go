@@ -520,3 +520,215 @@ func TestPredicateClosingItsBodyLeavesTheCallersBodyOpen(t *testing.T) {
 		t.Fatal("closing the returned body must close the original body")
 	}
 }
+
+// assertLimiterWait checks that err is a *LimiterWaitError from the named
+// limiter, that its text names the limiter, and that it wraps the deadline
+// (wantDeadline) or the cancellation (cancelled) that ended the wait.
+func assertLimiterWait(t *testing.T, err error, limiter string, wantDeadline, cancelled bool) {
+	t.Helper()
+	lw, isWait := errors.AsType[*LimiterWaitError](err)
+	if !isWait {
+		t.Fatalf("error = %v (%T); want *LimiterWaitError", err, err)
+	}
+	if lw.Limiter != limiter {
+		t.Errorf("Limiter = %q; want %q", lw.Limiter, limiter)
+	}
+	if want := "autotask: " + limiter + " limiter: "; !strings.HasPrefix(err.Error(), want) {
+		t.Errorf("error text = %q; want prefix %q", err.Error(), want)
+	}
+	if got := errors.Is(err, context.DeadlineExceeded); got != wantDeadline {
+		t.Errorf("errors.Is(err, DeadlineExceeded) = %v; want %v", got, wantDeadline)
+	}
+	if got := errors.Is(err, context.Canceled); got != cancelled {
+		t.Errorf("errors.Is(err, Canceled) = %v; want %v", got, cancelled)
+	}
+	if lw.Timeout() != wantDeadline {
+		t.Errorf("Timeout() = %v; want %v", lw.Timeout(), wantDeadline)
+	}
+}
+
+// TestBreakerIgnoresLimiterWaits composes the breaker in front of each limiter
+// wait exit, the order WithMaxConcurrency recommends, and ends one wait, by a
+// deadline and by a cancel. Each
+// row has a failure threshold that a single counted error would reach, so the
+// circuit must stay closed.
+func TestBreakerIgnoresLimiterWaits(t *testing.T) {
+	t.Parallel()
+	ok := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return respWith(200, "application/json", `{}`), nil
+	})
+	prime := func(t *testing.T, cb *CircuitBreaker) {
+		t.Helper()
+		resp, err := do(t, cb)
+		if err != nil {
+			t.Fatalf("priming request: %v", err)
+		}
+		drain(t, resp)
+	}
+	tests := []struct {
+		name         string
+		limiter      string
+		deadline     time.Duration
+		wantDeadline bool // the wait ended on the context deadline
+		build        func(t *testing.T) *CircuitBreaker
+	}{
+		{
+			name: "concurrency slot", limiter: "concurrency", deadline: 20 * time.Millisecond, wantDeadline: true,
+			build: func(t *testing.T) *CircuitBreaker {
+				t.Helper()
+				entered := make(chan struct{}, 1)
+				release := make(chan struct{})
+				done := make(chan struct{})
+				inner := roundTripFunc(func(*http.Request) (*http.Response, error) {
+					entered <- struct{}{}
+					<-release
+					return respWith(200, "application/json", `{}`), nil
+				})
+				cb := NewCircuitBreaker(NewConcurrencyLimiter(inner, 1), WithFailureThreshold(1))
+				t.Cleanup(func() { close(release); <-done })
+				go func() {
+					defer close(done)
+					resp, err := cb.RoundTrip(newReq(t))
+					if err == nil {
+						drain(t, resp)
+					}
+				}()
+				<-entered
+				return cb
+			},
+		},
+		{
+			name: "rate token", limiter: "rate", deadline: 10 * time.Minute,
+			build: func(t *testing.T) *CircuitBreaker {
+				t.Helper()
+				cb := NewCircuitBreaker(
+					NewRateLimiter(ok, WithRequestsPerHour(1), WithBurstSize(1)), WithFailureThreshold(1))
+				prime(t, cb)
+				return cb
+			},
+		},
+		{
+			name: "retry-after wait", limiter: "rate", deadline: 20 * time.Millisecond, wantDeadline: true,
+			build: func(t *testing.T) *CircuitBreaker {
+				t.Helper()
+				tooMany := roundTripFunc(func(*http.Request) (*http.Response, error) {
+					resp := respWith(429, "", "")
+					resp.Header.Set("Retry-After", "3600")
+					return resp, nil
+				})
+				// The 429 is one real failure, so the threshold is 2.
+				cb := NewCircuitBreaker(NewRateLimiter(tooMany), WithFailureThreshold(2))
+				prime(t, cb)
+				return cb
+			},
+		},
+		{
+			name: "adaptive delay", limiter: "rate", deadline: 100 * time.Millisecond, wantDeadline: true,
+			build: func(t *testing.T) *CircuitBreaker {
+				t.Helper()
+				cb := NewCircuitBreaker(
+					NewRateLimiter(ok, WithRequestsPerHour(2), WithBurstSize(2)), WithFailureThreshold(1))
+				prime(t, cb) // 1 of 2 requests used: the next one waits out an adaptive delay
+				return cb
+			},
+		},
+	}
+	for _, tt := range tests {
+		for _, cancelled := range []bool{false, true} {
+			name := tt.name + "/deadline"
+			if cancelled {
+				name = tt.name + "/cancel"
+			}
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+				cb := tt.build(t)
+				ctx, cancel := context.WithTimeout(t.Context(), tt.deadline)
+				if cancelled {
+					ctx, cancel = context.WithCancel(t.Context())
+					stop := time.AfterFunc(20*time.Millisecond, cancel)
+					defer stop.Stop()
+				}
+				defer cancel()
+				resp, err := cb.RoundTrip(newReq(t).WithContext(ctx))
+				drain(t, resp)
+				assertLimiterWait(t, err, tt.limiter, tt.wantDeadline && !cancelled, cancelled)
+				if cb.State() != StateClosed {
+					t.Fatalf("state = %s; want closed, a limiter wait is not a breaker failure", cb.State())
+				}
+			})
+		}
+	}
+}
+
+// TestBreakerCountsTransportErrorsBehindLimiters pins that an error from the
+// transport, including a deadline that expired in flight, is not wrapped as a
+// limiter wait and still opens the circuit.
+func TestBreakerCountsTransportErrorsBehindLimiters(t *testing.T) {
+	t.Parallel()
+	limiters := map[string]func(http.RoundTripper) http.RoundTripper{
+		"concurrency": func(next http.RoundTripper) http.RoundTripper { return NewConcurrencyLimiter(next, 1) },
+		"rate":        func(next http.RoundTripper) http.RoundTripper { return NewRateLimiter(next) },
+	}
+	transportErrs := map[string]error{
+		"transport error":   errors.New("connection reset"),
+		"deadline exceeded": context.DeadlineExceeded,
+	}
+	for limiter, wrap := range limiters {
+		for name, transportErr := range transportErrs {
+			t.Run(limiter+"/"+name, func(t *testing.T) {
+				t.Parallel()
+				inner := roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, transportErr })
+				cb := NewCircuitBreaker(wrap(inner), WithFailureThreshold(1))
+				resp, err := do(t, cb)
+				drain(t, resp)
+				if !errors.Is(err, transportErr) {
+					t.Fatalf("error = %v; want the transport error", err)
+				}
+				if _, isWait := errors.AsType[*LimiterWaitError](err); isWait {
+					t.Fatalf("error = %v; a transport error must not be a *LimiterWaitError", err)
+				}
+				if cb.State() != StateOpen {
+					t.Fatalf("state = %s; want open, a transport error is a breaker failure", cb.State())
+				}
+			})
+		}
+	}
+}
+
+// TestBreakerLimiterWaitIsNeitherFailureNorProbeSuccess ends a limiter wait
+// while the breaker is half-open. The circuit must stay half-open: reopening
+// would count the wait as a failure and closing would count it as a success.
+func TestBreakerLimiterWaitIsNeitherFailureNorProbeSuccess(t *testing.T) {
+	t.Parallel()
+	tooMany := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		resp := respWith(429, "", "")
+		resp.Header.Set("Retry-After", "3600")
+		return resp, nil
+	})
+	cb := NewCircuitBreaker(NewRateLimiter(tooMany),
+		WithFailureThreshold(1), WithOpenTimeout(5*time.Millisecond), WithSuccessThreshold(1))
+	resp, err := do(t, cb)
+	if err != nil {
+		t.Fatalf("opening request: %v", err)
+	}
+	drain(t, resp)
+	time.Sleep(15 * time.Millisecond)
+	if cb.State() != StateHalfOpen {
+		t.Fatalf("state = %s; want half-open", cb.State())
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	resp, err = cb.RoundTrip(newReq(t).WithContext(ctx))
+	drain(t, resp)
+	if _, isWait := errors.AsType[*LimiterWaitError](err); !isWait {
+		t.Fatalf("error = %v (%T); want *LimiterWaitError from the Retry-After wait", err, err)
+	}
+	// Read the field, not State(): State() turns an open breaker half-open once
+	// the open timeout has passed, which would hide a wait counted as a failure.
+	cb.mu.RLock()
+	state := cb.state
+	cb.mu.RUnlock()
+	if state != StateHalfOpen {
+		t.Fatalf("state = %s; want half-open after a limiter wait", state)
+	}
+}

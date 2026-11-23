@@ -26,12 +26,18 @@ func NewConcurrencyLimiter(next http.RoundTripper, n int) *ConcurrencyLimiter {
 }
 
 // RoundTrip acquires a concurrency slot, executes the request, and releases
-// the slot. It respects context cancellation while waiting for a slot.
+// the slot. A request whose context has ended, before or while it waits for a
+// slot, is not sent and gets a *LimiterWaitError wrapping the context's error.
 func (cl *ConcurrencyLimiter) RoundTrip(req *http.Request) (*http.Response, error) {
+	// A select over a free slot and a done context picks either at random, so
+	// check the context first: a request that has already ended is never sent.
+	if err := req.Context().Err(); err != nil {
+		return nil, &LimiterWaitError{Limiter: limiterConcurrency, Err: err}
+	}
 	select {
 	case cl.sem <- struct{}{}:
 	case <-req.Context().Done():
-		return nil, req.Context().Err()
+		return nil, &LimiterWaitError{Limiter: limiterConcurrency, Err: req.Context().Err()}
 	}
 	defer func() { <-cl.sem }()
 	return cl.next.RoundTrip(req)

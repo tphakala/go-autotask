@@ -85,7 +85,9 @@ func NewRateLimiter(next http.RoundTripper, opts ...RateLimitOption) *RateLimite
 	}
 }
 
-// RoundTrip implements http.RoundTripper with rate limiting.
+// RoundTrip implements http.RoundTripper with rate limiting. A request that
+// gives up waiting for a Retry-After period, a token or the adaptive delay is
+// not sent, and the error is a *LimiterWaitError.
 func (rl *RateLimiter) RoundTrip(req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
 
@@ -100,13 +102,13 @@ func (rl *RateLimiter) RoundTrip(req *http.Request) (*http.Response, error) {
 		case <-timer.C:
 		case <-ctx.Done():
 			timer.Stop()
-			return nil, ctx.Err()
+			return nil, &LimiterWaitError{Limiter: limiterRate, Err: ctx.Err()}
 		}
 	}
 
 	// Token bucket wait.
 	if err := rl.limiter.Wait(ctx); err != nil {
-		return nil, err
+		return nil, &LimiterWaitError{Limiter: limiterRate, Err: err}
 	}
 
 	// Optional adaptive delay based on hourly window usage.
@@ -118,7 +120,7 @@ func (rl *RateLimiter) RoundTrip(req *http.Request) (*http.Response, error) {
 			case <-timer.C:
 			case <-ctx.Done():
 				timer.Stop()
-				return nil, ctx.Err()
+				return nil, &LimiterWaitError{Limiter: limiterRate, Err: ctx.Err()}
 			}
 		}
 	}

@@ -116,6 +116,10 @@ func WithThresholdMonitor(opts ...middleware.ThresholdMonitorOption) ClientOptio
 //	    autotask.WithRateLimiter(),      // then enforce rate limit
 //	    autotask.WithMaxConcurrency(3),  // then limit concurrency
 //	)
+//
+// With the default failure predicate, a request that gives up waiting for a
+// slot or a rate token is not a circuit breaker failure (see
+// middleware.LimiterWaitError).
 func WithMaxConcurrency(n int) ClientOption {
 	return func(c *Client) {
 		c.middlewares = append(c.middlewares, func(next http.RoundTripper) http.RoundTripper {
