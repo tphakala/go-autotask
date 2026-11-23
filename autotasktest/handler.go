@@ -85,9 +85,12 @@ func singularEntityName(s string) string {
 //
 // Steps 3 and 5 use only knownEntityNames and the URL, so an item of a type in
 // package entities lands in the store Get, List and Count read for that type,
-// whichever other stores exist. A type from outside this module is resolved by
-// steps 2 and 4 and the derived fallback of step 5, which depend on the stores
-// that exist. Lookup and creation share one lock hold, so concurrent creates
+// unless step 1 or 2 matches first. The mock sees only the URL, so a type from
+// outside this module on a URL that steps 3 or 5 claim for a type in package
+// entities goes to that type's store (a type named Notes under Tickets/Notes
+// gets TicketNotes) and needs a WithChildEntity route. On any other URL it is
+// resolved by steps 2 and 4 and the derived fallback of step 5, which depend on
+// the stores that exist. Lookup and creation share one lock hold, so concurrent creates
 // under a new child URL share one store.
 func (ts *TestServer) resolveChildStore(parent, segment string, create bool) (*entityStore, bool) {
 	ts.mu.Lock()

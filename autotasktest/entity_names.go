@@ -7,7 +7,8 @@ import (
 
 // knownEntityNames holds the entity name of every entity type in package
 // entities. resolveChildStore uses it to route a child URL of one of these
-// types by name, whatever other stores exist. TestKnownEntityNamesCoverEntities
+// types by name, unless a WithChildEntity route or a store named
+// singular(Parent)+Segment matches first. TestKnownEntityNamesCoverEntities
 // keeps the list complete.
 var knownEntityNames = entityNameSet(
 	entities.BillingCode{}, entities.BillingItemApprovalLevel{}, entities.BillingItem{}, entities.ChangeRequestLink{},

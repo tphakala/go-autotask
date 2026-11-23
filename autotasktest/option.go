@@ -237,10 +237,13 @@ func WithEntity[T autotask.Entity](items ...T) ServerOption {
 // entity name of such a type, a create makes that store, and the store named
 // Segment is not used; when only Segment is (Contact under Companies, Task under
 // Projects), a create makes the store named Segment. So these types read back
-// through Get, List and Count whichever other stores exist. A type from outside
-// this module resolves to an existing store named Segment if there is one, else
-// a create makes singular(Parent)+Segment; it needs WithChildEntity, or a
-// WithEntity seed, to read back when its entity name is neither. WithChildEntity
+// through Get, List and Count, unless a store named singular(Parent)+Segment
+// already exists. The mock sees only the URL, so a type from outside this module
+// on a URL that names a type in package entities this way goes to that type's
+// store, and needs WithChildEntity. On any other URL it resolves to an existing
+// store named Segment if there is one, else a create makes
+// singular(Parent)+Segment; it needs WithChildEntity, or a WithEntity seed, to
+// read back when its entity name is neither. WithChildEntity
 // is also needed to seed children under a parent. Registering the same parent
 // and segment for two different entity types fails the test.
 func WithChildEntity[P autotask.Entity, C autotask.Entity](parentID int64, items ...C) ServerOption {
