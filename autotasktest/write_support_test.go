@@ -119,21 +119,30 @@ func TestChildOnlyWritesAllowOnlyTheTypedChildRoute(t *testing.T) {
 		noStore(t, ts, "ExpenseReportItems")
 	})
 
-	t.Run("Contact under Company", func(t *testing.T) {
-		_, client := NewServer(t, WithChildOnlyWrites[entities.Company, entities.Contact]())
+	t.Run("Contact under Company and Project", func(t *testing.T) {
+		_, client := NewServer(t,
+			WithChildOnlyWrites[entities.Company, entities.Contact](),
+			WithChildOnlyWrites[entities.Project, entities.Contact](),
+		)
 		ctx := t.Context()
 		contact := entities.Contact{FirstName: autotask.Set("Ada")}
 		if _, err := autotask.CreateChild[entities.Company](ctx, client, 9, &contact); err != nil {
-			t.Fatalf("CreateChild: %v", err)
+			t.Fatalf("CreateChild under Company: %v", err)
 		}
-		_, err := autotask.Create(ctx, client, &entities.Contact{FirstName: autotask.Set("root")})
+		second := entities.Contact{FirstName: autotask.Set("Grace")}
+		if _, err := autotask.CreateChild[entities.Project](ctx, client, 4, &second); err != nil {
+			t.Fatalf("CreateChild under Project: %v", err)
+		}
+		_, err := autotask.CreateChild[entities.Ticket](ctx, client, 2, &entities.Contact{FirstName: autotask.Set("other")})
+		wantBadRequest(t, "Tickets/Contacts create", err)
+		_, err = autotask.Create(ctx, client, &entities.Contact{FirstName: autotask.Set("root")})
 		wantBadRequest(t, "root Create", err)
 		got, err := autotask.List[entities.Contact](ctx, client, allItems())
 		if err != nil {
 			t.Fatalf("root List: %v", err)
 		}
-		if len(got) != 1 {
-			t.Errorf("root List = %d items, want 1", len(got))
+		if len(got) != 2 {
+			t.Errorf("root List = %d items, want the 2 written under Company and Project", len(got))
 		}
 	})
 }
@@ -225,6 +234,23 @@ func TestWriteSupportGatesAndEntityInfo(t *testing.T) {
 			},
 			infoName: "ResourceSkills",
 			want:     flags{update: true},
+		},
+		{
+			name: "without update on a child URL",
+			opts: []ServerOption{
+				WithoutUpdateSupport("ResourceSkills"),
+				WithChildEntity[entities.Resource](1, seedSkill),
+			},
+			fail: func(ctx context.Context, c *autotask.Client) error {
+				_, err := autotask.UpdateChild[entities.Resource](ctx, c, 1, &entities.ResourceSkill{ID: autotask.Set[int64](7)})
+				return err
+			},
+			succeed: func(ctx context.Context, c *autotask.Client) error {
+				_, err := autotask.CreateChild[entities.Resource](ctx, c, 1, &entities.ResourceSkill{})
+				return err
+			},
+			infoName: "ResourceSkills",
+			want:     flags{create: true},
 		},
 		{
 			name:     "delete support",
