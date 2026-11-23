@@ -262,3 +262,46 @@ func TestURLErrorFailsClosedWhenAWrapperPrintsUserInfo(t *testing.T) {
 		t.Errorf("error text %q still contains the nested user info", got.Error())
 	}
 }
+
+// nilBranchError holds a nil branch next to a real one.
+type nilBranchError struct{ errs []error }
+
+func (e nilBranchError) Error() string   { return "two branches" }
+func (e nilBranchError) Unwrap() []error { return e.errs }
+
+func TestURLErrorToleratesNilBranches(t *testing.T) {
+	t.Parallel()
+	inner := &url.Error{Op: "Get", URL: "https://in.example/x?token=SECRET", Err: io.EOF}
+	got := URLError(&url.Error{Op: "Get", URL: "https://h.example/a", Err: nilBranchError{errs: []error{nil, inner}}})
+	if strings.Contains(got.Error(), "SECRET") || !errors.Is(got, io.EOF) {
+		t.Errorf("got %q; want the nested query dropped and io.EOF reachable", got.Error())
+	}
+	var nilURL *url.Error
+	if got := URLError(nilURL); !errors.Is(got, nilURL) {
+		t.Errorf("URLError(typed nil) = %v; want it returned as it is", got)
+	}
+	wrapped := fmt.Errorf("w: %w", nilURL)
+	if got := URLError(&url.Error{Op: "Get", URL: "https://h.example/a", Err: wrapped}); !strings.Contains(got.Error(), "w: ") {
+		t.Errorf("URLError with a typed-nil nested *url.Error = %q", got.Error())
+	}
+}
+
+// asNilError answers As for *url.Error with a typed nil.
+type asNilError struct{}
+
+func (asNilError) Error() string { return "as nil" }
+func (asNilError) As(target any) bool {
+	if p, ok := target.(**url.Error); ok {
+		*p = nil
+		return true
+	}
+	return false
+}
+
+func TestURLErrorToleratesAnAsMethodThatYieldsNil(t *testing.T) {
+	t.Parallel()
+	got := URLError(&url.Error{Op: "Get", URL: "https://h.example/a?user=alice", Err: asNilError{}})
+	if text := got.Error(); strings.Contains(text, "alice") || !strings.Contains(text, "as nil") {
+		t.Errorf("error text = %q; want the cause kept and the query dropped", text)
+	}
+}

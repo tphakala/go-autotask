@@ -40,10 +40,11 @@ var errInvalidURL = errors.New("invalid URL")
 // *url.Error are kept as they are, so errors.Is still finds a joined
 // context.DeadlineExceeded or io.EOF, and errors.As returns only redacted
 // copies of a *url.Error. A join or wrapper that holds one is replaced by an
-// error with the same branches, redacted; its own type is not kept. An err with
-// no *url.Error is returned as it is. The wrappers above the first *url.Error
-// are not kept, and err and the errors it wraps are not modified, so an error
-// that other callers share is safe to pass.
+// error with the same branches, redacted; its own type is not kept. Nil branches
+// and typed-nil *url.Error values are skipped. An err with no *url.Error is
+// returned as it is. The wrappers above the first *url.Error are not kept, and
+// err and the errors it wraps are not modified, so an error that other callers
+// share is safe to pass.
 //
 // When the parsed URL contains "@" the cause of a parse error is replaced too,
 // because url.Parse can quote part of the user info in it, such as
@@ -52,6 +53,10 @@ func URLError(err error) error {
 	ue, ok := errors.AsType[*url.Error](err)
 	if !ok {
 		return err
+	}
+	if ue == nil {
+		// A typed-nil *url.Error came first; redact the rest of the tree.
+		return redactTree(err)
 	}
 	return redactURLError(ue)
 }
@@ -69,8 +74,9 @@ func redactURLError(ue *url.Error) *url.Error {
 	return &redacted
 }
 
-// redactTree returns err unchanged when no *url.Error is in its tree, and
-// otherwise a copy built from redacted branches. The copy keeps err's own text
+// redactTree returns err unchanged when no *url.Error is in its tree, or when
+// the only one is a typed nil, and otherwise a copy built from redacted
+// branches, skipping nil ones. The copy keeps err's own text
 // with each branch's text swapped for its redacted text, unless that text
 // would still show a nested URL, query or user info; then it is the redacted
 // branch texts joined by newlines.
@@ -80,6 +86,9 @@ func redactTree(err error) error {
 		return err
 	}
 	if reflect.TypeOf(err) == reflect.TypeFor[*url.Error]() {
+		if found == nil {
+			return err
+		}
 		return redactURLError(found)
 	}
 	var branches []error
@@ -89,12 +98,18 @@ func redactTree(err error) error {
 		branches = []error{child}
 	} else {
 		// err reaches the *url.Error through an As method; keep only that.
+		if found == nil {
+			return err
+		}
 		return redactURLError(found)
 	}
 	msg := err.Error()
 	redacted := make([]error, len(branches))
 	texts := make([]string, len(branches))
 	for i, branch := range branches {
+		if isNil(branch) {
+			continue
+		}
 		redacted[i] = redactTree(branch)
 		texts[i] = redacted[i].Error()
 		msg = replaceBranchText(msg, branch, redacted[i])
@@ -131,18 +146,19 @@ func showsSecret(msg string, err error) bool {
 	return false
 }
 
-// urlErrors returns every *url.Error in err's tree. Each node is visited
-// through its Unwrap methods, and errors.AsType on a node that is a *url.Error
-// returns that node, so the result holds all of them.
+// urlErrors returns every non-nil *url.Error in err's tree. Each node is
+// visited through its Unwrap methods, and errors.AsType on a node that is a
+// *url.Error returns that node, so the result holds all of them. Nil nodes are
+// not visited, because calling their methods can panic.
 func urlErrors(err error) []*url.Error {
 	seen := map[*url.Error]bool{}
 	var found []*url.Error
 	var walk func(error)
 	walk = func(node error) {
-		if node == nil {
+		if isNil(node) {
 			return
 		}
-		if ue, ok := errors.AsType[*url.Error](node); ok && !seen[ue] {
+		if ue, ok := errors.AsType[*url.Error](node); ok && ue != nil && !seen[ue] {
 			seen[ue] = true
 			found = append(found, ue)
 		}
@@ -173,9 +189,18 @@ func replaceBranchText(msg string, branch, redacted error) string {
 	return after
 }
 
-// redactedError stands in for a join or wrapper that held a *url.Error: it has
-// that error's text with each branch redacted, and unwraps to the redacted
-// branches.
+// isNil reports whether err is nil or a nil pointer, whose Error method can
+// panic.
+func isNil(err error) bool {
+	if err == nil {
+		return true
+	}
+	v := reflect.ValueOf(err)
+	return v.Kind() == reflect.Pointer && v.IsNil()
+}
+
+// redactedError stands in for a join or wrapper that held a *url.Error: its
+// text is built by redactTree, and it unwraps to the redacted branches.
 type redactedError struct {
 	msg  string
 	errs []error
