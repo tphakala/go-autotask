@@ -289,6 +289,40 @@ err = autotask.DeleteChild[entities.TicketNote, entities.TicketNoteAttachment](c
 
 Some entities are updated or deleted only through the parent's URL; `Update` sends `/v1.0/{Entity}` and `Delete` sends `/v1.0/{Entity}/{id}`, URLs the API does not offer for them. `UpdateChildRaw` and `DeleteChildRaw` do the same with entity names instead of types.
 
+## Configuration items (CMDB)
+
+`ConfigurationItem` is a root entity: `Create` it with `ProductID`, `CompanyID` and `IsActive` set, and change it with `Update`. Autotask has no delete for configuration items; set `IsActive` to false to retire one. Its notes, attachments, related items, billing product associations, DNS records and SSL subject alternative names are child entities, reached through the parent with the child calls.
+
+```go
+ci, err := autotask.Create(ctx, client, &entities.ConfigurationItem{
+    ProductID:      autotask.Set(productID),
+    CompanyID:      autotask.Set(companyID),
+    IsActive:       autotask.Set(true),
+    ReferenceTitle: autotask.Set("PROD-WEB-01"),
+})
+ciID, _ := ci.ID.Get()
+
+// Add a note to it, then edit the note: PATCH /v1.0/ConfigurationItems/{ciID}/Notes
+note, err := autotask.CreateChild[entities.ConfigurationItem](ctx, client, ciID, &entities.ConfigurationItemNote{
+    Title:       autotask.Set("Rack move"),
+    Description: autotask.Set("Moved to rack 12."),
+    NoteType:    autotask.Set(noteType), // a value of the NoteType picklist
+})
+note.Title = autotask.Set("Rack move (done)")
+note, err = autotask.UpdateChild[entities.ConfigurationItem](ctx, client, ciID, note)
+
+// Relate it to another configuration item
+_, err = autotask.CreateChild[entities.ConfigurationItem](ctx, client, ciID, &entities.ConfigurationItemRelatedItem{
+    RelatedConfigurationItemID: autotask.Set(otherCIID),
+    Relationship:               autotask.Set(relationship), // a value of the Relationship picklist
+})
+
+// Delete an attachment: DELETE /v1.0/ConfigurationItems/{ciID}/Attachments/{id}
+err = autotask.DeleteChild[entities.ConfigurationItem, entities.ConfigurationItemAttachment](ctx, client, ciID, attachmentID)
+```
+
+The other types follow the same rule: their doc comments name the typed calls that reach the operations the REST swagger lists for them. `ConfigurationItemType` and `ConfigurationItemCategory` are root entities. `ConfigurationItemDnsRecord` and `ConfigurationItemSslSubjectAlternativeName` can be listed and deleted but not created or updated. `TicketAdditionalConfigurationItem` is a child of `Ticket`.
+
 ## Problem, incident and change request tickets
 
 An incident ticket points at its problem ticket through `Ticket.ProblemTicketID`. The JSON field is `problemTicketId`, with a lowercase d, and Autotask accepts it only on Incident tickets. List the incidents of a problem by filtering on it; the filter needs the field to be queryable in your instance, which `metadata.GetFields` reports as `IsQueryable`. Ticket type values come from `metadata.GetPickList(ctx, client, "Tickets", "ticketType")`.
@@ -447,9 +481,9 @@ With `WithZoneInfo`, `NewClient` sends no zone discovery request, uses `zone.URL
 
 The `entities` package ships type-safe structs, some generated with `autotask-gen` and some hand-written, for:
 
-`BillingCode`, `BillingItem`, `BillingItemApprovalLevel`, `ChangeRequestLink`, `Company`, `CompanyNote`, `ConfigurationItem`, `Contact`, `Contract`, `Department`, `ExpenseItem`, `ExpenseReport`, `Invoice`, `Opportunity`, `Product`, `Project`, `ProjectNote`, `Quote`, `QuoteItem`, `Resource`, `Service`, `ServiceBundle`, `Task`, `Ticket`, `TicketAttachment`, `TicketNote`, `TicketNoteAttachment`, `TimeEntry`
+`BillingCode`, `BillingItem`, `BillingItemApprovalLevel`, `ChangeRequestLink`, `Company`, `CompanyNote`, `ConfigurationItem`, `ConfigurationItemAttachment`, `ConfigurationItemBillingProductAssociation`, `ConfigurationItemCategory`, `ConfigurationItemCategoryUdfAssociation`, `ConfigurationItemDnsRecord`, `ConfigurationItemNote`, `ConfigurationItemNoteAttachment`, `ConfigurationItemRelatedItem`, `ConfigurationItemSslSubjectAlternativeName`, `ConfigurationItemType`, `Contact`, `Contract`, `Department`, `ExpenseItem`, `ExpenseReport`, `Invoice`, `Opportunity`, `Product`, `Project`, `ProjectNote`, `Quote`, `QuoteItem`, `Resource`, `Service`, `ServiceBundle`, `Task`, `Ticket`, `TicketAdditionalConfigurationItem`, `TicketAttachment`, `TicketNote`, `TicketNoteAttachment`, `TimeEntry`
 
-All entities use `Optional[T]` fields, and all except `ChangeRequestLink` and `TicketNoteAttachment` (Autotask gives them none) support user-defined fields via `UserDefinedFields []autotask.UDF`. For an entity not listed here, use the raw (`map[string]any`) API or generate a struct with `autotask-gen`.
+All entities use `Optional[T]` fields, and all except `ChangeRequestLink`, `TicketNoteAttachment`, `TicketAdditionalConfigurationItem` and the `ConfigurationItem*` types other than `ConfigurationItem` itself (Autotask gives them none) support user-defined fields via `UserDefinedFields []autotask.UDF`. For an entity not listed here, use the raw (`map[string]any`) API or generate a struct with `autotask-gen`.
 
 ## Error handling
 

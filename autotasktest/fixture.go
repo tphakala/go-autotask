@@ -220,6 +220,7 @@ func ConfigurationItemFixture(overrides ...func(*entities.ConfigurationItem)) en
 		ReferenceTitle:        autotask.Set("PROD-WEB-01"),
 		ReferenceNumber:       autotask.Set("CI-2024-001"),
 		CompanyID:             autotask.Set(int64(1001)), //nolint:mnd // test fixture data
+		ProductID:             autotask.Set(int64(2001)), //nolint:mnd // test fixture data
 		ConfigurationItemType: autotask.Set(int64(1)), // Server
 		IsActive:              autotask.Set(true),
 		InstallDate:           autotask.Set(fixtureTime),
