@@ -647,6 +647,32 @@ func TestOutsideTypeUsesExistingSegmentStore(t *testing.T) {
 	}
 }
 
+// derivedNamedEntity is a type outside this module named singular(Gadgets)+Notes.
+type derivedNamedEntity struct {
+	ID autotask.Optional[int64] `json:"id,omitzero"`
+}
+
+func (derivedNamedEntity) EntityName() string { return "GadgetNotes" }
+
+// TestOutsideTypePrefersDerivedStoreOverSegmentStore pins the order on an
+// unclaimed URL: an existing singular(Parent)+Segment store wins over an existing
+// store named after the segment.
+func TestOutsideTypePrefersDerivedStoreOverSegmentStore(t *testing.T) {
+	_, client := NewServer(t,
+		WithEntity(segmentNamedEntity{ID: autotask.Set(int64(100))}),
+		WithEntity(derivedNamedEntity{ID: autotask.Set(int64(200))}, derivedNamedEntity{ID: autotask.Set(int64(201))}),
+	)
+	var resp struct {
+		Items []json.RawMessage `json:"items"`
+	}
+	if err := client.Do(t.Context(), http.MethodGet, "/v1.0/Gadgets/1/Notes", nil, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Items) != 2 {
+		t.Errorf("child list under an unclaimed URL = %d items, want the 2 seeded in the GadgetNotes store", len(resp.Items))
+	}
+}
+
 // TestChildEntityRouteClaimsKnownURL pins the escape hatch the docs name: a type
 // from outside this module registered with WithChildEntity reads back on a URL
 // that otherwise belongs to a type in package entities (Tickets/Notes).
