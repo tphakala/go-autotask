@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-23
+
 ### Added
 
 - **`UpdateChild`, `UpdateChildRaw`, `DeleteChild` and `DeleteChildRaw`** (#46): update and delete a child entity through its parent, for entities the API serves only on the parent's URL. `UpdateChild[P, C]` and `UpdateChildRaw` send `PATCH /v1.0/{parent}/{parentID}/{child}` with the child's id in the body; `DeleteChild[P, C]` and `DeleteChildRaw` send `DELETE /v1.0/{parent}/{parentID}/{child}/{childID}`. `Update` and `Delete` still send the root URL.
@@ -224,7 +226,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Entity types: Company, Contact, Ticket, Resource, Contract, Project, Task, ConfigurationItem, TicketNote, TimeEntry
 - GitHub Actions: CI (test and lint), CodeQL, govulncheck, Dependabot, automated releases, stale issue cleanup
 
-[Unreleased]: https://github.com/tphakala/go-autotask/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/tphakala/go-autotask/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/tphakala/go-autotask/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/tphakala/go-autotask/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/tphakala/go-autotask/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/tphakala/go-autotask/compare/v1.5.1...v1.6.0
