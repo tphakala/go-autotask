@@ -231,3 +231,34 @@ func TestURLErrorRedactsCausesItCannotRewriteInPlace(t *testing.T) {
 		})
 	}
 }
+
+func TestURLErrorFailsClosedWhenAWrapperPrintsTheURLItself(t *testing.T) {
+	t.Parallel()
+	raw := "https://in.example/x?token=SECRET"
+	inner := &url.Error{Op: "Get", URL: raw, Err: io.EOF}
+	for name, cause := range map[string]error{
+		"raw URL in wrapper text":    fmt.Errorf("fetch %s: %w", raw, inner),
+		"quoted URL in wrapper text": fmt.Errorf("fetch %q: %w", raw+`"x`, &url.Error{Op: "Get", URL: raw + `"x`, Err: io.EOF}),
+		"query in wrapper text":      fmt.Errorf("query token=SECRET: %w", inner),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			got := URLError(&url.Error{Op: "Get", URL: "https://h.example/a", Err: cause})
+			if strings.Contains(got.Error(), "SECRET") {
+				t.Errorf("error text %q still contains the nested query", got.Error())
+			}
+			if !errors.Is(got, io.EOF) {
+				t.Errorf("errors.Is(%v, io.EOF) = false", got)
+			}
+		})
+	}
+}
+
+func TestURLErrorFailsClosedWhenAWrapperPrintsUserInfo(t *testing.T) {
+	t.Parallel()
+	inner := &url.Error{Op: "Get", URL: "https://bob:pw1@in.example/x", Err: io.EOF}
+	got := URLError(&url.Error{Op: "Get", URL: "https://h.example/a", Err: fmt.Errorf("as bob:pw1: %w", inner)})
+	if strings.Contains(got.Error(), "pw1") {
+		t.Errorf("error text %q still contains the nested user info", got.Error())
+	}
+}

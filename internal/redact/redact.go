@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/url"
 	"reflect"
+	"strconv"
 	"strings"
 )
 
@@ -69,7 +70,10 @@ func redactURLError(ue *url.Error) *url.Error {
 }
 
 // redactTree returns err unchanged when no *url.Error is in its tree, and
-// otherwise a copy built from redacted branches.
+// otherwise a copy built from redacted branches. The copy keeps err's own text
+// with each branch's text swapped for its redacted text, unless that text
+// would still show a nested URL, query or user info; then it is the redacted
+// branch texts joined by newlines.
 func redactTree(err error) error {
 	found, ok := errors.AsType[*url.Error](err)
 	if !ok {
@@ -89,11 +93,69 @@ func redactTree(err error) error {
 	}
 	msg := err.Error()
 	redacted := make([]error, len(branches))
+	texts := make([]string, len(branches))
 	for i, branch := range branches {
 		redacted[i] = redactTree(branch)
+		texts[i] = redacted[i].Error()
 		msg = replaceBranchText(msg, branch, redacted[i])
 	}
+	if showsSecret(msg, err) {
+		// A wrapper printed URL text of its own; keep only the redacted
+		// branches.
+		msg = strings.Join(texts, "\n")
+	}
 	return &redactedError{msg: msg, errs: redacted}
+}
+
+// showsSecret reports whether msg still holds, as it is or quoted, a URL of a
+// *url.Error in err's tree that URL would change, or that URL's query or user
+// info.
+func showsSecret(msg string, err error) bool {
+	for _, ue := range urlErrors(err) {
+		if ue.URL == "" || URL(ue.URL) == ue.URL {
+			continue
+		}
+		quoted := strconv.Quote(ue.URL)
+		if strings.Contains(msg, ue.URL) || strings.Contains(msg, quoted[1:len(quoted)-1]) {
+			return true
+		}
+		if u, perr := url.Parse(ue.URL); perr == nil {
+			if u.RawQuery != "" && strings.Contains(msg, u.RawQuery) {
+				return true
+			}
+			if u.User != nil && strings.Contains(msg, u.User.String()) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// urlErrors returns every *url.Error in err's tree. Each node is visited
+// through its Unwrap methods, and errors.AsType on a node that is a *url.Error
+// returns that node, so the result holds all of them.
+func urlErrors(err error) []*url.Error {
+	seen := map[*url.Error]bool{}
+	var found []*url.Error
+	var walk func(error)
+	walk = func(node error) {
+		if node == nil {
+			return
+		}
+		if ue, ok := errors.AsType[*url.Error](node); ok && !seen[ue] {
+			seen[ue] = true
+			found = append(found, ue)
+		}
+		if multi, ok := node.(interface{ Unwrap() []error }); ok {
+			for _, child := range multi.Unwrap() {
+				walk(child)
+			}
+			return
+		}
+		walk(errors.Unwrap(node))
+	}
+	walk(err)
+	return found
 }
 
 // replaceBranchText swaps the text of branch in msg for the text of its
