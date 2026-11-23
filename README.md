@@ -357,6 +357,9 @@ contact, err := autotask.CreateChild[entities.Company](ctx, client, companyID, &
     LastName:  autotask.Set("Doe"),
     IsActive:  autotask.Set(int64(1)),
 })
+if err != nil {
+    return err
+}
 
 // Edit the contact: PATCH /v1.0/Companies/{companyID}/Contacts with only the ID and the changed field
 contactID, _ := contact.ID.Get()
