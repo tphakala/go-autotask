@@ -5,13 +5,17 @@ import (
 	"crypto/tls"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptrace"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/tphakala/go-autotask/internal/logtest"
 )
 
 // errUnexpectedCall marks a RoundTripper branch that must never run.
@@ -435,4 +439,98 @@ func TestNewClientUsesFallbackTransport(t *testing.T) {
 	if _, ok := c.httpClient.Transport.(*tlsFallbackTransport); !ok {
 		t.Errorf("client transport is %T, want *tlsFallbackTransport", c.httpClient.Transport)
 	}
+}
+
+// TestNewClientGivesFallbackTransportTheLogger pins that the default HTTP client
+// is built after the options, so WithLogger reaches the TLS fallback transport
+// wherever it is listed, and that a nil WithHTTPClient keeps the default client.
+func TestNewClientGivesFallbackTransportTheLogger(t *testing.T) {
+	logger := logtest.New().Logger()
+	const base = "https://webservices2.autotask.net/ATServicesRest"
+	tests := []struct {
+		name string
+		opts []ClientOption
+	}{
+		{"logger before base URL", []ClientOption{WithLogger(logger), WithBaseURL(base)}},
+		{"logger after base URL", []ClientOption{WithBaseURL(base), WithLogger(logger)}},
+		{"nil HTTP client keeps the default", []ClientOption{WithHTTPClient(nil), WithLogger(logger), WithBaseURL(base)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, err := NewClient(t.Context(), AuthConfig{}, tt.opts...)
+			if err != nil {
+				t.Fatalf("NewClient: %v", err)
+			}
+			t.Cleanup(func() { _ = c.Close() })
+			ft, ok := c.httpClient.Transport.(*tlsFallbackTransport)
+			if !ok {
+				t.Fatalf("client transport is %T, want *tlsFallbackTransport", c.httpClient.Transport)
+			}
+			if ft.logger != logger {
+				t.Error("the fallback transport does not have the client's logger")
+			}
+		})
+	}
+}
+
+// rtFunc adapts a function to http.RoundTripper without the call counter fakeRT
+// keeps, which is not safe for concurrent requests.
+type rtFunc func(*http.Request) (*http.Response, error)
+
+func (f rtFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestTLSFallbackLogsDowngradeOnce(t *testing.T) {
+	assertOneDowngrade := func(t *testing.T, rec *logtest.Recorder) {
+		t.Helper()
+		recs := rec.Records()
+		if len(recs) != 1 {
+			t.Fatalf("got %d records; want 1", len(recs))
+		}
+		r := recs[0]
+		if r.Level != slog.LevelWarn || r.Message != "autotask: TLS 1.3 handshake failed, using TLS 1.2" {
+			t.Errorf("record = %s %q; want the Warn downgrade record", r.Level, r.Message)
+		}
+		if host := r.Str("host"); host != "h.example" {
+			t.Errorf("host = %q; want h.example", host)
+		}
+		if strings.Contains(r.Text, "q=1") {
+			t.Errorf("record contains the query string: %s", r.Text)
+		}
+	}
+	fallback := rtFunc(func(*http.Request) (*http.Response, error) { return okResponse(), nil })
+
+	t.Run("pinned requests do not log again", func(t *testing.T) {
+		rec := logtest.New()
+		ft := newFallbackFor(t, rtFunc(func(*http.Request) (*http.Response, error) { return nil, io.EOF }), fallback)
+		ft.logger = rec.Logger()
+		for range 2 {
+			if _, err := mustGet(t, ft, "https://h.example/x?q=1"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		assertOneDowngrade(t, rec)
+	})
+
+	t.Run("concurrent probes log once", func(t *testing.T) {
+		rec := logtest.New()
+		var probing sync.WaitGroup
+		probing.Add(2)
+		primary := rtFunc(func(*http.Request) (*http.Response, error) {
+			probing.Done()
+			probing.Wait()
+			return nil, io.EOF
+		})
+		ft := newFallbackFor(t, primary, fallback)
+		ft.logger = rec.Logger()
+		var done sync.WaitGroup
+		for range 2 {
+			done.Go(func() {
+				if _, err := mustGet(t, ft, "https://h.example/x?q=1"); err != nil {
+					t.Error(err)
+				}
+			})
+		}
+		done.Wait()
+		assertOneDowngrade(t, rec)
+	})
 }

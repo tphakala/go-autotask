@@ -2,12 +2,16 @@ package middleware
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/tphakala/go-autotask/internal/logtest"
 )
 
 func testThresholdMonitor(t *testing.T, requestCount int, opts ...ThresholdMonitorOption) {
@@ -111,4 +115,182 @@ func TestThresholdMonitorRedirectDropsCredentials(t *testing.T) {
 	if hc.CheckRedirect != nil {
 		t.Error("NewThresholdMonitor set CheckRedirect on the caller's http.Client; want it left nil")
 	}
+}
+
+const (
+	warningMsg  = "autotask: API usage reached warning threshold"
+	criticalMsg = "autotask: API usage reached critical threshold"
+	failedMsg   = "autotask: threshold check failed"
+)
+
+var testAuth = AuthHeaders{Username: "user-secret-name", Secret: "secret-value", IntegrationCode: "secret-code"}
+
+// checkOnce runs one threshold check against handler with a recording logger and
+// a warning and an error callback. It fails the test when the credential
+// headers did not reach the server or appear in a record, so the leak check is
+// not vacuous.
+func checkOnce(t *testing.T, handler http.HandlerFunc) (recs []logtest.Record, warned bool, cbErr error) {
+	t.Helper()
+	rec := logtest.New()
+	var gotUser atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUser.Store(r.Header.Get("UserName"))
+		handler(w, r)
+	}))
+	defer srv.Close()
+	var warnedFlag atomic.Bool
+	var callbackErr atomic.Pointer[error]
+	m := NewThresholdMonitor(srv.Client(), srv.URL, testAuth,
+		WithThresholdMonitorLogger(rec.Logger()),
+		WithWarningCallback(func(ThresholdInfo) { warnedFlag.Store(true) }),
+		WithErrorCallback(func(err error) { callbackErr.Store(&err) }),
+	)
+	m.check(t.Context())
+
+	if gotUser.Load() != testAuth.Username {
+		t.Fatal("the credential headers did not reach the server, so the leak check below proves nothing")
+	}
+	recs = rec.Records()
+	for _, r := range recs {
+		for _, secret := range []string{testAuth.Username, testAuth.Secret, testAuth.IntegrationCode, "secret-q"} {
+			if strings.Contains(r.Text, secret) {
+				t.Errorf("record contains %q: %s", secret, r.Text)
+			}
+		}
+	}
+	if ce := callbackErr.Load(); ce != nil {
+		cbErr = *ce
+	}
+	return recs, warnedFlag.Load(), cbErr
+}
+
+func TestThresholdMonitorLogsUsageLevels(t *testing.T) {
+	usage := func(count int) http.HandlerFunc {
+		return func(w http.ResponseWriter, _ *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"currentTimeframeRequestCount": count,
+				"externalRequestThreshold":     100,
+			})
+		}
+	}
+	tests := []struct {
+		name       string
+		count      int
+		wantMsg    string // "" for no record
+		wantWarned bool   // the warning callback ran
+	}{
+		{"warning level", 80, warningMsg, true},
+		{"critical level", 95, criticalMsg, true},
+		{"below warning", 50, "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recs, warned, _ := checkOnce(t, usage(tt.count))
+			if warned != tt.wantWarned {
+				t.Errorf("warning callback ran = %v; want %v", warned, tt.wantWarned)
+			}
+			if tt.wantMsg == "" {
+				if len(recs) != 0 {
+					t.Fatalf("got %d records; want none", len(recs))
+				}
+				return
+			}
+			if len(recs) != 1 {
+				t.Fatalf("got %d records; want 1", len(recs))
+			}
+			if recs[0].Level != slog.LevelWarn || recs[0].Message != tt.wantMsg {
+				t.Errorf("record = %s %q; want Warn %q", recs[0].Level, recs[0].Message, tt.wantMsg)
+			}
+			for _, key := range []string{"usage_percent", "current_usage", "threshold"} {
+				if !recs[0].Has(key) {
+					t.Errorf("record has no %s attribute", key)
+				}
+			}
+		})
+	}
+}
+
+// TestThresholdMonitorLogsFailedChecks also pins that the error callback still
+// runs and that a redirect target's query string reaches neither the record nor
+// the callback.
+func TestThresholdMonitorLogsFailedChecks(t *testing.T) {
+	tests := []struct {
+		name    string
+		handler http.HandlerFunc
+	}{
+		{"server error", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) }},
+		{"failed redirect", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "http://127.0.0.1:1/x?token=secret-q", http.StatusTemporaryRedirect)
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recs, _, cbErr := checkOnce(t, tt.handler)
+			if len(recs) != 1 {
+				t.Fatalf("got %d records; want 1", len(recs))
+			}
+			if recs[0].Level != slog.LevelWarn || recs[0].Message != failedMsg || !recs[0].Has("error") {
+				t.Errorf("record = %s %q (error attribute %v); want Warn %q with an error", recs[0].Level, recs[0].Message, recs[0].Has("error"), failedMsg)
+			}
+			if cbErr == nil {
+				t.Fatal("the error callback must still run")
+			}
+			if strings.Contains(cbErr.Error(), "secret-q") {
+				t.Errorf("the error callback received the query string: %v", cbErr)
+			}
+		})
+	}
+}
+
+// TestThresholdMonitorCriticalFallsThroughToWarningCallback pins the behavior
+// the monitor has always had: critical usage with no critical callback calls the
+// warning callback, and the log record follows the usage, not the callbacks.
+func TestThresholdMonitorCriticalFallsThroughToWarningCallback(t *testing.T) {
+	recs, warned, _ := checkOnce(t, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"currentTimeframeRequestCount": 95, "externalRequestThreshold": 100})
+	})
+	if !warned {
+		t.Error("the warning callback must run at critical usage when only it is set")
+	}
+	if len(recs) != 1 || recs[0].Message != criticalMsg {
+		t.Errorf("records = %v; want one critical record", recs)
+	}
+}
+
+func TestNilLoggerOptionsKeepEarlierLogger(t *testing.T) {
+	t.Run("circuit breaker", func(t *testing.T) {
+		rec := logtest.New()
+		cb := NewCircuitBreaker(&mockTransport{responses: []*http.Response{{StatusCode: http.StatusServiceUnavailable, Body: http.NoBody}}},
+			WithFailureThreshold(1), WithCircuitBreakerLogger(rec.Logger()), WithCircuitBreakerLogger(nil))
+		_ = send(t, cb)
+		if got := len(rec.Records()); got != 1 {
+			t.Errorf("got %d records; want 1", got)
+		}
+	})
+	t.Run("rate limiter", func(t *testing.T) {
+		rec := logtest.New()
+		inner := &mockTransport{responses: []*http.Response{
+			{StatusCode: http.StatusTooManyRequests, Header: http.Header{"Retry-After": []string{"1"}}, Body: http.NoBody},
+		}}
+		rl := NewRateLimiter(inner, WithRateLimitLogger(rec.Logger()), WithRateLimitLogger(nil))
+		if err := send(t, rl); err != nil {
+			t.Fatal(err)
+		}
+		if got := len(rec.Records()); got != 1 {
+			t.Errorf("got %d records; want 1", got)
+		}
+	})
+	t.Run("threshold monitor", func(t *testing.T) {
+		rec := logtest.New()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer srv.Close()
+		m := NewThresholdMonitor(srv.Client(), srv.URL, AuthHeaders{},
+			WithThresholdMonitorLogger(rec.Logger()), WithThresholdMonitorLogger(nil))
+		m.check(t.Context())
+		if got := len(rec.Records()); got != 1 {
+			t.Errorf("got %d records; want 1", got)
+		}
+	})
 }

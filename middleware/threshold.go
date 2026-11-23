@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/tphakala/go-autotask/internal/redact"
 	"github.com/tphakala/go-autotask/internal/redirect"
 )
 
@@ -19,6 +21,11 @@ const (
 	// maxThresholdBodyBytes caps the threshold response read; the real body is
 	// a few dozen bytes.
 	maxThresholdBodyBytes = 1 << 20
+
+	// warningPercent and criticalPercent are the usage levels at which the
+	// monitor calls its callbacks and logs.
+	warningPercent  = 75
+	criticalPercent = 90
 )
 
 // ThresholdInfo holds current API usage information relative to the threshold.
@@ -36,6 +43,7 @@ type thresholdMonitorConfig struct {
 	warningCallback  func(ThresholdInfo)
 	criticalCallback func(ThresholdInfo)
 	errorCallback    func(error)
+	logger           *slog.Logger
 }
 
 // WithCheckInterval sets how often the monitor polls the threshold endpoint.
@@ -59,8 +67,29 @@ func WithCriticalCallback(fn func(ThresholdInfo)) ThresholdMonitorOption {
 }
 
 // WithErrorCallback sets the function called when the threshold check fails.
+// The error's request URL has its query, user info and fragment removed.
 func WithErrorCallback(fn func(error)) ThresholdMonitorOption {
 	return func(c *thresholdMonitorConfig) { c.errorCallback = fn }
+}
+
+// WithThresholdMonitorLogger sets the logger the threshold monitor writes to. A
+// nil l is ignored. The default discards everything.
+//
+// On every check the monitor logs a Warn record when usage is at or above 90%
+// ("autotask: API usage reached critical threshold") or at or above 75%
+// ("autotask: API usage reached warning threshold"), with the attributes
+// "usage_percent", "current_usage" and "threshold", whether or not a callback
+// is set. It logs a Warn record, "autotask: threshold check failed" with the
+// attribute "error", for each failed check except one that fails because the
+// monitor is stopping. The error has the query, user info and fragment of its
+// request URL removed; the credentials are request headers and are never
+// logged.
+func WithThresholdMonitorLogger(l *slog.Logger) ThresholdMonitorOption {
+	return func(c *thresholdMonitorConfig) {
+		if l != nil {
+			c.logger = l
+		}
+	}
 }
 
 // AuthHeaders holds the Autotask API credentials needed for authenticated requests.
@@ -71,7 +100,8 @@ type AuthHeaders struct {
 }
 
 // ThresholdMonitor polls the Autotask ThresholdInformation endpoint in the
-// background and invokes callbacks when API usage crosses warning or critical
+// background and invokes callbacks, and logs to the logger set with
+// WithThresholdMonitorLogger, when API usage crosses warning or critical
 // thresholds.
 type ThresholdMonitor struct {
 	httpClient *http.Client
@@ -90,7 +120,7 @@ type ThresholdMonitor struct {
 // credential headers from any redirect to another scheme or host, then calls
 // httpClient.CheckRedirect if it is set. httpClient is not modified.
 func NewThresholdMonitor(httpClient *http.Client, baseURL string, auth AuthHeaders, opts ...ThresholdMonitorOption) *ThresholdMonitor {
-	cfg := thresholdMonitorConfig{checkInterval: defaultCheckInterval}
+	cfg := thresholdMonitorConfig{checkInterval: defaultCheckInterval, logger: slog.New(slog.DiscardHandler)}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
@@ -145,7 +175,13 @@ func (m *ThresholdMonitor) Stop() error {
 	return nil
 }
 
-func (m *ThresholdMonitor) reportError(err error) {
+// reportError logs a failed check and calls the error callback. A check that
+// fails because the monitor is stopping is not logged, but the callback still
+// runs, as it always has.
+func (m *ThresholdMonitor) reportError(ctx context.Context, err error) {
+	if ctx.Err() == nil {
+		m.config.logger.LogAttrs(ctx, slog.LevelWarn, "autotask: threshold check failed", slog.Any("error", err))
+	}
 	if m.config.errorCallback != nil {
 		m.config.errorCallback(err)
 	}
@@ -155,7 +191,7 @@ func (m *ThresholdMonitor) check(ctx context.Context) {
 	checkURL := strings.TrimRight(m.baseURL, "/") + "/v1.0/ThresholdInformation"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checkURL, http.NoBody)
 	if err != nil {
-		m.reportError(fmt.Errorf("threshold monitor: creating request: %w", err))
+		m.reportError(ctx, fmt.Errorf("threshold monitor: creating request: %w", redact.URLError(err)))
 		return
 	}
 	// Inject auth headers — threshold endpoint requires authentication.
@@ -166,12 +202,12 @@ func (m *ThresholdMonitor) check(ctx context.Context) {
 
 	resp, err := m.httpClient.Do(req)
 	if err != nil {
-		m.reportError(fmt.Errorf("threshold monitor: request failed: %w", err))
+		m.reportError(ctx, fmt.Errorf("threshold monitor: request failed: %w", redact.URLError(err)))
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		m.reportError(fmt.Errorf("threshold monitor: unexpected status %d", resp.StatusCode))
+		m.reportError(ctx, fmt.Errorf("threshold monitor: unexpected status %d", resp.StatusCode))
 		return
 	}
 	var data struct {
@@ -180,15 +216,15 @@ func (m *ThresholdMonitor) check(ctx context.Context) {
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxThresholdBodyBytes+1))
 	if err != nil {
-		m.reportError(fmt.Errorf("threshold monitor: reading response: %w", err))
+		m.reportError(ctx, fmt.Errorf("threshold monitor: reading response: %w", err))
 		return
 	}
 	if len(body) > maxThresholdBodyBytes {
-		m.reportError(fmt.Errorf("threshold monitor: response body exceeds %d bytes", maxThresholdBodyBytes))
+		m.reportError(ctx, fmt.Errorf("threshold monitor: response body exceeds %d bytes", maxThresholdBodyBytes))
 		return
 	}
 	if err := json.Unmarshal(body, &data); err != nil {
-		m.reportError(fmt.Errorf("threshold monitor: decoding response: %w", err))
+		m.reportError(ctx, fmt.Errorf("threshold monitor: decoding response: %w", err))
 		return
 	}
 	if data.Threshold == 0 {
@@ -199,9 +235,26 @@ func (m *ThresholdMonitor) check(ctx context.Context) {
 		Threshold:    data.Threshold,
 		UsagePercent: float64(data.CurrentCount) / float64(data.Threshold) * percentMultiplier,
 	}
-	if info.UsagePercent >= 90 && m.config.criticalCallback != nil {
+	m.notify(ctx, info)
+}
+
+// notify logs the usage level and then calls the callback for it. A critical
+// usage with no critical callback falls through to the warning callback.
+func (m *ThresholdMonitor) notify(ctx context.Context, info ThresholdInfo) {
+	attrs := []slog.Attr{
+		slog.Float64("usage_percent", info.UsagePercent),
+		slog.Int("current_usage", info.CurrentUsage),
+		slog.Int("threshold", info.Threshold),
+	}
+	switch {
+	case info.UsagePercent >= criticalPercent:
+		m.config.logger.LogAttrs(ctx, slog.LevelWarn, "autotask: API usage reached critical threshold", attrs...)
+	case info.UsagePercent >= warningPercent:
+		m.config.logger.LogAttrs(ctx, slog.LevelWarn, "autotask: API usage reached warning threshold", attrs...)
+	}
+	if info.UsagePercent >= criticalPercent && m.config.criticalCallback != nil {
 		m.config.criticalCallback(info)
-	} else if info.UsagePercent >= 75 && m.config.warningCallback != nil {
+	} else if info.UsagePercent >= warningPercent && m.config.warningCallback != nil {
 		m.config.warningCallback(info)
 	}
 }

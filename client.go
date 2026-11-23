@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tphakala/go-autotask/internal/redact"
 	"github.com/tphakala/go-autotask/internal/redirect"
 	"github.com/tphakala/go-autotask/middleware"
 )
@@ -53,25 +54,30 @@ type Middleware func(next http.RoundTripper) http.RoundTripper
 // prefers TLS 1.3 but falls back to TLS 1.2 for hosts that refuse a 1.3 handshake
 // (see tlsFallbackTransport). A caller that wants full control can supply its own
 // client via WithHTTPClient.
-func newDefaultHTTPClient() *http.Client {
+func newDefaultHTTPClient(logger *slog.Logger) *http.Client {
+	transport := newTLSFallbackTransport()
+	transport.logger = logger
 	return &http.Client{
 		Timeout:   defaultHTTPTimeout,
-		Transport: newTLSFallbackTransport(),
+		Transport: transport,
 	}
 }
 
 func NewClient(ctx context.Context, auth AuthConfig, opts ...ClientOption) (*Client, error) {
 	c := &Client{
-		httpClient: newDefaultHTTPClient(),
-		auth:       auth,
-		zoneCache:  newZoneCache(defaultZoneCacheTTL),
-		logger:     slog.New(discardHandler{}),
-		userAgent:  defaultUserAgent(),
+		auth:      auth,
+		zoneCache: newZoneCache(defaultZoneCacheTTL),
+		logger:    slog.New(slog.DiscardHandler),
+		userAgent: defaultUserAgent(),
 
 		maxResponseBytes: defaultMaxResponseBytes,
 	}
 	for _, opt := range opts {
 		opt(c)
+	}
+	// Built after the options so the default client gets the final logger.
+	if c.httpClient == nil {
+		c.httpClient = newDefaultHTTPClient(c.logger)
 	}
 	if err := c.useGivenZone(); err != nil {
 		return nil, err
@@ -109,7 +115,8 @@ func NewClient(ctx context.Context, auth AuthConfig, opts ...ClientOption) (*Cli
 			Secret:          c.auth.Secret,
 			IntegrationCode: c.auth.IntegrationCode,
 		}
-		monitor := middleware.NewThresholdMonitor(c.httpClient, c.baseURL, auth, c.thresholdMonitorOpts...)
+		monitorOpts := withLogger(c.logger, middleware.WithThresholdMonitorLogger, c.thresholdMonitorOpts)
+		monitor := middleware.NewThresholdMonitor(c.httpClient, c.baseURL, auth, monitorOpts...)
 		monitor.Start(ctx)
 		c.closers = append(c.closers, monitor.Stop)
 	}
@@ -160,8 +167,12 @@ func (c *Client) resolveZone(ctx context.Context) (*ZoneInfo, error) {
 	}
 	zone, err := discoverZone(ctx, c.httpClient, base, c.auth.Username, c.maxResponseBytes)
 	if err != nil {
+		c.logger.LogAttrs(ctx, slog.LevelWarn, "autotask: zone discovery failed",
+			slog.String("zone_base_url", redact.URL(base)), slog.Any("error", err))
 		return nil, err
 	}
+	c.logger.LogAttrs(ctx, slog.LevelInfo, "autotask: zone discovered",
+		slog.String("zone_name", zone.ZoneName), slog.String("zone_url", redact.URL(zone.URL)))
 	c.zoneCache.Set(c.auth.Username, zone)
 	return zone, nil
 }
@@ -236,10 +247,3 @@ func joinURL(baseURL, path string) string {
 		return base + "/" + path
 	}
 }
-
-type discardHandler struct{}
-
-func (discardHandler) Enabled(context.Context, slog.Level) bool  { return false }
-func (discardHandler) Handle(context.Context, slog.Record) error { return nil }
-func (d discardHandler) WithAttrs([]slog.Attr) slog.Handler      { return d }
-func (d discardHandler) WithGroup(string) slog.Handler           { return d }

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/tphakala/go-autotask/internal/redact"
 )
 
 // supportedAPIVersion is the Autotask REST API wire version this client
@@ -105,11 +107,11 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 	versionsURL := baseURL + "/atservicesrest/versioninformation"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, versionsURL, http.NoBody)
 	if err != nil {
-		return nil, fmt.Errorf("autotask: creating version request: %w", err)
+		return nil, requestError("creating version request", err)
 	}
 	versionResp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("autotask: zone discovery version request: %w", err)
+		return nil, requestError("zone discovery version request", err)
 	}
 	defer versionResp.Body.Close() //nolint:errcheck // error ignored in defer
 	if versionResp.StatusCode != http.StatusOK {
@@ -145,11 +147,11 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 	zoneURL := fmt.Sprintf("%s/atservicesrest/%s/zoneInformation?user=%s", baseURL, apiVersion, url.QueryEscape(username))
 	req, err = http.NewRequestWithContext(ctx, http.MethodGet, zoneURL, http.NoBody)
 	if err != nil {
-		return nil, fmt.Errorf("autotask: creating zone request: %w", err)
+		return nil, requestError("creating zone request", err)
 	}
 	zoneResp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("autotask: zone discovery request: %w", err)
+		return nil, requestError("zone discovery request", err)
 	}
 	defer zoneResp.Body.Close() //nolint:errcheck // error ignored in defer
 	if zoneResp.StatusCode != http.StatusOK {
@@ -163,6 +165,14 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 		return nil, fmt.Errorf("autotask: zone discovery returned empty URL")
 	}
 	return &zone, nil
+}
+
+// requestError wraps err, which can carry a *url.Error, for a failed zone
+// discovery request. The request URL of the zone step has the username in its
+// query, and the base URL may be caller-supplied, so the *url.Error is redacted
+// before fmt.Errorf copies its text into the message.
+func requestError(what string, err error) error {
+	return fmt.Errorf("autotask: %s: %w", what, redact.URLError(err))
 }
 
 // zoneDiscoveryError keeps the message of a failed zone discovery step and

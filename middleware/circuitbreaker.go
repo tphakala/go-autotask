@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"strings"
@@ -38,6 +39,7 @@ type circuitBreakerConfig struct {
 	openTimeout      time.Duration
 	successThreshold int
 	isFailure        func(*http.Response, error) bool
+	logger           *slog.Logger
 }
 
 // WithFailureThreshold sets the number of failures before opening. Values <= 0 are ignored.
@@ -90,6 +92,22 @@ func WithFailurePredicate(fn func(resp *http.Response, err error) bool) CircuitB
 	return func(c *circuitBreakerConfig) {
 		if fn != nil {
 			c.isFailure = fn
+		}
+	}
+}
+
+// WithCircuitBreakerLogger sets the logger the circuit breaker writes to. A nil
+// l is ignored. The default discards everything.
+//
+// The breaker logs one Warn record, "autotask: circuit breaker state changed",
+// each time its state changes (closed to open, open to half-open, half-open to
+// open, half-open to closed). The record has the attributes "from" and "to",
+// the state names, and nothing from the request. Requests rejected while the
+// breaker is open are not logged.
+func WithCircuitBreakerLogger(l *slog.Logger) CircuitBreakerOption {
+	return func(c *circuitBreakerConfig) {
+		if l != nil {
+			c.logger = l
 		}
 	}
 }
@@ -195,6 +213,7 @@ func NewCircuitBreaker(next http.RoundTripper, opts ...CircuitBreakerOption) *Ci
 		failureThreshold: defaultFailureThreshold, failureWindow: defaultFailureWindow,
 		openTimeout: defaultOpenTimeout, successThreshold: defaultSuccessThreshold,
 		isFailure: DefaultFailure,
+		logger:    slog.New(slog.DiscardHandler),
 	}
 	for _, opt := range opts {
 		opt(&cfg)
@@ -204,27 +223,51 @@ func NewCircuitBreaker(next http.RoundTripper, opts ...CircuitBreakerOption) *Ci
 	}
 }
 
+// State returns the breaker's state, moving an open breaker whose open timeout
+// has passed to half-open first.
 func (cb *CircuitBreaker) State() CircuitState {
+	return cb.currentState(context.Background())
+}
+
+// currentState is State with the context its log record is written under.
+func (cb *CircuitBreaker) currentState(ctx context.Context) CircuitState {
 	cb.mu.RLock()
 	state := cb.state
 	shouldTransition := state == StateOpen && time.Since(cb.lastStateChange) >= cb.config.openTimeout
 	cb.mu.RUnlock()
 
 	if shouldTransition {
+		moved := false
 		cb.mu.Lock()
 		// Double-check under write lock
 		if cb.state == StateOpen && time.Since(cb.lastStateChange) >= cb.config.openTimeout {
 			cb.state = StateHalfOpen
 			cb.lastStateChange = time.Now()
+			moved = true
 		}
 		state = cb.state
 		cb.mu.Unlock()
+		if moved {
+			cb.logTransition(ctx, StateOpen, StateHalfOpen)
+		}
 	}
 	return state
 }
 
+// logTransition writes the state change record. It is called after cb.mu is
+// released, so a slow log handler never holds up other requests, and only by
+// the goroutine that made the change, so each change is logged once.
+func (cb *CircuitBreaker) logTransition(ctx context.Context, from, to CircuitState) {
+	if from == to {
+		return
+	}
+	cb.config.logger.LogAttrs(ctx, slog.LevelWarn, "autotask: circuit breaker state changed",
+		slog.String("from", string(from)), slog.String("to", string(to)))
+}
+
 func (cb *CircuitBreaker) RoundTrip(req *http.Request) (*http.Response, error) {
-	state := cb.State()
+	ctx := req.Context()
+	state := cb.currentState(ctx)
 	switch state {
 	case StateOpen:
 		return nil, &CircuitBreakerOpenError{}
@@ -234,14 +277,14 @@ func (cb *CircuitBreaker) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp, err := cb.next.RoundTrip(req)
 	if err != nil {
 		if cb.config.isFailure(nil, err) {
-			cb.recordFailure()
+			cb.recordFailure(ctx)
 		}
 		return nil, err
 	}
 	if cb.responseFailed(resp) {
-		cb.recordFailure()
+		cb.recordFailure(ctx)
 	} else if state == StateHalfOpen {
-		cb.recordHalfOpenSuccess()
+		cb.recordHalfOpenSuccess(ctx)
 	}
 	return resp, nil
 }
@@ -301,9 +344,18 @@ func (b *replayBody) Read(p []byte) (int, error) {
 
 func (b *replayBody) Close() error { return b.body.Close() }
 
-func (cb *CircuitBreaker) recordFailure() {
+func (cb *CircuitBreaker) recordFailure(ctx context.Context) {
+	from, to := cb.applyFailure()
+	cb.logTransition(ctx, from, to)
+}
+
+// applyFailure records a failure and returns the state before and after it.
+// An in-flight request can fail after another one opened the breaker, so the
+// two states can be equal even when the failure reached the threshold.
+func (cb *CircuitBreaker) applyFailure() (from, to CircuitState) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
+	from = cb.state
 	now := time.Now()
 	cutoff := now.Add(-cb.config.failureWindow)
 	var recent []time.Time
@@ -318,20 +370,27 @@ func (cb *CircuitBreaker) recordFailure() {
 		cb.state = StateOpen
 		cb.lastStateChange = now
 		cb.halfOpenSuccesses = 0
-		return
+		return from, cb.state
 	}
 	if len(recent) >= cb.config.failureThreshold {
 		cb.state = StateOpen
 		cb.lastStateChange = now
 		cb.failures = nil
 	}
+	return from, cb.state
 }
 
-func (cb *CircuitBreaker) recordHalfOpenSuccess() {
+func (cb *CircuitBreaker) recordHalfOpenSuccess(ctx context.Context) {
+	from, to := cb.applyHalfOpenSuccess()
+	cb.logTransition(ctx, from, to)
+}
+
+func (cb *CircuitBreaker) applyHalfOpenSuccess() (from, to CircuitState) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
+	from = cb.state
 	if cb.state != StateHalfOpen {
-		return
+		return from, from
 	}
 	cb.halfOpenSuccesses++
 	if cb.halfOpenSuccesses >= cb.config.successThreshold {
@@ -340,4 +399,5 @@ func (cb *CircuitBreaker) recordHalfOpenSuccess() {
 		cb.halfOpenSuccesses = 0
 		cb.failures = nil
 	}
+	return from, cb.state
 }
