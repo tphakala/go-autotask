@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-11-23
+
 ### Added
 
 - **`entities.TicketNoteAttachment`** (entity `TicketNoteAttachments`): a file attached to a ticket note. Its child URL segment is `Attachments`, so `CreateChild[entities.TicketNote]` posts it to `/v1.0/TicketNotes/{noteID}/Attachments` and sets the new id on it, and `ListChild[entities.TicketNote, entities.TicketNoteAttachment]` lists a note's attachments from the same path. The file content goes base64-encoded in `Data`. Autotask has no update for it, and it has no `UserDefinedFields`. Before, attaching a file to a note with a typed call meant passing an `entities.TicketAttachment`, the type for a different entity, to `CreateChild[entities.TicketNote]`.
@@ -197,7 +199,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Entity types: Company, Contact, Ticket, Resource, Contract, Project, Task, ConfigurationItem, TicketNote, TimeEntry
 - GitHub Actions: CI (test and lint), CodeQL, govulncheck, Dependabot, automated releases, stale issue cleanup
 
-[Unreleased]: https://github.com/tphakala/go-autotask/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/tphakala/go-autotask/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/tphakala/go-autotask/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/tphakala/go-autotask/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/tphakala/go-autotask/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/tphakala/go-autotask/compare/v1.5.0...v1.5.1
