@@ -241,16 +241,18 @@ func (m *ThresholdMonitor) check(ctx context.Context) {
 // notify logs the usage level and then calls the callback for it. A critical
 // usage with no critical callback falls through to the warning callback.
 func (m *ThresholdMonitor) notify(ctx context.Context, info ThresholdInfo) {
-	attrs := []slog.Attr{
-		slog.Float64("usage_percent", info.UsagePercent),
-		slog.Int("current_usage", info.CurrentUsage),
-		slog.Int("threshold", info.Threshold),
-	}
+	msg := ""
 	switch {
 	case info.UsagePercent >= criticalPercent:
-		m.config.logger.LogAttrs(ctx, slog.LevelWarn, "autotask: API usage reached critical threshold", attrs...)
+		msg = "autotask: API usage reached critical threshold"
 	case info.UsagePercent >= warningPercent:
-		m.config.logger.LogAttrs(ctx, slog.LevelWarn, "autotask: API usage reached warning threshold", attrs...)
+		msg = "autotask: API usage reached warning threshold"
+	}
+	if msg != "" {
+		m.config.logger.LogAttrs(ctx, slog.LevelWarn, msg,
+			slog.Float64("usage_percent", info.UsagePercent),
+			slog.Int("current_usage", info.CurrentUsage),
+			slog.Int("threshold", info.Threshold))
 	}
 	if info.UsagePercent >= criticalPercent && m.config.criticalCallback != nil {
 		m.config.criticalCallback(info)
