@@ -36,8 +36,13 @@ type entityStore struct {
 	items          []storedItem
 	idField        string   // JSON field name for the ID (always "id")
 	requiredFields []string // fields required on create
-	canDelete      bool
-	nextID         int64
+	canDelete      bool     // set by WithDeleteSupport
+	noCreate       bool     // set by WithoutCreateSupport
+	noUpdate       bool     // set by WithoutUpdateSupport
+	// writeRoutes holds the "Parent/Segment" child routes that WithChildOnlyWrites
+	// allows writes on. A nil map leaves the store unrestricted.
+	writeRoutes map[string]bool
+	nextID      int64
 }
 
 func newEntityStore(name string) *entityStore {
@@ -224,6 +229,36 @@ func WithEntity[T autotask.Entity](items ...T) ServerOption {
 	}
 }
 
+// childRoute returns the entity name of C, its child URL segment, and the
+// "Parent/Segment" route the typed child calls send for C under P. The segment
+// is C's ChildEntityName, else its entity name. The parent half is C's
+// ChildParentName, else P's entity name.
+func childRoute[P, C autotask.Entity]() (name, segment, route string) {
+	var parent P
+	var child C
+	name = child.EntityName()
+	segment = name
+	if ce, ok := any(child).(autotask.ChildEntity); ok {
+		segment = ce.ChildEntityName()
+	}
+	parentSegment := parent.EntityName()
+	if cp, ok := any(child).(autotask.ChildParentEntity); ok {
+		parentSegment = cp.ChildParentName()
+	}
+	return name, segment, parentSegment + "/" + segment
+}
+
+// registerChildRoute maps route to the store name. It fails the test and
+// returns false when route is already registered for another entity.
+func (ts *TestServer) registerChildRoute(route, name string) bool {
+	if prev, ok := ts.childRoutes[route]; ok && prev != name {
+		ts.t.Fatalf("autotasktest: child route %s is already registered for %s, cannot register it for %s", route, prev, name)
+		return false
+	}
+	ts.childRoutes[route] = name
+	return true
+}
+
 // WithChildEntity seeds child entities of type C under the parent entity of
 // type P with the given id. The items go into the store named C.EntityName(),
 // the same store Get, List and Count read, and a child list under parentID
@@ -251,23 +286,10 @@ func WithEntity[T autotask.Entity](items ...T) ServerOption {
 // the segment the typed child calls send, instead of P's entity name.
 func WithChildEntity[P autotask.Entity, C autotask.Entity](parentID int64, items ...C) ServerOption {
 	return func(ts *TestServer) {
-		var parent P
-		var child C
-		name := child.EntityName()
-		segment := name
-		if ce, ok := any(child).(autotask.ChildEntity); ok {
-			segment = ce.ChildEntityName()
-		}
-		parentSegment := parent.EntityName()
-		if cp, ok := any(child).(autotask.ChildParentEntity); ok {
-			parentSegment = cp.ChildParentName()
-		}
-		route := parentSegment + "/" + segment
-		if prev, ok := ts.childRoutes[route]; ok && prev != name {
-			ts.t.Fatalf("autotasktest: child route %s is already registered for %s, cannot register it for %s", route, prev, name)
+		name, _, route := childRoute[P, C]()
+		if !ts.registerChildRoute(route, name) {
 			return
 		}
-		ts.childRoutes[route] = name
 		store := ts.ensureStore(name)
 		for _, item := range items {
 			data, err := json.Marshal(item)
@@ -355,7 +377,9 @@ func WithServerLatency(d time.Duration) ServerOption {
 	}
 }
 
-// WithEntityMetadata configures metadata responses for an entity.
+// WithEntityMetadata configures metadata responses for an entity. The info
+// replaces the default entityInformation answer, including the flags that
+// WithDeleteSupport, WithoutCreateSupport and WithoutUpdateSupport set.
 func WithEntityMetadata(entityName string, info EntityInfoResponse, fields []FieldInfoResponse, udfs []UDFInfoResponse) ServerOption {
 	return func(ts *TestServer) {
 		ts.opts.metadata[entityName] = &entityMetadata{
@@ -381,11 +405,78 @@ func WithRequiredFields(entityName string, fields ...string) ServerOption {
 	}
 }
 
-// WithDeleteSupport marks an entity type as supporting DELETE.
+// WithDeleteSupport marks an entity type as supporting DELETE, and makes the
+// default entityInformation answer report canDelete true.
 func WithDeleteSupport(entityName string) ServerOption {
 	return func(ts *TestServer) {
 		store := ts.ensureStore(entityName)
 		store.canDelete = true
+	}
+}
+
+// WithChildOnlyWrites makes the mock accept writes of C only on the child URL
+// that CreateChild[P], UpdateChild[P] and DeleteChild[P, C] send. The route is
+// computed as WithChildEntity computes it, so it follows C's ChildEntityName
+// and ChildParentName, and a conflicting route fails the test. Call it again
+// with another P to allow more than one parent.
+//
+// A create, update or delete of C at the root URL answers 400, and so does one
+// at a child URL that resolves to C's store under another parent or segment
+// (for example /Quotes/{id}/QuoteItems for QuoteItem). A create under C's
+// segment that matches no store and no type in package entities answers 400
+// too (for example /ExpenseReports/{id}/Items for ExpenseItem), and so does a
+// create under that segment for a type from outside this module that has no
+// WithChildEntity route. A segment no marked type uses keeps the junk-store
+// fallback described on WithChildEntity.
+//
+// Get, List, Count and queries are not affected, and an item can still be
+// seeded. Delete still needs WithDeleteSupport. The only allowed routes are the
+// ones given to this option: a WithChildEntity seed under another parent still
+// serves reads there. A child URL that resolves to another store keeps the
+// resolution described on WithChildEntity.
+//
+// The 400 mirrors the answer for an entity without delete support. What the
+// live API answers for these URLs has not been verified, so a test should
+// assert that the write fails rather than the error type.
+func WithChildOnlyWrites[P, C autotask.Entity]() ServerOption {
+	return func(ts *TestServer) {
+		name, segment, route := childRoute[P, C]()
+		if !ts.registerChildRoute(route, name) {
+			return
+		}
+		store := ts.ensureStore(name)
+		if store.writeRoutes == nil {
+			store.writeRoutes = make(map[string]bool)
+		}
+		store.writeRoutes[route] = true
+		if ts.childOnlySegments == nil {
+			ts.childOnlySegments = make(map[string]map[string]bool)
+		}
+		if ts.childOnlySegments[segment] == nil {
+			ts.childOnlySegments[segment] = make(map[string]bool)
+		}
+		ts.childOnlySegments[segment][route] = true
+	}
+}
+
+// WithoutUpdateSupport makes PATCH for an entity answer 400 at the root URL
+// and at every child URL that resolves to its store, and the default
+// entityInformation answer report canUpdate false. Use it for entities the API cannot update, such as
+// ChangeRequestLinks. WithEntityMetadata replaces the default answer.
+func WithoutUpdateSupport(entityName string) ServerOption {
+	return func(ts *TestServer) {
+		ts.ensureStore(entityName).noUpdate = true
+	}
+}
+
+// WithoutCreateSupport makes POST for an entity answer 400 at the root URL
+// and at every child URL that resolves to its store, and the default
+// entityInformation answer report canCreate false.
+// Use it for entities the API cannot create, such as Resources.
+// WithEntityMetadata replaces the default answer.
+func WithoutCreateSupport(entityName string) ServerOption {
+	return func(ts *TestServer) {
+		ts.ensureStore(entityName).noCreate = true
 	}
 }
 

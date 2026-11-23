@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -91,7 +93,9 @@ func singularEntityName(s string) string {
 // gets TicketNotes) and needs a WithChildEntity route. On any other URL it is
 // resolved by steps 2 and 4 and the derived fallback of step 5, which depend on
 // the stores that exist. Lookup and creation share one lock hold, so concurrent creates
-// under a new child URL share one store.
+// under a new child URL share one store. The write gates of WithChildOnlyWrites,
+// WithoutCreateSupport, WithoutUpdateSupport and WithDeleteSupport apply to the
+// store this returns.
 func (ts *TestServer) resolveChildStore(parent, segment string, create bool) (*entityStore, bool) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
@@ -104,19 +108,69 @@ func (ts *TestServer) resolveChildStore(parent, segment string, create bool) (*e
 	if store, ok := ts.entities[derived]; ok {
 		return store, true
 	}
-	name := derived
 	if !knownEntityNames[derived] {
 		if store, ok := ts.entities[segment]; ok {
 			return store, true
-		}
-		if knownEntityNames[segment] {
-			name = segment
 		}
 	}
 	if !create {
 		return nil, false
 	}
-	return ts.ensureStore(name), true
+	return ts.ensureStore(createdChildName(derived, segment)), true
+}
+
+// createdChildName returns the name of the store a create makes for a child URL
+// that matched no store (step 5 of resolveChildStore): the segment when that is
+// the entity name of a type in package entities and derived is not, else
+// derived.
+func createdChildName(derived, segment string) string {
+	if !knownEntityNames[derived] && knownEntityNames[segment] {
+		return segment
+	}
+	return derived
+}
+
+// writeOp is the kind of a write request.
+type writeOp int
+
+const (
+	opCreate writeOp = iota
+	opUpdate
+	opDelete
+)
+
+// formatRoutes lists "Parent/Segment" routes as /v1.0/{Parent}/{id}/{Segment}
+// URLs, sorted and joined with " or ".
+func formatRoutes(routes map[string]bool) string {
+	urls := make([]string, 0, len(routes))
+	for _, route := range slices.Sorted(maps.Keys(routes)) {
+		parent, segment, _ := strings.Cut(route, "/")
+		urls = append(urls, fmt.Sprintf("/v1.0/%s/{id}/%s", parent, segment))
+	}
+	return strings.Join(urls, " or ")
+}
+
+// onAllowedRoute reports whether the request is a child request on one of the
+// store's writeRoutes.
+func (s *entityStore) onAllowedRoute(p requestPath) bool {
+	return p.child && s.writeRoutes[p.parent+"/"+p.entity]
+}
+
+// writeRejection returns why the store refuses the write, or "" when it
+// accepts it. The checks read flags that the options set before the server
+// starts and nothing changes afterwards.
+func (s *entityStore) writeRejection(op writeOp, p requestPath) string {
+	switch {
+	case len(s.writeRoutes) > 0 && !s.onAllowedRoute(p):
+		return fmt.Sprintf("Entity %q is written only through %s", s.name, formatRoutes(s.writeRoutes))
+	case op == opCreate && s.noCreate:
+		return fmt.Sprintf("Entity %q does not support creation", s.name)
+	case op == opUpdate && s.noUpdate:
+		return fmt.Sprintf("Entity %q does not support update", s.name)
+	case op == opDelete && !s.canDelete:
+		return fmt.Sprintf("Entity %q does not support deletion", s.name)
+	}
+	return ""
 }
 
 func (ts *TestServer) getStore(entityName string) (*entityStore, bool) {
@@ -217,16 +271,36 @@ func (ts *TestServer) handleGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"item": item})
 }
 
-func (ts *TestServer) handleCreate(w http.ResponseWriter, r *http.Request) {
-	p := parsePath(r.URL.Path)
-	var store *entityStore
-	if p.child {
-		store, _ = ts.resolveChildStore(p.parent, p.entity, true)
-	} else {
+// createStoreFor returns the store a create request writes to, making it when
+// absent. It returns a rejection and no store when the request is a child
+// create under a segment that a WithChildOnlyWrites type uses, matches no
+// store, and would make a store that is not an entity type of this module.
+func (ts *TestServer) createStoreFor(p requestPath) (store *entityStore, rejection string) {
+	if !p.child {
 		// Auto-create store for unknown entities.
 		ts.mu.Lock()
-		store = ts.ensureStore(p.entity)
-		ts.mu.Unlock()
+		defer ts.mu.Unlock()
+		return ts.ensureStore(p.entity), ""
+	}
+	if routes := ts.childOnlySegments[p.entity]; len(routes) > 0 {
+		derived := singularEntityName(p.parent) + p.entity
+		if _, found := ts.storeFor(p); !found && !knownEntityNames[createdChildName(derived, p.entity)] {
+			return nil, fmt.Sprintf("Child segment %q under %q is written only through %s", p.entity, p.parent, formatRoutes(routes))
+		}
+	}
+	store, _ = ts.resolveChildStore(p.parent, p.entity, true)
+	return store, ""
+}
+
+func (ts *TestServer) handleCreate(w http.ResponseWriter, r *http.Request) {
+	p := parsePath(r.URL.Path)
+	store, rejection := ts.createStoreFor(p)
+	if rejection == "" {
+		rejection = store.writeRejection(opCreate, p)
+	}
+	if rejection != "" {
+		writeErrorResponse(w, http.StatusBadRequest, []string{rejection})
+		return
 	}
 
 	body, err := io.ReadAll(r.Body)
@@ -267,6 +341,10 @@ func (ts *TestServer) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	store, ok := ts.storeFor(p)
 	if !ok {
 		writeErrorResponse(w, http.StatusNotFound, []string{fmt.Sprintf("Entity %q not found", p.entity)})
+		return
+	}
+	if rejection := store.writeRejection(opUpdate, p); rejection != "" {
+		writeErrorResponse(w, http.StatusBadRequest, []string{rejection})
 		return
 	}
 
@@ -318,8 +396,8 @@ func (ts *TestServer) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !store.canDelete {
-		writeErrorResponse(w, http.StatusBadRequest, []string{fmt.Sprintf("Entity %q does not support deletion", store.name)})
+	if rejection := store.writeRejection(opDelete, p); rejection != "" {
+		writeErrorResponse(w, http.StatusBadRequest, []string{rejection})
 		return
 	}
 
@@ -347,7 +425,13 @@ func (ts *TestServer) handleEntityInfo(w http.ResponseWriter, r *http.Request) {
 
 	md, ok := ts.opts.metadata[entityName]
 	if !ok || md.info == nil {
-		writeJSON(w, map[string]any{"info": EntityInfoResponse{Name: entityName, CanCreate: true, CanUpdate: true, CanQuery: true}})
+		info := EntityInfoResponse{Name: entityName, CanCreate: true, CanUpdate: true, CanQuery: true}
+		if store, found := ts.getStore(entityName); found {
+			info.CanCreate = !store.noCreate
+			info.CanUpdate = !store.noUpdate
+			info.CanDelete = store.canDelete
+		}
+		writeJSON(w, map[string]any{"info": info})
 		return
 	}
 	writeJSON(w, map[string]any{"info": md.info})
