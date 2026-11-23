@@ -570,7 +570,6 @@ func TestBreakerIgnoresLimiterWaits(t *testing.T) {
 		limiter      string
 		deadline     time.Duration
 		wantDeadline bool // the wait ended on the context deadline
-		noCancel     bool // the row has no pending wait a cancel could end
 		build        func(t *testing.T) *CircuitBreaker
 	}{
 		{
@@ -599,7 +598,7 @@ func TestBreakerIgnoresLimiterWaits(t *testing.T) {
 			},
 		},
 		{
-			name: "rate token", limiter: "rate", deadline: 10 * time.Minute, noCancel: true,
+			name: "rate token", limiter: "rate", deadline: 10 * time.Minute,
 			build: func(t *testing.T) *CircuitBreaker {
 				t.Helper()
 				cb := NewCircuitBreaker(
@@ -638,9 +637,6 @@ func TestBreakerIgnoresLimiterWaits(t *testing.T) {
 		for _, cancelled := range []bool{false, true} {
 			name := tt.name + "/deadline"
 			if cancelled {
-				if tt.noCancel {
-					continue // the token refusal is immediate; a cancel-only context would wait for the token
-				}
 				name = tt.name + "/cancel"
 			}
 			t.Run(name, func(t *testing.T) {
