@@ -20,6 +20,16 @@ func (testChildEntity) EntityName() string { return "Notes" }
 
 func (e *testChildEntity) SetID(id int64) { e.ID = Set(id) }
 
+// testSegmentChild has a child URL segment ("Items") that differs from its
+// entity name, as TicketNoteAttachment does ("Attachments").
+type testSegmentChild struct {
+	ID      Optional[int64]  `json:"id,omitzero"`
+	Message Optional[string] `json:"message,omitzero"`
+}
+
+func (testSegmentChild) EntityName() string      { return "TestSegmentChildren" }
+func (testSegmentChild) ChildEntityName() string { return "Items" }
+
 func TestGetChild(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1.0/TestEntities/{parentID}/Notes", func(w http.ResponseWriter, r *http.Request) {
@@ -692,6 +702,26 @@ func TestChildWriteRequests(t *testing.T) {
 			},
 			wantMeth: http.MethodDelete,
 			wantPath: "/v1.0/TestEntities/42/Notes/7",
+		},
+		{
+			name: "UpdateChild uses the child segment",
+			call: func(t *testing.T, c *Client) error {
+				t.Helper()
+				_, err := UpdateChild[testEntity](t.Context(), c, 42, &testSegmentChild{ID: Set(int64(7)), Message: Set("edited")})
+				return err
+			},
+			wantMeth: http.MethodPatch,
+			wantPath: "/v1.0/TestEntities/42/Items",
+			wantBody: `{"id":7,"message":"edited"}`,
+		},
+		{
+			name: "DeleteChild uses the child segment",
+			call: func(t *testing.T, c *Client) error {
+				t.Helper()
+				return DeleteChild[testEntity, testSegmentChild](t.Context(), c, 42, 7)
+			},
+			wantMeth: http.MethodDelete,
+			wantPath: "/v1.0/TestEntities/42/Items/7",
 		},
 		{
 			name: "DeleteChildRaw",
