@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -180,7 +181,10 @@ func TestThresholdMonitorLogsUsageLevels(t *testing.T) {
 		wantWarned bool   // the warning callback ran
 	}{
 		{"warning level", 80, warningMsg, true},
+		{"exactly the warning level", 75, warningMsg, true},
 		{"critical level", 95, criticalMsg, true},
+		{"exactly the critical level", 90, criticalMsg, true},
+		{"just below warning", 74, "", false},
 		{"below warning", 50, "", false},
 	}
 	for _, tt := range tests {
@@ -317,5 +321,43 @@ func TestThresholdMonitorRequestCreationErrorHidesUserInfo(t *testing.T) {
 		if strings.Contains(text, "pw") || strings.Contains(text, "user") {
 			t.Errorf("user info reached %q", text)
 		}
+	}
+}
+
+// TestThresholdMonitorCriticalCallsOnlyTheCriticalCallback pins that critical
+// usage with both callbacks set calls the critical one and not the warning one.
+func TestThresholdMonitorCriticalCallsOnlyTheCriticalCallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"currentTimeframeRequestCount": 95, "externalRequestThreshold": 100})
+	}))
+	defer srv.Close()
+	var critical, warning atomic.Int32
+	m := NewThresholdMonitor(srv.Client(), srv.URL, AuthHeaders{},
+		WithCriticalCallback(func(ThresholdInfo) { critical.Add(1) }),
+		WithWarningCallback(func(ThresholdInfo) { warning.Add(1) }))
+	m.check(t.Context())
+	if critical.Load() != 1 || warning.Load() != 0 {
+		t.Errorf("critical callback ran %d times and warning %d; want 1 and 0", critical.Load(), warning.Load())
+	}
+}
+
+// TestThresholdMonitorStoppingCheckIsNotLogged pins that a check that fails
+// because the monitor's context ended writes no record, and that the error
+// callback still runs.
+func TestThresholdMonitorStoppingCheckIsNotLogged(t *testing.T) {
+	rec := logtest.New()
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer srv.Close()
+	var cbErr atomic.Pointer[error]
+	m := NewThresholdMonitor(srv.Client(), srv.URL, AuthHeaders{},
+		WithThresholdMonitorLogger(rec.Logger()), WithErrorCallback(func(err error) { cbErr.Store(&err) }))
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	m.check(ctx)
+	if got := rec.Records(); len(got) != 0 {
+		t.Errorf("got %d records for a stopping monitor; want none", len(got))
+	}
+	if cbErr.Load() == nil {
+		t.Error("the error callback must still run")
 	}
 }

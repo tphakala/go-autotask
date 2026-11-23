@@ -235,45 +235,51 @@ func TestZoneRoundTripThroughJSON(t *testing.T) {
 	}
 }
 
+// zoneMux serves the version endpoint and answers zoneInformation with zone.
+func zoneMux(zone http.HandlerFunc) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /atservicesrest/versioninformation", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"apiVersions": []string{"V1.0"}})
+	})
+	mux.HandleFunc("GET /atservicesrest/V1.0/zoneInformation", zone)
+	return mux
+}
+
 func TestZoneDiscoveryLogsAndRedactsUsername(t *testing.T) {
 	t.Parallel()
 	const username = "svc-secret@example.com"
+	serverError := func(*httptest.Server) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) })
+	}
+	zoneAt := func(suffix string) func(*httptest.Server) http.Handler {
+		return func(srv *httptest.Server) http.Handler {
+			return zoneMux(func(w http.ResponseWriter, _ *http.Request) {
+				_ = json.NewEncoder(w).Encode(map[string]any{"zoneName": "Test Zone", "url": srv.URL + suffix})
+			})
+		}
+	}
 	tests := []struct {
 		name      string
 		handler   func(srv *httptest.Server) http.Handler
+		baseQuery string // appended to the zone base URL
 		wantLevel slog.Level
 		wantMsg   string
 		wantErr   bool
 	}{
+		{name: "success", handler: zoneAt(""), wantLevel: slog.LevelInfo, wantMsg: "autotask: zone discovered"},
+		{name: "zone URL with a query", handler: zoneAt("/?token=SECRET"), wantLevel: slog.LevelInfo, wantMsg: "autotask: zone discovered"},
 		{
-			name: "success",
-			handler: func(srv *httptest.Server) http.Handler {
-				mux := http.NewServeMux()
-				mux.HandleFunc("GET /atservicesrest/versioninformation", func(w http.ResponseWriter, _ *http.Request) {
-					_ = json.NewEncoder(w).Encode(map[string]any{"apiVersions": []string{"V1.0"}})
-				})
-				mux.HandleFunc("GET /atservicesrest/V1.0/zoneInformation", func(w http.ResponseWriter, _ *http.Request) {
-					_ = json.NewEncoder(w).Encode(map[string]any{"zoneName": "Test Zone", "url": srv.URL})
-				})
-				return mux
-			},
-			wantLevel: slog.LevelInfo, wantMsg: "autotask: zone discovered",
+			name: "base URL with a query", handler: serverError, baseQuery: "?token=SECRET",
+			wantLevel: slog.LevelWarn, wantMsg: "autotask: zone discovery failed", wantErr: true,
 		},
 		{
-			name: "version endpoint fails",
-			handler: func(*httptest.Server) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) })
-			},
+			name: "version endpoint fails", handler: serverError,
 			wantLevel: slog.LevelWarn, wantMsg: "autotask: zone discovery failed", wantErr: true,
 		},
 		{
 			name: "zone request connection dropped",
 			handler: func(*httptest.Server) http.Handler {
-				mux := http.NewServeMux()
-				mux.HandleFunc("GET /atservicesrest/versioninformation", func(w http.ResponseWriter, _ *http.Request) {
-					_ = json.NewEncoder(w).Encode(map[string]any{"apiVersions": []string{"V1.0"}})
-				})
-				mux.HandleFunc("GET /atservicesrest/V1.0/zoneInformation", func(w http.ResponseWriter, _ *http.Request) {
+				return zoneMux(func(w http.ResponseWriter, _ *http.Request) {
 					hj, ok := w.(http.Hijacker)
 					if !ok {
 						return
@@ -282,7 +288,6 @@ func TestZoneDiscoveryLogsAndRedactsUsername(t *testing.T) {
 						_ = conn.Close()
 					}
 				})
-				return mux
 			},
 			wantLevel: slog.LevelWarn, wantMsg: "autotask: zone discovery failed", wantErr: true,
 		},
@@ -297,7 +302,7 @@ func TestZoneDiscoveryLogsAndRedactsUsername(t *testing.T) {
 			t.Cleanup(srv.Close)
 			rec := logtest.New()
 			client, err := autotask.NewClient(t.Context(), autotask.AuthConfig{Username: username},
-				autotask.WithZoneBaseURL(srv.URL), autotask.WithLogger(rec.Logger()))
+				autotask.WithZoneBaseURL(srv.URL+tt.baseQuery), autotask.WithLogger(rec.Logger()))
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("NewClient error = %v; want error %v", err, tt.wantErr)
 			}
@@ -311,21 +316,26 @@ func TestZoneDiscoveryLogsAndRedactsUsername(t *testing.T) {
 			if recs[0].Level != tt.wantLevel || recs[0].Message != tt.wantMsg {
 				t.Errorf("record = %s %q; want %s %q", recs[0].Level, recs[0].Message, tt.wantLevel, tt.wantMsg)
 			}
-			if !tt.wantErr {
-				if name := recs[0].Str("zone_name"); name != "Test Zone" {
-					t.Errorf("zone_name = %q; want Test Zone", name)
-				}
+			if !tt.wantErr && recs[0].Str("zone_name") != "Test Zone" {
+				t.Errorf("zone_name = %q; want Test Zone", recs[0].Str("zone_name"))
 			}
-			texts := []string{recs[0].Text}
-			if err != nil {
-				texts = append(texts, err.Error())
-			}
-			for _, text := range texts {
-				if strings.Contains(text, "svc-secret") || strings.Contains(text, "user=") {
-					t.Errorf("the username or the query reached %q", text)
-				}
-			}
+			assertNoLeak(t, recs[0].Text, err)
 		})
+	}
+}
+
+// assertNoLeak fails when the record text or the error holds the username or a
+// query string of the zone requests.
+func assertNoLeak(t *testing.T, recordText string, err error) {
+	t.Helper()
+	texts := []string{recordText}
+	if err != nil {
+		texts = append(texts, err.Error())
+	}
+	for _, text := range texts {
+		if strings.Contains(text, "svc-secret") || strings.Contains(text, "user=") || strings.Contains(text, "SECRET") {
+			t.Errorf("the username or a query reached %q", text)
+		}
 	}
 }
 
