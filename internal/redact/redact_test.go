@@ -1,7 +1,9 @@
 package redact
 
 import (
+	"context"
 	"errors"
+	"io"
 	"net/url"
 	"strings"
 	"testing"
@@ -72,5 +74,40 @@ func TestURLErrorKeepsTheCauseOfAParseErrorWithoutUserInfo(t *testing.T) {
 	err := &url.Error{Op: "parse", URL: "https://h.example/%zz", Err: errors.New("invalid URL escape")}
 	if got := URLError(err).Error(); !strings.Contains(got, "invalid URL escape") {
 		t.Errorf("error text %q lost the cause", got)
+	}
+}
+
+func TestURLErrorKeepsTheCauseOfAnOtherErrorWithUserInfo(t *testing.T) {
+	t.Parallel()
+	// Only a parse error quotes the user info in its cause; a transport error
+	// for the same URL keeps its cause so callers can still read it.
+	err := &url.Error{Op: "Get", URL: "https://u:p@h.example/a", Err: errors.New("dial tcp: lookup h.example: no such host")}
+	if got := URLError(err).Error(); !strings.Contains(got, "no such host") {
+		t.Errorf("error text %q lost the cause", got)
+	}
+}
+
+type timeoutError struct{}
+
+func (timeoutError) Error() string { return "i/o timeout" }
+func (timeoutError) Timeout() bool { return true }
+
+func TestURLErrorKeepsTheErrorChain(t *testing.T) {
+	t.Parallel()
+	got := URLError(&url.Error{Op: "Get", URL: "https://h.example/z?user=secret", Err: io.EOF})
+	if !errors.Is(got, io.EOF) {
+		t.Errorf("errors.Is(%v, io.EOF) = false; want the cause reachable through the copy", got)
+	}
+	got = URLError(&url.Error{Op: "Post", URL: "https://h.example/z?user=secret", Err: context.DeadlineExceeded})
+	if !errors.Is(got, context.DeadlineExceeded) {
+		t.Errorf("errors.Is(%v, context.DeadlineExceeded) = false", got)
+	}
+	got = URLError(&url.Error{Op: "Get", URL: "https://h.example/z", Err: timeoutError{}})
+	te, ok := errors.AsType[interface {
+		error
+		Timeout() bool
+	}](got)
+	if !ok || !te.Timeout() {
+		t.Errorf("Timeout() of %v = false; want the cause's timeout kept", got)
 	}
 }
