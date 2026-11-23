@@ -67,8 +67,8 @@ func (s *entityStore) add(data json.RawMessage, parentID int64) {
 // holds, or -1. The caller holds s.mu.
 func (s *entityStore) indexOf(id int64, match func(storedItem) bool) int {
 	for i, item := range s.items {
-		var m map[string]any
-		if err := json.Unmarshal(item.data, &m); err != nil {
+		m, err := decodeObject(item.data)
+		if err != nil {
 			continue
 		}
 		if extractID(m) == id && match(item) {

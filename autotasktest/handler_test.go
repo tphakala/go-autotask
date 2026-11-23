@@ -644,3 +644,66 @@ func TestCreateAfterSeedDoesNotReuseSeededID(t *testing.T) {
 		})
 	}
 }
+
+// TestIDsAbove2To53StayExact pins that a seeded id above 2^53, and the id a
+// create gets after it, update and read back exactly.
+func TestIDsAbove2To53StayExact(t *testing.T) {
+	const big = int64(1)<<53 + 1
+	seeded := TicketNoteFixture(func(n *entities.TicketNote) {
+		n.ID = autotask.Set(big)
+		n.Title = autotask.Set("seeded")
+	})
+	_, client := NewServer(t, WithEntity(seeded))
+	ctx := t.Context()
+
+	created, err := autotask.Create(ctx, client, &entities.TicketNote{Title: autotask.Set("created")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, _ := created.ID.Get(); id != big+1 {
+		t.Fatalf("created id = %d, want %d", id, big+1)
+	}
+	// big is odd and above 2^53, so a float64 round trip would change it.
+	for _, id := range []int64{big, big + 1} {
+		if _, err := autotask.Update(ctx, client, &entities.TicketNote{ID: autotask.Set(id), Title: autotask.Set(fmt.Sprintf("edited %d", id))}); err != nil {
+			t.Fatalf("update %d: %v", id, err)
+		}
+	}
+	for id, want := range map[int64]string{big: fmt.Sprintf("edited %d", big), big + 1: fmt.Sprintf("edited %d", big+1)} {
+		got, err := autotask.Get[entities.TicketNote](ctx, client, id)
+		if err != nil {
+			t.Fatalf("get %d: %v", id, err)
+		}
+		if gotID, _ := got.ID.Get(); gotID != id {
+			t.Errorf("get %d returned id %d", id, gotID)
+		}
+		if title, _ := got.Title.Get(); title != want {
+			t.Errorf("get %d title = %q, want %q", id, title, want)
+		}
+	}
+}
+
+// TestCreateWithInvalidBodyAnswers400 pins that a create body that is not one
+// JSON object answers 400: null (a nil map that used to panic on the id
+// assignment), a truncated object, and an object followed by more data.
+func TestCreateWithInvalidBodyAnswers400(t *testing.T) {
+	ts, _ := NewServer(t)
+	for _, body := range []string{"null", `{"title":`, `{"title":"a"} x`} {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ts.URL+"/v1.0/TicketNotes", strings.NewReader(body))
+		if err != nil {
+			t.Fatalf("new request: %v", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("UserName", "test-user")
+		req.Header.Set("Secret", "test-secret")
+		req.Header.Set("ApiIntegrationCode", "test-code")
+		resp, err := ts.Client().Do(req)
+		if err != nil {
+			t.Fatalf("%s: do: %v", body, err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400", body, resp.StatusCode)
+		}
+	}
+}

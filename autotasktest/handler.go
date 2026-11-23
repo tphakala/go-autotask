@@ -1,7 +1,9 @@
 package autotasktest
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -213,8 +215,8 @@ func (ts *TestServer) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var m map[string]any
-	if err := json.Unmarshal(body, &m); err != nil {
+	m, err := decodeObject(body)
+	if err != nil {
 		writeErrorResponse(w, http.StatusBadRequest, []string{"Invalid JSON body"})
 		return
 	}
@@ -254,8 +256,8 @@ func (ts *TestServer) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var m map[string]any
-	if err := json.Unmarshal(body, &m); err != nil {
+	m, err := decodeObject(body)
+	if err != nil {
 		writeErrorResponse(w, http.StatusBadRequest, []string{"Invalid JSON body"})
 		return
 	}
@@ -400,4 +402,24 @@ func (ts *TestServer) handleThresholdInfo(w http.ResponseWriter, r *http.Request
 		"currentTimeframeInternalCrossDomainRequestCount": thresholdInternalCurrentCount,
 		"internalCrossDomainRequestThreshold":             thresholdInternalLimit,
 	})
+}
+
+// decodeObject decodes a JSON object with numbers kept as json.Number, so an
+// id above 2^53 survives create, Get, Update and Delete by id exactly. Query
+// filters still compare numbers as float64. A null body or data after the
+// object is an error.
+func decodeObject(data []byte) (map[string]any, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var m map[string]any
+	if err := dec.Decode(&m); err != nil {
+		return nil, err
+	}
+	if m == nil {
+		return nil, errors.New("autotasktest: body is not a JSON object")
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, errors.New("autotasktest: data after the JSON object")
+	}
+	return m, nil
 }
