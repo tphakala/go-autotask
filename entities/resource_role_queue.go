@@ -15,6 +15,10 @@ import (
 // entity information and the swagger lists no DELETE). It has no user-defined
 // fields.
 //
+// ResourceID is required and read-only per the field metadata. Whether the API
+// needs it in the body when the URL names the resource has not been checked
+// against a live tenant.
+//
 // The field QueueID takes a value of the field's picklist; list the values with
 // metadata.GetPickList.
 //

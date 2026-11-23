@@ -342,6 +342,7 @@ _, err = autotask.Update(ctx, client, &entities.Resource{
 
 // Assign it to a department with a role: POST /v1.0/Resources/{resourceID}/RoleDepartments
 _, err = autotask.CreateChild[entities.Resource](ctx, client, resourceID, &entities.ResourceRoleDepartment{
+    ResourceID:       autotask.Set(resourceID), // read-only per the metadata; whether the URL alone suffices is not checked against a live tenant
     DepartmentID:     autotask.Set(departmentID),
     RoleID:           autotask.Set(roleID),
     IsActive:         autotask.Set(true),

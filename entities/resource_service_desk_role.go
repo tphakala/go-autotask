@@ -16,6 +16,10 @@ import (
 // the swagger lists no DELETE); set IsActive to false to retire a role (not
 // checked against a live tenant). It has no user-defined fields.
 //
+// ResourceID is required and read-only per the field metadata. Whether the API
+// needs it in the body when the URL names the resource has not been checked
+// against a live tenant.
+//
 // This file is hand-written. Its fields follow the entity field metadata of a
 // live tenant (captured 2026-11-23); it was not generated, so do not regenerate
 // it.
