@@ -10,10 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`ListChildRawIterOf[P, C]`**: an untyped child iterator that builds its URL from the entity types, as `ListChildIter` does (parent segment from `ChildParentName` or the parent's `EntityName`, child segment from `ChildEntityName` or `EntityName`), so a caller that needs the raw maps no longer passes segment strings that can name a route the API does not serve.
+- **`autotasktest.WithChildOnlyWrites[P, C]()`** (#58): opt-in. The mock accepts writes of `C` only on the child URL that `CreateChild[P]`, `UpdateChild[P]` and `DeleteChild[P, C]` send. A root write, and a child write under another parent or segment, answer 400, and a rejected write creates no store or item.
+- **`autotasktest.WithoutUpdateSupport` and `autotasktest.WithoutCreateSupport`** (#35): opt-in. Each takes an entity name and answers PATCH (or POST) for it with a 400 at every URL.
 - **`ChildParentEntity`** (#52): an optional interface for a child entity whose child URLs name the parent collection with a segment other than the parent's `EntityName`. The typed child calls use its `ChildParentName() string` in place of the parent type's `EntityName`. `entities.ExpenseItem` implements it with `Expenses`.
 
 ### Changed
 
+- **The default `entityInformation` answer of `autotasktest.NewServer`** reports `canDelete` true for an entity with `WithDeleteSupport` (it was always false), and `canCreate` or `canUpdate` false for an entity with `WithoutCreateSupport` or `WithoutUpdateSupport`.
 - **`autotasktest.WithChildEntity` registers its route with the child's `ChildParentName`** when the child type has one, so the route matches the URL the typed child calls send.
 
 ### Fixed

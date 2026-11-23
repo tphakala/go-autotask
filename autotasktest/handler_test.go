@@ -454,6 +454,14 @@ func TestWithChildEntityRouteConflict(t *testing.T) {
 	if got := ts.childRoutes["Tickets/Notes"]; got != "TicketNotes" {
 		t.Errorf("route Tickets/Notes = %q, want TicketNotes", got)
 	}
+	// WithChildOnlyWrites registers its route with the same conflict check.
+	WithChildOnlyWrites[entities.Ticket, entities.ProjectNote]()(ts)
+	if len(rec.fatal) != 2 || !strings.Contains(rec.fatal[1], "Tickets/Notes") {
+		t.Fatalf("fatal messages = %v, want a second naming Tickets/Notes", rec.fatal)
+	}
+	if got := ts.childRoutes["Tickets/Notes"]; got != "TicketNotes" {
+		t.Errorf("route Tickets/Notes after WithChildOnlyWrites = %q, want TicketNotes", got)
+	}
 }
 
 // recordingTB records Fatalf calls instead of stopping the test. Other methods

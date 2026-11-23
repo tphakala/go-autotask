@@ -32,11 +32,14 @@ type TestServer struct {
 	// childRoutes maps "Parent/Segment" to the store name WithChildEntity
 	// registered for that child URL.
 	childRoutes map[string]string
-	auth        authConfig
-	requests    []RecordedRequest
-	opts        serverOptions
-	t           testing.TB
-	nextID      int64
+	// childOnlySegments maps a child segment to the "Parent/Segment" routes that
+	// WithChildOnlyWrites allows for it.
+	childOnlySegments map[string]map[string]bool
+	auth              authConfig
+	requests          []RecordedRequest
+	opts              serverOptions
+	t                 testing.TB
+	nextID            int64
 }
 
 type authConfig struct {
@@ -120,8 +123,9 @@ type UDFInfoResponse struct {
 func NewServer(tb testing.TB, opts ...ServerOption) (*TestServer, *autotask.Client) {
 	tb.Helper()
 	ts := &TestServer{
-		entities:    make(map[string]*entityStore),
-		childRoutes: make(map[string]string),
+		entities:          make(map[string]*entityStore),
+		childRoutes:       make(map[string]string),
+		childOnlySegments: make(map[string]map[string]bool),
 		auth: authConfig{
 			username:        "test-user",
 			secret:          "test-secret",
