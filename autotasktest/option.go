@@ -459,9 +459,9 @@ func WithChildOnlyWrites[P, C autotask.Entity]() ServerOption {
 	}
 }
 
-// WithoutUpdateSupport makes PATCH for an entity answer 400 at every URL,
-// root or child, and the default entityInformation answer report canUpdate
-// false. Use it for entities the API cannot update, such as
+// WithoutUpdateSupport makes PATCH for an entity answer 400 at the root URL
+// and at every child URL that resolves to its store, and the default
+// entityInformation answer report canUpdate false. Use it for entities the API cannot update, such as
 // ChangeRequestLinks. WithEntityMetadata replaces the default answer.
 func WithoutUpdateSupport(entityName string) ServerOption {
 	return func(ts *TestServer) {
@@ -469,8 +469,9 @@ func WithoutUpdateSupport(entityName string) ServerOption {
 	}
 }
 
-// WithoutCreateSupport makes POST for an entity answer 400 at every URL, root
-// or child, and the default entityInformation answer report canCreate false.
+// WithoutCreateSupport makes POST for an entity answer 400 at the root URL
+// and at every child URL that resolves to its store, and the default
+// entityInformation answer report canCreate false.
 // Use it for entities the API cannot create, such as Resources.
 // WithEntityMetadata replaces the default answer.
 func WithoutCreateSupport(entityName string) ServerOption {

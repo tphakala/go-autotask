@@ -42,9 +42,9 @@ func noStore(t *testing.T, ts *TestServer, names ...string) {
 }
 
 // TestChildOnlyWritesAllowOnlyTheTypedChildRoute pins that a marked type is
-// written only on the URL the typed child calls send: root writes and child
-// writes under another parent or segment answer 400, without creating a store
-// or an item, and reads are not gated.
+// written only on the URL the typed child calls send: root writes, and child
+// writes that resolve to its store under another parent or segment, answer 400,
+// without creating a store or an item, and reads are not gated.
 func TestChildOnlyWritesAllowOnlyTheTypedChildRoute(t *testing.T) {
 	t.Run("QuoteItem under Quote", func(t *testing.T) {
 		ts, client := NewServer(t,
