@@ -511,6 +511,25 @@ func TestTLSFallbackLogsDowngradeOnce(t *testing.T) {
 		assertOneDowngrade(t, rec)
 	})
 
+	t.Run("a new pin after the TTL logs again", func(t *testing.T) {
+		rec := logtest.New()
+		now := time.Unix(1000, 0)
+		ft := newFallbackFor(t, rtFunc(func(*http.Request) (*http.Response, error) { return nil, io.EOF }), fallback)
+		ft.logger = rec.Logger()
+		ft.now = func() time.Time { return now }
+		ft.ttl = time.Minute
+		if _, err := mustGet(t, ft, "https://h.example/x?q=1"); err != nil {
+			t.Fatal(err)
+		}
+		now = now.Add(2 * time.Minute)
+		if _, err := mustGet(t, ft, "https://h.example/x?q=1"); err != nil {
+			t.Fatal(err)
+		}
+		if got := len(rec.Records()); got != 2 {
+			t.Errorf("got %d records; want one per pin, 2", got)
+		}
+	})
+
 	t.Run("concurrent probes log once", func(t *testing.T) {
 		rec := logtest.New()
 		var probing sync.WaitGroup
