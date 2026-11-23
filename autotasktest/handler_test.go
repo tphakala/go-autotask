@@ -565,3 +565,18 @@ func TestChildSegmentResolvesThroughSingularParent(t *testing.T) {
 		}
 	}
 }
+
+// TestChildListOfUnknownTypeSendsEmptyItemsArray pins the wire shape of a child
+// list nothing was stored for: "items": [] like a known type with no match, not null.
+func TestChildListOfUnknownTypeSendsEmptyItemsArray(t *testing.T) {
+	_, client := NewServer(t)
+	var resp struct {
+		Items json.RawMessage `json:"items"`
+	}
+	if err := client.Do(t.Context(), http.MethodGet, "/v1.0/Tickets/1/Attachments", nil, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(resp.Items); got != "[]" {
+		t.Errorf("items = %s, want []", got)
+	}
+}

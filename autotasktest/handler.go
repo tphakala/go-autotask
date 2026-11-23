@@ -155,8 +155,8 @@ func (ts *TestServer) handleGet(w http.ResponseWriter, r *http.Request) {
 	store, ok := ts.storeFor(p)
 	if !ok && p.child && p.id == 0 {
 		// A child collection nothing was stored for is an empty list, as for a
-		// parent without children.
-		ts.writePage(w, r, nil)
+		// parent without children. The slice is non-nil so it encodes as [].
+		ts.writePage(w, r, []json.RawMessage{})
 		return
 	}
 	if !ok {
