@@ -358,12 +358,14 @@ contact, err := autotask.CreateChild[entities.Company](ctx, client, companyID, &
     IsActive:  autotask.Set(int64(1)),
 })
 
-// Edit the contact: PATCH /v1.0/Companies/{companyID}/Contacts, with the ID in the body
-contact.Phone = autotask.Set("555-0101")
-contact, err = autotask.UpdateChild[entities.Company](ctx, client, companyID, contact)
+// Edit the contact: PATCH /v1.0/Companies/{companyID}/Contacts with only the ID and the changed field
+contactID, _ := contact.ID.Get()
+_, err = autotask.UpdateChild[entities.Company](ctx, client, companyID, &entities.Contact{
+    ID:    autotask.Set(contactID),
+    Phone: autotask.Set("555-0101"),
+})
 
 // Add the contact to a contact group: POST /v1.0/ContactGroups/{groupID}/Contacts
-contactID, _ := contact.ID.Get()
 _, err = autotask.CreateChild[entities.ContactGroup](ctx, client, groupID, &entities.ContactGroupContact{
     ContactGroupID: autotask.Set(groupID),
     ContactID:      autotask.Set(contactID),
