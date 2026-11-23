@@ -323,6 +323,54 @@ err = autotask.DeleteChild[entities.ConfigurationItem, entities.ConfigurationIte
 
 The other types follow the same rule: their doc comments name the typed calls that reach the operations the REST swagger lists for them. `ConfigurationItemType` and `ConfigurationItemCategory` are root entities. `ConfigurationItemDnsRecord` and `ConfigurationItemSslSubjectAlternativeName` can be listed and deleted but not created or updated. `TicketAdditionalConfigurationItem` is a child of `Ticket`.
 
+## Users and contacts
+
+Internal users are `Resource` entities. The API lists, counts and updates them but has no create or delete, so users are added in Autotask; update a resource with `IsActive` set to false to deactivate it (not checked against a live tenant). Their assignments are child entities of the resource, reached with the child calls: `ResourceRoleDepartment`, `ResourceRoleQueue` and `ResourceServiceDeskRole` can be listed, created and updated, `ResourceSkill` listed and updated, `ResourceAttachment` listed, created and deleted, and `ResourceRole` only listed.
+
+Customer users are `Contact` entities. The REST swagger offers no root write for them: create, update and delete a contact through its company with `CreateChild[entities.Company]`, `UpdateChild[entities.Company]` and `DeleteChild[entities.Company, entities.Contact]`. `ClientPortalUser` is a root entity with create and update, and no delete. `ContactGroup` is a root entity with create, update and delete, and its members are `ContactGroupContact` items, created and deleted through the group.
+
+```go
+// List the active resources
+active, err := autotask.List[entities.Resource](ctx, client,
+    autotask.NewQuery().Where("isActive", autotask.OpEq, true))
+
+// Deactivate one: send only ID and the field to change, PATCH /v1.0/Resources
+_, err = autotask.Update(ctx, client, &entities.Resource{
+    ID:       autotask.Set(resourceID),
+    IsActive: autotask.Set(false),
+})
+
+// Assign it to a department with a role: POST /v1.0/Resources/{resourceID}/RoleDepartments
+_, err = autotask.CreateChild[entities.Resource](ctx, client, resourceID, &entities.ResourceRoleDepartment{
+    DepartmentID:     autotask.Set(departmentID),
+    RoleID:           autotask.Set(roleID),
+    IsActive:         autotask.Set(true),
+    IsDefault:        autotask.Set(true),
+    IsDepartmentLead: autotask.Set(false),
+})
+
+// Create a contact: POST /v1.0/Companies/{companyID}/Contacts
+contact, err := autotask.CreateChild[entities.Company](ctx, client, companyID, &entities.Contact{
+    CompanyID: autotask.Set(companyID),
+    FirstName: autotask.Set("Jane"),
+    LastName:  autotask.Set("Doe"),
+    IsActive:  autotask.Set(int64(1)),
+})
+
+// Edit the contact: PATCH /v1.0/Companies/{companyID}/Contacts, with the ID in the body
+contact.Phone = autotask.Set("555-0101")
+contact, err = autotask.UpdateChild[entities.Company](ctx, client, companyID, contact)
+
+// Add the contact to a contact group: POST /v1.0/ContactGroups/{groupID}/Contacts
+contactID, _ := contact.ID.Get()
+_, err = autotask.CreateChild[entities.ContactGroup](ctx, client, groupID, &entities.ContactGroupContact{
+    ContactGroupID: autotask.Set(groupID),
+    ContactID:      autotask.Set(contactID),
+})
+```
+
+The other types' doc comments name the typed calls that reach the operations the REST swagger lists for them. `Role` and `Department` have root create and update but no delete, and `Skill` and `ResourceRole` are read-only. Write behavior beyond what the swagger and the field metadata state has not been checked against a live tenant. Picklist fields (for example a resource's `EmailTypeCode`, `PayrollType` and `UserType`) take values from `metadata.GetPickList`.
+
 ## Problem, incident and change request tickets
 
 An incident ticket points at its problem ticket through `Ticket.ProblemTicketID`. The JSON field is `problemTicketId`, with a lowercase d, and Autotask accepts it only on Incident tickets. List the incidents of a problem by filtering on it; the filter needs the field to be queryable in your instance, which `metadata.GetFields` reports as `IsQueryable`. Ticket type values come from `metadata.GetPickList(ctx, client, "Tickets", "ticketType")`.
@@ -481,9 +529,9 @@ With `WithZoneInfo`, `NewClient` sends no zone discovery request, uses `zone.URL
 
 The `entities` package ships type-safe structs, some generated with `autotask-gen` and some hand-written, for:
 
-`BillingCode`, `BillingItem`, `BillingItemApprovalLevel`, `ChangeRequestLink`, `Company`, `CompanyNote`, `ConfigurationItem`, `ConfigurationItemAttachment`, `ConfigurationItemBillingProductAssociation`, `ConfigurationItemCategory`, `ConfigurationItemCategoryUdfAssociation`, `ConfigurationItemDnsRecord`, `ConfigurationItemNote`, `ConfigurationItemNoteAttachment`, `ConfigurationItemRelatedItem`, `ConfigurationItemSslSubjectAlternativeName`, `ConfigurationItemType`, `Contact`, `Contract`, `Department`, `ExpenseItem`, `ExpenseReport`, `Invoice`, `Opportunity`, `Product`, `Project`, `ProjectNote`, `Quote`, `QuoteItem`, `Resource`, `Service`, `ServiceBundle`, `Task`, `Ticket`, `TicketAdditionalConfigurationItem`, `TicketAttachment`, `TicketNote`, `TicketNoteAttachment`, `TimeEntry`
+`BillingCode`, `BillingItem`, `BillingItemApprovalLevel`, `ChangeRequestLink`, `ClientPortalUser`, `Company`, `CompanyNote`, `ConfigurationItem`, `ConfigurationItemAttachment`, `ConfigurationItemBillingProductAssociation`, `ConfigurationItemCategory`, `ConfigurationItemCategoryUdfAssociation`, `ConfigurationItemDnsRecord`, `ConfigurationItemNote`, `ConfigurationItemNoteAttachment`, `ConfigurationItemRelatedItem`, `ConfigurationItemSslSubjectAlternativeName`, `ConfigurationItemType`, `Contact`, `ContactGroup`, `ContactGroupContact`, `Contract`, `Department`, `ExpenseItem`, `ExpenseReport`, `Invoice`, `Opportunity`, `Product`, `Project`, `ProjectNote`, `Quote`, `QuoteItem`, `Resource`, `ResourceAttachment`, `ResourceRole`, `ResourceRoleDepartment`, `ResourceRoleQueue`, `ResourceServiceDeskRole`, `ResourceSkill`, `Role`, `Service`, `ServiceBundle`, `Skill`, `Task`, `Ticket`, `TicketAdditionalConfigurationItem`, `TicketAttachment`, `TicketNote`, `TicketNoteAttachment`, `TimeEntry`
 
-All entities use `Optional[T]` fields, and all except `ChangeRequestLink`, `TicketNoteAttachment`, `TicketAdditionalConfigurationItem` and the `ConfigurationItem*` types other than `ConfigurationItem` itself (Autotask gives them none) support user-defined fields via `UserDefinedFields []autotask.UDF`. For an entity not listed here, use the raw (`map[string]any`) API or generate a struct with `autotask-gen`.
+All entities use `Optional[T]` fields, and all except `ChangeRequestLink`, `TicketNoteAttachment`, `TicketAdditionalConfigurationItem`, the `ConfigurationItem*` types other than `ConfigurationItem` itself and the user management types other than `Contact` and `Resource` (`ClientPortalUser`, `ContactGroup`, `ContactGroupContact`, `Role`, `Skill` and the `Resource*` types other than `Resource`; Autotask gives them none) support user-defined fields via `UserDefinedFields []autotask.UDF`. `Department` and `Resource` carry the field although the API lists no user-defined fields for them. For an entity not listed here, use the raw (`map[string]any`) API or generate a struct with `autotask-gen`.
 
 ## Error handling
 

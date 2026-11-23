@@ -21,6 +21,9 @@ var knownEntityNames = entityNameSet(
 	entities.Product{}, entities.ProjectNote{}, entities.Project{}, entities.QuoteItem{}, entities.Quote{}, entities.Resource{},
 	entities.ServiceBundle{}, entities.Service{}, entities.Task{}, entities.TicketAttachment{}, entities.TicketNoteAttachment{},
 	entities.TicketNote{}, entities.Ticket{}, entities.TimeEntry{},
+	entities.ClientPortalUser{}, entities.ContactGroup{}, entities.ContactGroupContact{}, entities.ResourceAttachment{},
+	entities.ResourceRole{}, entities.ResourceRoleDepartment{}, entities.ResourceRoleQueue{}, entities.ResourceServiceDeskRole{},
+	entities.ResourceSkill{}, entities.Role{}, entities.Skill{},
 )
 
 // entityNameSet returns the set of EntityName values of items.

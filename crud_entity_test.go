@@ -1,6 +1,8 @@
 package autotask_test
 
 import (
+	"net/http"
+	"strconv"
 	"testing"
 
 	autotask "github.com/tphakala/go-autotask"
@@ -95,7 +97,7 @@ func TestCompanyCRUD(t *testing.T) {
 func TestContactCRUD(t *testing.T) {
 	t.Parallel()
 	contact := autotasktest.ContactFixture()
-	_, client := autotasktest.NewServer(t,
+	srv, client := autotasktest.NewServer(t,
 		autotasktest.WithEntity(contact),
 		autotasktest.WithDeleteSupport("Contacts"),
 	)
@@ -134,39 +136,46 @@ func TestContactCRUD(t *testing.T) {
 		}
 	})
 
+	// The REST swagger lists no root write for Contacts, so writes go through
+	// the company, which is the CompanyID of the fixture.
+	const companyID = int64(1001)
+
 	t.Run("Create", func(t *testing.T) {
 		newContact := autotasktest.ContactFixture(func(c *entities.Contact) {
 			c.ID = autotask.Optional[int64]{}
 			c.FirstName = autotask.Set("Bob")
 			c.LastName = autotask.Set("Jones")
 		})
-		result, err := autotask.Create(t.Context(), client, &newContact)
+		result, err := autotask.CreateChild[entities.Company](t.Context(), client, companyID, &newContact)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
+		assertRequest(t, srv, http.MethodPost, "/v1.0/Companies/1001/Contacts")
 	})
 
 	t.Run("Update", func(t *testing.T) {
 		updated := contact
 		updated.Phone = autotask.Set("555-8888")
-		result, err := autotask.Update(t.Context(), client, &updated)
+		result, err := autotask.UpdateChild[entities.Company](t.Context(), client, companyID, &updated)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
+		assertRequest(t, srv, http.MethodPatch, "/v1.0/Companies/1001/Contacts")
 	})
 
 	t.Run("Delete", func(t *testing.T) {
 		id, _ := contact.ID.Get()
-		err := autotask.Delete[entities.Contact](t.Context(), client, id)
+		err := autotask.DeleteChild[entities.Company, entities.Contact](t.Context(), client, companyID, id)
 		if err != nil {
 			t.Fatal(err)
 		}
+		assertRequest(t, srv, http.MethodDelete, "/v1.0/Companies/1001/Contacts/"+strconv.FormatInt(id, 10))
 	})
 
 	t.Run("CreateWithUDF", func(t *testing.T) {
@@ -174,14 +183,24 @@ func TestContactCRUD(t *testing.T) {
 			c.ID = autotask.Optional[int64]{}
 			c.UserDefinedFields = []autotask.UDF{{Name: "PreferredContact", Value: "Phone"}}
 		})
-		result, err := autotask.Create(t.Context(), client, &co)
+		result, err := autotask.CreateChild[entities.Company](t.Context(), client, companyID, &co)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
+		assertRequest(t, srv, http.MethodPost, "/v1.0/Companies/1001/Contacts")
 	})
+}
+
+// assertRequest fails the test unless the last request the server saw has the
+// given method and path.
+func assertRequest(t *testing.T, srv *autotasktest.TestServer, method, path string) {
+	t.Helper()
+	if req := srv.LastRequest(); req.Method != method || req.Path != path {
+		t.Fatalf("sent %s %s, want %s %s", req.Method, req.Path, method, path)
+	}
 }
 
 // ---------- Ticket ----------
@@ -553,21 +572,6 @@ func TestResourceCRUD(t *testing.T) {
 		}
 	})
 
-	t.Run("Create", func(t *testing.T) {
-		newResource := autotasktest.ResourceFixture(func(r *entities.Resource) {
-			r.ID = autotask.Optional[int64]{}
-			r.FirstName = autotask.Set("Alice")
-			r.LastName = autotask.Set("Brown")
-		})
-		result, err := autotask.Create(t.Context(), client, &newResource)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if result == nil {
-			t.Fatal("expected non-nil result")
-		}
-	})
-
 	t.Run("Update", func(t *testing.T) {
 		updated := resource
 		updated.Title = autotask.Set("Lead Engineer")
@@ -580,12 +584,10 @@ func TestResourceCRUD(t *testing.T) {
 		}
 	})
 
-	t.Run("CreateWithUDF", func(t *testing.T) {
-		r := autotasktest.ResourceFixture(func(r *entities.Resource) {
-			r.ID = autotask.Optional[int64]{}
-			r.UserDefinedFields = []autotask.UDF{{Name: "Team", Value: "Platform"}}
-		})
-		result, err := autotask.Create(t.Context(), client, &r)
+	t.Run("UpdateWithUDF", func(t *testing.T) {
+		r := resource
+		r.UserDefinedFields = []autotask.UDF{{Name: "Team", Value: "Platform"}}
+		result, err := autotask.Update(t.Context(), client, &r)
 		if err != nil {
 			t.Fatal(err)
 		}
