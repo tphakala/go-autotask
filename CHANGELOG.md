@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`ChildParentEntity`** (#52): an optional interface for a child entity whose child URLs name the parent collection with a segment other than the parent's `EntityName`. The typed child calls use its `ChildParentName() string` in place of the parent type's `EntityName`. `entities.ExpenseItem` implements it with `Expenses`.
+
+### Changed
+
+- **`autotasktest.WithChildEntity` registers its route with the child's `ChildParentName`** when the child type has one, so the route matches the URL the typed child calls send.
+
+### Fixed
+
+- **Typed child calls for `entities.QuoteItem` and `entities.ExpenseItem` addressed URLs the REST swagger does not list** (#52). `CreateChild`, `UpdateChild`, `DeleteChild`, `GetChild`, `ListChild` and `ListChildIter` now use the collection `/v1.0/Quotes/{id}/Items` for `QuoteItem` (`DeleteChild` appends the item id) (was `/v1.0/Quotes/{id}/QuoteItems`) and `/v1.0/Expenses/{id}/Items` for `ExpenseItem` (was `/v1.0/ExpenseReports/{id}/ExpenseItems`). This changes the URL for any caller of those calls with these two types. Root `Get`, `List`, `Count`, `Create`, `Update` and `Delete` are unchanged.
+
 ## [1.9.0] - 2026-11-23
 
 ### Added

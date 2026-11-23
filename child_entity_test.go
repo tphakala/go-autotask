@@ -1,6 +1,7 @@
 package autotask_test
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -148,5 +149,58 @@ func TestChildTicketNoteAttachment(t *testing.T) {
 	}
 	if got, _ := listed[0].Title.Get(); got != "report.xlsx" {
 		t.Fatalf("listed Title = %q, want report.xlsx", got)
+	}
+}
+
+// assertLastRequest checks that the last request the mock saw had the exact
+// method and path.
+func assertLastRequest(t *testing.T, srv *autotasktest.TestServer, wantMethod, wantPath string) {
+	t.Helper()
+	req := srv.LastRequest()
+	if req.Method != wantMethod || req.Path != wantPath {
+		t.Fatalf("request = %s %s, want %s %s", req.Method, req.Path, wantMethod, wantPath)
+	}
+}
+
+// TestQuoteItemAndExpenseItemChildRoutes pins the child URLs of the two item
+// entities the REST swagger serves under a shorter parent and child segment
+// than their root entity names: QuoteItem under /Quotes/{id}/Items and
+// ExpenseItem under /Expenses/{id}/Items.
+func TestQuoteItemAndExpenseItemChildRoutes(t *testing.T) {
+	t.Parallel()
+	srv, client := autotasktest.NewServer(t, autotasktest.WithDeleteSupport("QuoteItems"))
+	ctx := t.Context()
+
+	quoteItem := entities.QuoteItem{Quantity: autotask.Set(2.0)}
+	if _, err := autotask.CreateChild[entities.Quote](ctx, client, 101, &quoteItem); err != nil {
+		t.Fatal(err)
+	}
+	assertLastRequest(t, srv, http.MethodPost, "/v1.0/Quotes/101/Items")
+	quoteItemID, _ := quoteItem.ID.Get()
+
+	quoteItem.Quantity = autotask.Set(3.0)
+	if _, err := autotask.UpdateChild[entities.Quote](ctx, client, 101, &quoteItem); err != nil {
+		t.Fatal(err)
+	}
+	assertLastRequest(t, srv, http.MethodPatch, "/v1.0/Quotes/101/Items")
+
+	if err := autotask.DeleteChild[entities.Quote, entities.QuoteItem](ctx, client, 101, quoteItemID); err != nil {
+		t.Fatal(err)
+	}
+	assertLastRequest(t, srv, http.MethodDelete, fmt.Sprintf("/v1.0/Quotes/101/Items/%d", quoteItemID))
+
+	expenseItem := entities.ExpenseItem{Description: autotask.Set("taxi")}
+	if _, err := autotask.CreateChild[entities.ExpenseReport](ctx, client, 7, &expenseItem); err != nil {
+		t.Fatal(err)
+	}
+	assertLastRequest(t, srv, http.MethodPost, "/v1.0/Expenses/7/Items")
+
+	listed, err := autotask.ListChild[entities.ExpenseReport, entities.ExpenseItem](ctx, client, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLastRequest(t, srv, http.MethodGet, "/v1.0/Expenses/7/Items")
+	if len(listed) != 1 {
+		t.Fatalf("expense items under report 7 = %d, want the 1 created through the child URL", len(listed))
 	}
 }

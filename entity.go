@@ -27,6 +27,18 @@ type ChildEntity interface {
 	ChildEntityName() string
 }
 
+// ChildParentEntity is an optional interface for child entities whose child
+// URLs name the parent collection with a segment other than the parent's
+// EntityName. ExpenseItem is reached through /v1.0/Expenses/{id}/Items, while
+// its parent ExpenseReport has the EntityName "ExpenseReports", which the root
+// URLs use. The typed child calls (GetChild, ListChild, ListChildIter,
+// CreateChild, UpdateChild and DeleteChild) use ChildParentName in place of the
+// parent type's EntityName, whichever parent type P is passed, as
+// ChildEntityName applies for any P.
+type ChildParentEntity interface {
+	ChildParentName() string
+}
+
 // EntityWithID is an optional interface that entities can implement
 // to receive the server-generated ID from Create operations.
 // The Autotask API returns {"itemId": N} on successful creates.
