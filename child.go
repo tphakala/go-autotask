@@ -121,10 +121,12 @@ func ListChildRawIterOf[P Entity, C Entity](ctx context.Context, c *Client, pare
 	return listChildRawPath(ctx, c, typedChildPath[P](parentID, child), child.EntityName())
 }
 
-// listChildRawPath pages through the untyped child collection at path.
-// maxPagesName names the collection in a MaxPagesExceededError.
-func listChildRawPath(ctx context.Context, c *Client, path, maxPagesName string) iter.Seq2[map[string]any, error] {
+// listChildRawPath pages through the untyped child collection starting at
+// firstPath; each range starts again at firstPath. maxPagesName names the
+// collection in a MaxPagesExceededError.
+func listChildRawPath(ctx context.Context, c *Client, firstPath, maxPagesName string) iter.Seq2[map[string]any, error] {
 	return func(yield func(map[string]any, error) bool) {
+		path := firstPath
 		pages := 0
 		for {
 			pages++
