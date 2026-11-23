@@ -328,3 +328,23 @@ func TestZoneDiscoveryLogsAndRedactsUsername(t *testing.T) {
 		})
 	}
 }
+
+func TestZoneDiscoveryParseErrorHidesUserInfo(t *testing.T) {
+	t.Parallel()
+	rec := logtest.New()
+	// url.Parse reads "user:pw" as the host of this base URL and quotes ":pw".
+	_, err := autotask.NewClient(t.Context(), autotask.AuthConfig{Username: "svc-secret@example.com"},
+		autotask.WithZoneBaseURL("http://user:pw/x@host"), autotask.WithLogger(rec.Logger()))
+	if err == nil {
+		t.Fatal("want a zone discovery error for the unparsable base URL")
+	}
+	recs := rec.Records()
+	if len(recs) != 1 {
+		t.Fatalf("got %d records; want 1", len(recs))
+	}
+	for _, text := range []string{err.Error(), recs[0].Text} {
+		if strings.Contains(text, "pw") || strings.Contains(text, "svc-secret") {
+			t.Errorf("user info or username reached %q", text)
+		}
+	}
+}
