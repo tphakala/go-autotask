@@ -43,6 +43,7 @@ var createIDCases = map[string]func(*testing.T){
 	"Service":                  createSetsID[entities.Service],
 	"Task":                     createSetsID[entities.Task],
 	"TicketAttachment":         createSetsID[entities.TicketAttachment],
+	"TicketNoteAttachment":     createSetsID[entities.TicketNoteAttachment],
 	"TicketNote":               createSetsID[entities.TicketNote],
 	"Ticket":                   createSetsID[entities.Ticket],
 	"TimeEntry":                createSetsID[entities.TimeEntry],

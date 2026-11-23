@@ -7,7 +7,11 @@ package entities
 // childNameNotes is the shared child URL segment for note entities.
 const childNameNotes = "Notes"
 
-func (TicketNote) ChildEntityName() string       { return childNameNotes }
-func (ProjectNote) ChildEntityName() string      { return childNameNotes }
-func (CompanyNote) ChildEntityName() string      { return childNameNotes }
-func (TicketAttachment) ChildEntityName() string { return "Attachments" }
+// childNameAttachments is the shared child URL segment for attachment entities.
+const childNameAttachments = "Attachments"
+
+func (TicketNote) ChildEntityName() string           { return childNameNotes }
+func (ProjectNote) ChildEntityName() string          { return childNameNotes }
+func (CompanyNote) ChildEntityName() string          { return childNameNotes }
+func (TicketAttachment) ChildEntityName() string     { return childNameAttachments }
+func (TicketNoteAttachment) ChildEntityName() string { return childNameAttachments }

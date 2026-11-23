@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`entities.TicketNoteAttachment`** (entity `TicketNoteAttachments`): a file attached to a ticket note. Its child URL segment is `Attachments`, so `CreateChild[entities.TicketNote]` posts it to `/v1.0/TicketNotes/{noteID}/Attachments` and sets the new id on it, and `ListChild[entities.TicketNote, entities.TicketNoteAttachment]` lists a note's attachments from the same path. The file content goes base64-encoded in `Data`. Autotask has no update for it, and it has no `UserDefinedFields`. Before, attaching a file to a note with a typed call meant passing an `entities.TicketAttachment`, the type for a different entity, to `CreateChild[entities.TicketNote]`.
+
 ## [1.7.0] - 2026-11-20
 
 ### Added

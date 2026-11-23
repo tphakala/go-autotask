@@ -108,3 +108,45 @@ func TestChildCreateNilEntity(t *testing.T) {
 		t.Fatalf("error = %v, want 'must not be nil'", err)
 	}
 }
+
+func TestChildTicketNoteAttachment(t *testing.T) {
+	t.Parallel()
+	srv, client := autotasktest.NewServer(t)
+	const wantPath = "/v1.0/TicketNotes/300/Attachments"
+
+	in := entities.TicketNoteAttachment{
+		AttachmentType: autotask.Set("FILE_ATTACHMENT"),
+		FullPath:       autotask.Set("report.xlsx"),
+		Publish:        autotask.Set(int64(1)),
+		Title:          autotask.Set("report.xlsx"),
+		Data:           autotask.Set("AAAA"),
+	}
+	out, err := autotask.CreateChild[entities.TicketNote](t.Context(), client, 300, &in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req := srv.LastRequest(); req.Method != http.MethodPost || req.Path != wantPath {
+		t.Fatalf("CreateChild sent %s %s, want POST %s", req.Method, req.Path, wantPath)
+	}
+	id, ok := out.ID.Get()
+	if !ok || id <= 0 {
+		t.Fatalf("ID = %d (set=%v) after CreateChild, want the server's id", id, ok)
+	}
+
+	listed, err := autotask.ListChild[entities.TicketNote, entities.TicketNoteAttachment](t.Context(), client, 300)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req := srv.LastRequest(); req.Method != http.MethodGet || req.Path != wantPath {
+		t.Fatalf("ListChild sent %s %s, want GET %s", req.Method, req.Path, wantPath)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("listed %d attachments, want 1", len(listed))
+	}
+	if gotID, _ := listed[0].ID.Get(); gotID != id {
+		t.Fatalf("listed attachment id = %d, CreateChild returned %d", gotID, id)
+	}
+	if got, _ := listed[0].Title.Get(); got != "report.xlsx" {
+		t.Fatalf("listed Title = %q, want report.xlsx", got)
+	}
+}
