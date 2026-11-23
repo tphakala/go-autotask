@@ -217,7 +217,7 @@ func TestChildStoresArePerParentAndType(t *testing.T) {
 		t.Fatal(err)
 	}
 	noteAtt := entities.TicketNoteAttachment{Title: autotask.Set("note attachment")}
-	if _, err := autotask.CreateChild[entities.TicketNote](ctx, client, 10, &noteAtt); err != nil {
+	if _, err := autotask.CreateChild[entities.TicketNote](ctx, client, 2, &noteAtt); err != nil {
 		t.Fatal(err)
 	}
 	ticketAtt := entities.TicketAttachment{Title: autotask.Set("ticket attachment")}
@@ -237,12 +237,13 @@ func TestChildStoresArePerParentAndType(t *testing.T) {
 	}
 	assertTitles(t, "ticket 2 notes", titlesOf(notes2, noteTitle), []string{"seeded", "for ticket 2"})
 
-	// Both attachment types use the segment Attachments; neither sees the other.
-	noteAtts, err := autotask.ListChild[entities.TicketNote, entities.TicketNoteAttachment](ctx, client, 10)
+	// Both attachment types use the segment Attachments and parent id 2;
+	// neither sees the other, so the stores are separate per type.
+	noteAtts, err := autotask.ListChild[entities.TicketNote, entities.TicketNoteAttachment](ctx, client, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertTitles(t, "note 10 attachments", titlesOf(noteAtts, noteAttachmentTitle), []string{"note attachment"})
+	assertTitles(t, "note 2 attachments", titlesOf(noteAtts, noteAttachmentTitle), []string{"note attachment"})
 	ticketAtts, err := autotask.ListChild[entities.Ticket, entities.TicketAttachment](ctx, client, 2)
 	if err != nil {
 		t.Fatal(err)

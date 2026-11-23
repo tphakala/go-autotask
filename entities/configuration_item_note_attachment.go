@@ -19,9 +19,9 @@ import (
 // ConfigurationItemNoteAttachment] sends DELETE to that path plus /{id}. The
 // API has no update for this entity. autotask.Create, autotask.Update and
 // autotask.Delete send root URLs that the REST swagger does not list for
-// this entity, so use the child calls. The file content goes in Data, which
-// the field metadata types as byte[] and this package carries as a string
-// like TicketNoteAttachment.Data; its wire encoding is NOT MEASURED. It has
+// this entity, so use the child calls. The file content goes base64-encoded
+// in Data: the REST swagger types data as a string with format byte, and this
+// package carries it as a string like TicketNoteAttachment.Data. It has
 // no user-defined fields.
 //
 // This file is hand-written. Its fields follow the entity field metadata of a
