@@ -2,6 +2,7 @@ package autotask_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 	"net/http"
@@ -241,5 +242,35 @@ func TestListChildRawIterOfResolvesSegmentsFromTypes(t *testing.T) {
 			}
 			assertLastRequest(t, srv, http.MethodGet, tt.wantPath)
 		})
+	}
+}
+
+// TestListChildRawIterOfMaxPagesGuard pins the page cap of the typed raw child
+// iterator and the entity name its error carries. The mock stops linking the
+// next page after a few pages past the cap, so the loop ends if the cap is
+// ever removed and the test fails on the missing error.
+func TestListChildRawIterOfMaxPagesGuard(t *testing.T) {
+	t.Parallel()
+	page := `{"items":[{"id":1}],"pageDetails":{"count":1,"nextPageUrl":"/v1.0/Tickets/42/Notes?page=next"}}`
+	_, client := autotasktest.NewServer(t,
+		autotasktest.WithResponseOn(http.MethodGet, "/Tickets/42/Notes", http.StatusOK, "application/json", page, autotasktest.Times(1005)))
+
+	var gotError bool
+	for _, err := range autotask.ListChildRawIterOf[entities.Ticket, entities.TicketNote](t.Context(), client, 42) {
+		if err == nil {
+			continue
+		}
+		maxErr, ok := errors.AsType[*autotask.MaxPagesExceededError](err)
+		if !ok {
+			t.Fatalf("expected MaxPagesExceededError, got: %v", err)
+		}
+		if maxErr.EntityName != "TicketNotes" {
+			t.Errorf("MaxPagesExceededError.EntityName = %q, want TicketNotes", maxErr.EntityName)
+		}
+		gotError = true
+		break
+	}
+	if !gotError {
+		t.Fatal("expected MaxPagesExceededError from iterator")
 	}
 }

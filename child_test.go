@@ -653,13 +653,18 @@ func TestListChildRawIterMaxPagesGuard(t *testing.T) {
 	client := testClient(t, srv)
 	var gotError bool
 	for _, err := range ListChildRawIter(t.Context(), client, "Tickets", 42, "TicketNotes") {
-		if err != nil {
-			if _, ok := errors.AsType[*MaxPagesExceededError](err); !ok {
-				t.Fatalf("expected MaxPagesExceededError, got: %v", err)
-			}
-			gotError = true
-			break
+		if err == nil {
+			continue
 		}
+		maxErr, ok := errors.AsType[*MaxPagesExceededError](err)
+		if !ok {
+			t.Fatalf("expected MaxPagesExceededError, got: %v", err)
+		}
+		if maxErr.EntityName != "TicketNotes" {
+			t.Errorf("MaxPagesExceededError.EntityName = %q, want the child segment TicketNotes", maxErr.EntityName)
+		}
+		gotError = true
+		break
 	}
 	if !gotError {
 		t.Fatal("expected MaxPagesExceededError from iterator")
