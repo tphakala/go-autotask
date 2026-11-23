@@ -111,3 +111,37 @@ func TestURLErrorKeepsTheErrorChain(t *testing.T) {
 		t.Errorf("Timeout() of %v = false; want the cause's timeout kept", got)
 	}
 }
+
+func TestURLErrorKeepsTheBranchesOfAJoinedCause(t *testing.T) {
+	t.Parallel()
+	// A transport can return a joined error that holds a *url.Error next to a
+	// context error. The redacted copy must keep the whole tree reachable, so
+	// errors.Is still finds the context error, while its text drops the query.
+	joined := errors.Join(context.DeadlineExceeded,
+		&url.Error{Op: "Get", URL: "https://inner.example/x?token=SECRET", Err: io.EOF})
+	got := URLError(&url.Error{Op: "Get", URL: "https://h.example/a?user=alice", Err: joined})
+	if !errors.Is(got, context.DeadlineExceeded) {
+		t.Errorf("errors.Is(%v, context.DeadlineExceeded) = false; want the joined branch kept", got)
+	}
+	if !errors.Is(got, io.EOF) {
+		t.Errorf("errors.Is(%v, io.EOF) = false; want the nested cause kept", got)
+	}
+	for _, leak := range []string{"SECRET", "alice", "token="} {
+		if strings.Contains(got.Error(), leak) {
+			t.Errorf("error text %q still contains %q", got.Error(), leak)
+		}
+	}
+}
+
+func TestURLErrorHidesAParseCauseWithUserInfoUnderAJoin(t *testing.T) {
+	t.Parallel()
+	parse := &url.Error{Op: "parse", URL: "https://user:pw/x@host/a", Err: errors.New(`invalid port ":pw" after host`)}
+	joined := errors.Join(context.Canceled, parse)
+	got := URLError(&url.Error{Op: "Get", URL: "https://h.example/a", Err: joined})
+	if text := got.Error(); strings.Contains(text, "pw") || strings.Contains(text, "user") {
+		t.Errorf("error text %q still quotes the user info", text)
+	}
+	if !errors.Is(got, context.Canceled) {
+		t.Errorf("errors.Is(%v, context.Canceled) = false; want the joined branch kept", got)
+	}
+}
