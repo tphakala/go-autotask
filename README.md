@@ -267,8 +267,8 @@ client, err := autotask.NewClient(ctx, auth,
 |-------|-------|
 | Circuit breaker state change | Warn |
 | 429 with a `Retry-After` header | Warn |
-| Request waited for the `Retry-After` period | Info |
-| Request waited for a rate limit token or the adaptive delay | Debug |
+| Request starts waiting for the `Retry-After` period | Info |
+| Request waited for a rate limit token, or starts the adaptive delay | Debug |
 | API usage at or above 75% or 90%, on every check | Warn |
 | Threshold check failed | Warn |
 | Zone discovered | Info |
@@ -277,7 +277,7 @@ client, err := autotask.NewClient(ctx, auth,
 
 `middleware.WithRateLimitLogger`, `middleware.WithCircuitBreakerLogger` and `middleware.WithThresholdMonitorLogger` set the logger for middleware built directly with `middleware.NewRateLimiter` and the like. Passed to `WithRateLimiter`, `WithCircuitBreaker` or `WithThresholdMonitor`, they replace the client's logger for that component. Middleware added with `WithMiddleware` or `WithMaxConcurrency` does not log, and the TLS record needs the default HTTP client rather than one set with `WithHTTPClient`.
 
-Records carry method, URL path, host, counts, durations, state names and errors. They never carry credentials, request or response bodies, or a URL query string. The error `NewClient` returns for a failed zone discovery request, and the error a threshold monitor passes to its error callback for a failed request, have the request URL's query and user info removed.
+Records carry method, URL path, host, counts, durations, state names and errors. They never carry credentials, and the records the client writes itself carry no request or response bodies or URL query strings. An error value is logged as returned to the caller, so it can still quote part of a redirect `Location` header or the API versions a zone discovery response advertised (see the `WithLogger` doc). The error `NewClient` returns for a failed zone discovery request, and the error a threshold monitor passes to its error callback for a failed request, have the request URL's query and user info removed.
 
 ## Raw operations
 

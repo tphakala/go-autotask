@@ -37,8 +37,8 @@ func WithMaxResponseBytes(n int64) ClientOption {
 // The client logs these events, every message starting with "autotask: ":
 //   - Warn: the circuit breaker changed state (closed, open, half-open).
 //   - Warn: the server answered 429 with a Retry-After header.
-//   - Info: a request waited for that Retry-After period.
-//   - Debug: a request waited for a rate limit token, or for the adaptive delay.
+//   - Info: a request starts waiting for that Retry-After period.
+//   - Debug: a request waited for a rate limit token, or starts the adaptive delay.
 //   - Warn: API usage reached the warning (75%) or critical (90%) level, on
 //     every check at or above it, and a threshold check failed.
 //   - Info: zone discovery found the zone. Warn: it failed.
@@ -53,12 +53,12 @@ func WithMaxResponseBytes(n int64) ClientOption {
 // logged. The TLS records need the default HTTP client, not one set with
 // WithHTTPClient.
 //
-// A record carries method, URL path, host, counts, durations, state
-// names and error values. It never carries credentials, request or
-// response bodies, or a URL query string. Error values are logged as returned
-// to the caller, so two cases are not redacted: a Location header that does not
-// parse, which net/http copies into the error of a redirect, and the list of
-// API versions a zone discovery response advertised.
+// A record carries method, URL path, host, counts, durations, state names and
+// error values. It never carries credentials, request or response bodies, or a
+// URL query string, except inside an error value. Error values are logged as
+// returned to the caller, so these are not redacted: a Location header that
+// does not parse, which net/http copies into the error of a redirect, and the
+// list of API versions a zone discovery response advertised.
 func WithLogger(l *slog.Logger) ClientOption {
 	return func(c *Client) {
 		if l != nil {
