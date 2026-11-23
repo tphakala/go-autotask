@@ -934,26 +934,29 @@ func (gadget) EntityName() string      { return "Gadgets" }
 func (gadget) ChildEntityName() string { return "Items" }
 func (gadget) ChildParentName() string { return "Widgets" }
 
-// gizmo has a ChildParentName but no ChildEntityName, so its child segment is
-// its entity name: /v1.0/Widgets/{id}/Gizmos.
-type gizmo struct {
+// noteLike has a ChildParentName but no ChildEntityName, so its child segment is
+// its entity name, "Notes", which is also the child segment of TicketNote:
+// /v1.0/Tickets/{id}/Notes.
+type noteLike struct {
 	ID autotask.Optional[int64] `json:"id,omitzero"`
 }
 
-func (gizmo) EntityName() string      { return "Gizmos" }
-func (gizmo) ChildParentName() string { return "Widgets" }
+func (noteLike) EntityName() string      { return "Notes" }
+func (noteLike) ChildParentName() string { return "Tickets" }
 
 // TestWithChildEntityRoutesChildParentName pins that WithChildEntity keys its
 // route on the same parent segment the typed child calls send: ChildParentName
 // when the child type has one, with the child segment from ChildEntityName or
 // else the entity name. Keyed on the parent's EntityName instead, the request
 // /Widgets/42/Items would derive the store WidgetItems, find none and answer an
-// empty list.
+// empty list, and /Tickets/42/Notes would derive TicketNotes, a known entity
+// type without a store, and answer an empty list too.
 func TestWithChildEntityRoutesChildParentName(t *testing.T) {
 	tests := []struct {
 		name    string
 		option  ServerOption
 		list    func(ctx context.Context, c *autotask.Client, parent int64) (int, error)
+		parent  string
 		segment string
 	}{
 		{
@@ -963,16 +966,18 @@ func TestWithChildEntityRoutesChildParentName(t *testing.T) {
 				items, err := autotask.ListChild[widgetReport, gadget](ctx, c, parent)
 				return len(items), err
 			},
+			parent:  "Widgets",
 			segment: "Items",
 		},
 		{
 			name:   "ChildParentName only",
-			option: WithChildEntity[widgetReport](42, gizmo{ID: autotask.Set(int64(5))}),
+			option: WithChildEntity[widgetReport](42, noteLike{ID: autotask.Set(int64(5))}),
 			list: func(ctx context.Context, c *autotask.Client, parent int64) (int, error) {
-				items, err := autotask.ListChild[widgetReport, gizmo](ctx, c, parent)
+				items, err := autotask.ListChild[widgetReport, noteLike](ctx, c, parent)
 				return len(items), err
 			},
-			segment: "Gizmos",
+			parent:  "Tickets",
+			segment: "Notes",
 		},
 	}
 	for _, tt := range tests {
@@ -987,12 +992,12 @@ func TestWithChildEntityRoutesChildParentName(t *testing.T) {
 				if got != want {
 					t.Errorf("typed items under parent %d = %d, want %d", parent, got, want)
 				}
-				raw, err := autotask.ListChildRaw(ctx, client, "Widgets", parent, tt.segment)
+				raw, err := autotask.ListChildRaw(ctx, client, tt.parent, parent, tt.segment)
 				if err != nil {
 					t.Fatal(err)
 				}
 				if len(raw) != want {
-					t.Errorf("raw items under /Widgets/%d/%s = %d, want %d", parent, tt.segment, len(raw), want)
+					t.Errorf("raw items under /%s/%d/%s = %d, want %d", tt.parent, parent, tt.segment, len(raw), want)
 				}
 			}
 		})
