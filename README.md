@@ -437,7 +437,7 @@ The `entities` package ships type-safe structs, some generated with `autotask-ge
 
 `BillingCode`, `BillingItem`, `BillingItemApprovalLevel`, `ChangeRequestLink`, `Company`, `CompanyNote`, `ConfigurationItem`, `Contact`, `Contract`, `Department`, `ExpenseItem`, `ExpenseReport`, `Invoice`, `Opportunity`, `Product`, `Project`, `ProjectNote`, `Quote`, `QuoteItem`, `Resource`, `Service`, `ServiceBundle`, `Task`, `Ticket`, `TicketAttachment`, `TicketNote`, `TicketNoteAttachment`, `TimeEntry`
 
-All entities use `Optional[T]` fields, and all except `ChangeRequestLink` (Autotask gives it none) support user-defined fields via `UserDefinedFields []autotask.UDF`. For an entity not listed here, use the raw (`map[string]any`) API or generate a struct with `autotask-gen`.
+All entities use `Optional[T]` fields, and all except `ChangeRequestLink` and `TicketNoteAttachment` (Autotask gives them none) support user-defined fields via `UserDefinedFields []autotask.UDF`. For an entity not listed here, use the raw (`map[string]any`) API or generate a struct with `autotask-gen`.
 
 ## Error handling
 
