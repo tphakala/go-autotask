@@ -294,3 +294,28 @@ func TestNilLoggerOptionsKeepEarlierLogger(t *testing.T) {
 		}
 	})
 }
+
+// TestThresholdMonitorRequestCreationErrorHidesUserInfo pins the redaction on the
+// path where the request cannot be built: the base URL is a caller-supplied
+// string, and url.Parse quotes ":pw" of this one in its error.
+func TestThresholdMonitorRequestCreationErrorHidesUserInfo(t *testing.T) {
+	rec := logtest.New()
+	var cbErr atomic.Pointer[error]
+	m := NewThresholdMonitor(&http.Client{}, "http://user:pw/x@host", AuthHeaders{},
+		WithThresholdMonitorLogger(rec.Logger()), WithErrorCallback(func(err error) { cbErr.Store(&err) }))
+	m.check(t.Context())
+
+	recs := rec.Records()
+	if len(recs) != 1 || recs[0].Message != failedMsg {
+		t.Fatalf("records = %v; want one %q", recs, failedMsg)
+	}
+	ce := cbErr.Load()
+	if ce == nil {
+		t.Fatal("the error callback must run")
+	}
+	for _, text := range []string{recs[0].Text, (*ce).Error()} {
+		if strings.Contains(text, "pw") || strings.Contains(text, "user") {
+			t.Errorf("user info reached %q", text)
+		}
+	}
+}
