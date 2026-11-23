@@ -1,7 +1,9 @@
 package autotask_test
 
 import (
+	"context"
 	"fmt"
+	"iter"
 	"net/http"
 	"strings"
 	"testing"
@@ -202,5 +204,42 @@ func TestQuoteItemAndExpenseItemChildRoutes(t *testing.T) {
 	assertLastRequest(t, srv, http.MethodGet, "/v1.0/Expenses/7/Items")
 	if len(listed) != 1 {
 		t.Fatalf("expense items under report 7 = %d, want the 1 created through the child URL", len(listed))
+	}
+}
+
+// TestListChildRawIterOfResolvesSegmentsFromTypes pins that the typed raw child
+// iterator builds the same URL as the typed child calls, including a child
+// whose parent segment differs from its parent type's EntityName.
+func TestListChildRawIterOfResolvesSegmentsFromTypes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		list     func(context.Context, *autotask.Client) iter.Seq2[map[string]any, error]
+		wantPath string
+	}{
+		{"ticket notes", func(ctx context.Context, c *autotask.Client) iter.Seq2[map[string]any, error] {
+			return autotask.ListChildRawIterOf[entities.Ticket, entities.TicketNote](ctx, c, 42)
+		}, "/v1.0/Tickets/42/Notes"},
+		{"ticket attachments", func(ctx context.Context, c *autotask.Client) iter.Seq2[map[string]any, error] {
+			return autotask.ListChildRawIterOf[entities.Ticket, entities.TicketAttachment](ctx, c, 42)
+		}, "/v1.0/Tickets/42/Attachments"},
+		{"expense items", func(ctx context.Context, c *autotask.Client) iter.Seq2[map[string]any, error] {
+			return autotask.ListChildRawIterOf[entities.ExpenseReport, entities.ExpenseItem](ctx, c, 7)
+		}, "/v1.0/Expenses/7/Items"},
+		{"quote items", func(ctx context.Context, c *autotask.Client) iter.Seq2[map[string]any, error] {
+			return autotask.ListChildRawIterOf[entities.Quote, entities.QuoteItem](ctx, c, 101)
+		}, "/v1.0/Quotes/101/Items"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv, client := autotasktest.NewServer(t)
+			for _, err := range tt.list(t.Context(), client) {
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			assertLastRequest(t, srv, http.MethodGet, tt.wantPath)
+		})
 	}
 }

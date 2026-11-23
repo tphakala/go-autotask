@@ -104,15 +104,32 @@ func ListChildIter[P Entity, C Entity](ctx context.Context, c *Client, parentID 
 // parent with lazy pagination. Ranging stops fetching further pages as soon as
 // the caller breaks, so a caller that needs only the first few items does not
 // pull every page up to maxPages (including large blob fields such as an
-// attachment's data). It is the untyped counterpart of ListChildIter.
+// attachment's data). It is the untyped counterpart of ListChildIter. When the
+// entity types are known, ListChildRawIterOf resolves both URL segments from
+// them instead of taking them as strings.
 func ListChildRawIter(ctx context.Context, c *Client, parentEntityName string, parentID int64, childEntityName string) iter.Seq2[map[string]any, error] {
+	return listChildRawPath(ctx, c, childPath(parentEntityName, parentID, childEntityName), childEntityName)
+}
+
+// ListChildRawIterOf is ListChildRawIter with the URL built from the entity
+// types, as for ListChildIter: the parent segment is C's ChildParentName or
+// P's EntityName, and the child segment is C's ChildEntityName or EntityName.
+// Items are still yielded as untyped maps, for a caller that needs the raw
+// fields (for example to rewrite a field before decoding).
+func ListChildRawIterOf[P Entity, C Entity](ctx context.Context, c *Client, parentID int64) iter.Seq2[map[string]any, error] {
+	var child C
+	return listChildRawPath(ctx, c, typedChildPath[P](parentID, child), child.EntityName())
+}
+
+// listChildRawPath pages through the untyped child collection at path.
+// maxPagesName names the collection in a MaxPagesExceededError.
+func listChildRawPath(ctx context.Context, c *Client, path, maxPagesName string) iter.Seq2[map[string]any, error] {
 	return func(yield func(map[string]any, error) bool) {
-		path := childPath(parentEntityName, parentID, childEntityName)
 		pages := 0
 		for {
 			pages++
 			if pages > maxPages {
-				yield(nil, &MaxPagesExceededError{EntityName: childEntityName, MaxPages: maxPages})
+				yield(nil, &MaxPagesExceededError{EntityName: maxPagesName, MaxPages: maxPages})
 				return
 			}
 			nextPath, shouldContinue := fetchAndYieldRawPage(ctx, c, http.MethodGet, path, nil, yield)
