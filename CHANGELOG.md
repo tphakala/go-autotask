@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`ChildParentEntity`** (#52): an optional interface for a child entity whose child URLs name the parent collection with a segment other than the parent's `EntityName`. When the child type implements `ChildParentName() string`, `GetChild`, `ListChild`, `ListChildIter`, `CreateChild`, `UpdateChild` and `DeleteChild` use it in place of the parent type's `EntityName`, whichever parent type is passed, as `ChildEntityName` applies for any parent. `entities.ExpenseItem` implements it with `Expenses`.
+- **`ChildParentEntity`** (#52): an optional interface for a child entity whose child URLs name the parent collection with a segment other than the parent's `EntityName`. The typed child calls use its `ChildParentName() string` in place of the parent type's `EntityName`. `entities.ExpenseItem` implements it with `Expenses`.
 
 ### Changed
 

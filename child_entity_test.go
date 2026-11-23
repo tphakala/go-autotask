@@ -152,6 +152,16 @@ func TestChildTicketNoteAttachment(t *testing.T) {
 	}
 }
 
+// assertLastRequest checks that the last request the mock saw had the exact
+// method and path.
+func assertLastRequest(t *testing.T, srv *autotasktest.TestServer, wantMethod, wantPath string) {
+	t.Helper()
+	req := srv.LastRequest()
+	if req.Method != wantMethod || req.Path != wantPath {
+		t.Fatalf("request = %s %s, want %s %s", req.Method, req.Path, wantMethod, wantPath)
+	}
+}
+
 // TestQuoteItemAndExpenseItemChildRoutes pins the child URLs of the two item
 // entities the REST swagger serves under a shorter parent and child segment
 // than their root entity names: QuoteItem under /Quotes/{id}/Items and
@@ -161,72 +171,35 @@ func TestQuoteItemAndExpenseItemChildRoutes(t *testing.T) {
 	srv, client := autotasktest.NewServer(t, autotasktest.WithDeleteSupport("QuoteItems"))
 	ctx := t.Context()
 
-	var quoteItemID int64
-	tests := []struct {
-		name     string
-		call     func() error
-		wantMeth string
-		wantPath func() string
-	}{
-		{
-			name: "CreateChild[Quote]",
-			call: func() error {
-				item := entities.QuoteItem{Quantity: autotask.Set(2.0)}
-				if _, err := autotask.CreateChild[entities.Quote](ctx, client, 101, &item); err != nil {
-					return err
-				}
-				quoteItemID, _ = item.ID.Get()
-				return nil
-			},
-			wantMeth: http.MethodPost,
-			wantPath: func() string { return "/v1.0/Quotes/101/Items" },
-		},
-		{
-			name: "UpdateChild[Quote]",
-			call: func() error {
-				_, err := autotask.UpdateChild[entities.Quote](ctx, client, 101,
-					&entities.QuoteItem{ID: autotask.Set(quoteItemID), Quantity: autotask.Set(3.0)})
-				return err
-			},
-			wantMeth: http.MethodPatch,
-			wantPath: func() string { return "/v1.0/Quotes/101/Items" },
-		},
-		{
-			name: "DeleteChild[Quote, QuoteItem]",
-			call: func() error {
-				return autotask.DeleteChild[entities.Quote, entities.QuoteItem](ctx, client, 101, quoteItemID)
-			},
-			wantMeth: http.MethodDelete,
-			wantPath: func() string { return fmt.Sprintf("/v1.0/Quotes/101/Items/%d", quoteItemID) },
-		},
-		{
-			name: "CreateChild[ExpenseReport]",
-			call: func() error {
-				item := entities.ExpenseItem{Description: autotask.Set("taxi")}
-				_, err := autotask.CreateChild[entities.ExpenseReport](ctx, client, 7, &item)
-				return err
-			},
-			wantMeth: http.MethodPost,
-			wantPath: func() string { return "/v1.0/Expenses/7/Items" },
-		},
+	quoteItem := entities.QuoteItem{Quantity: autotask.Set(2.0)}
+	if _, err := autotask.CreateChild[entities.Quote](ctx, client, 101, &quoteItem); err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		if err := tt.call(); err != nil {
-			t.Fatalf("%s: %v", tt.name, err)
-		}
-		req := srv.LastRequest()
-		if want := tt.wantPath(); req.Method != tt.wantMeth || req.Path != want {
-			t.Errorf("%s sent %s %s, want %s %s", tt.name, req.Method, req.Path, tt.wantMeth, want)
-		}
+	assertLastRequest(t, srv, http.MethodPost, "/v1.0/Quotes/101/Items")
+	quoteItemID, _ := quoteItem.ID.Get()
+
+	quoteItem.Quantity = autotask.Set(3.0)
+	if _, err := autotask.UpdateChild[entities.Quote](ctx, client, 101, &quoteItem); err != nil {
+		t.Fatal(err)
 	}
+	assertLastRequest(t, srv, http.MethodPatch, "/v1.0/Quotes/101/Items")
+
+	if err := autotask.DeleteChild[entities.Quote, entities.QuoteItem](ctx, client, 101, quoteItemID); err != nil {
+		t.Fatal(err)
+	}
+	assertLastRequest(t, srv, http.MethodDelete, fmt.Sprintf("/v1.0/Quotes/101/Items/%d", quoteItemID))
+
+	expenseItem := entities.ExpenseItem{Description: autotask.Set("taxi")}
+	if _, err := autotask.CreateChild[entities.ExpenseReport](ctx, client, 7, &expenseItem); err != nil {
+		t.Fatal(err)
+	}
+	assertLastRequest(t, srv, http.MethodPost, "/v1.0/Expenses/7/Items")
 
 	listed, err := autotask.ListChild[entities.ExpenseReport, entities.ExpenseItem](ctx, client, 7)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if req := srv.LastRequest(); req.Method != http.MethodGet || req.Path != "/v1.0/Expenses/7/Items" {
-		t.Errorf("ListChild sent %s %s, want GET /v1.0/Expenses/7/Items", req.Method, req.Path)
-	}
+	assertLastRequest(t, srv, http.MethodGet, "/v1.0/Expenses/7/Items")
 	if len(listed) != 1 {
 		t.Fatalf("expense items under report 7 = %d, want the 1 created through the child URL", len(listed))
 	}
