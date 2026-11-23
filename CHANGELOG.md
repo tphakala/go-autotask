@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A `WithPageSize` of 0 or less puts every item on one page** in list and query responses.
 - **`WithEntity` no longer registers the type's child segment as a store name.** Before, the last type seeded for a segment answered every child URL with that segment, whichever type the URL belonged to. A test that relied on this for a type whose entity name is neither `singular(parent)+segment` nor the segment needs `WithChildEntity`.
 - **`entities.Contact` has every field of the entity metadata**, in metadata order, so an unkeyed struct literal needs updating. Contact writes go through the company: `CreateChild[Company]`, `UpdateChild[Company]` and `DeleteChild[Company, Contact]`; `Create`, `Update` and `Delete` send root URLs the REST swagger does not list for Contacts.
-- **`entities.Resource` has every field of the entity metadata**, in metadata order, so an unkeyed struct literal needs updating. The API has no create or delete for resources, so only `Update` applies. `HireDate`, `LicenseType`, `LocationID` and `UserType` are read-only.
+- **`entities.Resource` has every field of the entity metadata**, in metadata order, so an unkeyed struct literal needs updating. The API has no create or delete for resources, so only `Update` applies. `DateFormat`, `HireDate`, `InternalCost`, `LicenseType`, `LocationID`, `SurveyResourceRating`, `TimeFormat` and `UserType` are read-only.
 
 ### Fixed
 

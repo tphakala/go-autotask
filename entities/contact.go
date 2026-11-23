@@ -20,8 +20,10 @@ import (
 // to the id of the parent company; it cannot change afterwards. Whether the API
 // needs it in the body when the URL names the company has not been checked
 // against a live tenant. IsActive is an integer, 1 for active and 0 for
-// inactive, unlike Resource.IsActive. SolicitationOptOut, SurveyOptOut and the
-// timestamps are read-only.
+// inactive, unlike Resource.IsActive. Per the field metadata, the other
+// read-only fields are ApiVendorID, BulkEmailOptOutTime, CreateDate,
+// ImpersonatorCreatorResourceID, LastActivityDate, LastModifiedDate,
+// SolicitationOptOut, SolicitationOptOutTime and SurveyOptOut.
 //
 // The fields ApiVendorID, NamePrefix, NameSuffix take a value of the field's
 // picklist; list the values with metadata.GetPickList.

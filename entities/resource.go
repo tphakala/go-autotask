@@ -13,9 +13,10 @@ import (
 // delete at the root, and the entity information reports canCreate and
 // canDelete as false. Users are added in Autotask, not through the API. To
 // deactivate a user, update it with IsActive false (not checked against a live
-// tenant). HireDate, LicenseType, LocationID and UserType are read-only per the
-// field metadata, and Update sends every field that is set, so to change a few
-// fields send a value that carries ID and only those fields.
+// tenant). DateFormat, HireDate, InternalCost, LicenseType, LocationID,
+// SurveyResourceRating, TimeFormat and UserType are read-only per the field
+// metadata, and Update sends every field that is set, so to change a few fields
+// send a value that carries ID and only those fields.
 //
 // Its child entities are reached through the parent URL with the child calls:
 // ResourceRoleDepartment, ResourceRoleQueue and ResourceServiceDeskRole
