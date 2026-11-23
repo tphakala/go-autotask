@@ -1,3 +1,4 @@
+//nolint:dupl // the two note attachment entities share most of their field list
 package entities
 
 import (
