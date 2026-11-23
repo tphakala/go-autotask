@@ -350,11 +350,7 @@ func WithZoneInfo(name, url string) ServerOption {
 // WithRequiredFields sets the required fields for entity creation validation.
 func WithRequiredFields(entityName string, fields ...string) ServerOption {
 	return func(ts *TestServer) {
-		store, ok := ts.entities[entityName]
-		if !ok {
-			store = newEntityStore(entityName)
-			ts.entities[entityName] = store
-		}
+		store := ts.ensureStore(entityName)
 		store.requiredFields = fields
 	}
 }
@@ -362,11 +358,7 @@ func WithRequiredFields(entityName string, fields ...string) ServerOption {
 // WithDeleteSupport marks an entity type as supporting DELETE.
 func WithDeleteSupport(entityName string) ServerOption {
 	return func(ts *TestServer) {
-		store, ok := ts.entities[entityName]
-		if !ok {
-			store = newEntityStore(entityName)
-			ts.entities[entityName] = store
-		}
+		store := ts.ensureStore(entityName)
 		store.canDelete = true
 	}
 }
