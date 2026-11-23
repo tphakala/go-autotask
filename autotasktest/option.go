@@ -230,15 +230,23 @@ func WithEntity[T autotask.Entity](items ...T) ServerOption {
 // includes them while a list under another parent does not.
 //
 // A child URL /v1.0/{Parent}/{id}/{Segment} resolves to a store in this order:
-// the route a WithChildEntity registered for that parent and segment, the store
-// named singular(Parent)+Segment (Tickets and Attachments give
-// TicketAttachments), then the store named Segment. A create under an unknown
-// child URL makes the store singular(Parent)+Segment, so a child type whose
-// entity name is not singular(Parent)+Segment (Task under Projects) reads back
-// through Get, List and Count only when it is registered here, or seeded with
-// WithEntity when its entity name is the segment. WithChildEntity is needed to
-// seed children under a parent, and for such a type. Registering the same parent and segment for two
-// different entity types fails the test.
+// the route a WithChildEntity registered for that parent and segment, else the
+// store named singular(Parent)+Segment (Tickets and Attachments give
+// TicketAttachments). For a type in package entities, that name or the segment
+// is then chosen by entity name alone: when singular(Parent)+Segment is the
+// entity name of such a type, a create makes that store, and the store named
+// Segment is not used; when only Segment is (Contact under Companies, Task under
+// Projects), a create makes the store named Segment. So these types read back
+// through Get, List and Count, unless a store named singular(Parent)+Segment
+// already exists. The mock sees only the URL, so a type from outside this module
+// on a URL that names a type in package entities this way goes to that type's
+// store, and needs WithChildEntity. On any other URL it resolves to an existing
+// store named Segment if there is one, else a create makes
+// singular(Parent)+Segment. Such a type whose entity name is the segment reads
+// back once its store exists (a WithEntity seed creates it); one whose entity
+// name is neither name needs WithChildEntity. WithChildEntity is also needed to
+// seed children under a parent. Registering the same parent
+// and segment for two different entity types fails the test.
 func WithChildEntity[P autotask.Entity, C autotask.Entity](parentID int64, items ...C) ServerOption {
 	return func(ts *TestServer) {
 		var parent P
