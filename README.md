@@ -435,7 +435,7 @@ With `WithZoneInfo`, `NewClient` sends no zone discovery request, uses `zone.URL
 
 The `entities` package ships type-safe structs, some generated with `autotask-gen` and some hand-written, for:
 
-`BillingCode`, `BillingItem`, `BillingItemApprovalLevel`, `ChangeRequestLink`, `Company`, `CompanyNote`, `ConfigurationItem`, `Contact`, `Contract`, `Department`, `ExpenseItem`, `ExpenseReport`, `Invoice`, `Opportunity`, `Product`, `Project`, `ProjectNote`, `Quote`, `QuoteItem`, `Resource`, `Service`, `ServiceBundle`, `Task`, `Ticket`, `TicketAttachment`, `TicketNote`, `TimeEntry`
+`BillingCode`, `BillingItem`, `BillingItemApprovalLevel`, `ChangeRequestLink`, `Company`, `CompanyNote`, `ConfigurationItem`, `Contact`, `Contract`, `Department`, `ExpenseItem`, `ExpenseReport`, `Invoice`, `Opportunity`, `Product`, `Project`, `ProjectNote`, `Quote`, `QuoteItem`, `Resource`, `Service`, `ServiceBundle`, `Task`, `Ticket`, `TicketAttachment`, `TicketNote`, `TicketNoteAttachment`, `TimeEntry`
 
 All entities use `Optional[T]` fields, and all except `ChangeRequestLink` (Autotask gives it none) support user-defined fields via `UserDefinedFields []autotask.UDF`. For an entity not listed here, use the raw (`map[string]any`) API or generate a struct with `autotask-gen`.
 
