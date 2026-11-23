@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`ListChildRawIterOf[P, C]`**: an untyped child iterator that builds its URL from the entity types, as `ListChildIter` does (parent segment from `ChildParentName` or the parent's `EntityName`, child segment from `ChildEntityName` or `EntityName`), so a caller that needs the raw maps no longer passes segment strings that can name a route the API does not serve.
 - **`ChildParentEntity`** (#52): an optional interface for a child entity whose child URLs name the parent collection with a segment other than the parent's `EntityName`. The typed child calls use its `ChildParentName() string` in place of the parent type's `EntityName`. `entities.ExpenseItem` implements it with `Expenses`.
 
 ### Changed

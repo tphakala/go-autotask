@@ -1,7 +1,10 @@
 package autotask_test
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"iter"
 	"net/http"
 	"strings"
 	"testing"
@@ -202,5 +205,72 @@ func TestQuoteItemAndExpenseItemChildRoutes(t *testing.T) {
 	assertLastRequest(t, srv, http.MethodGet, "/v1.0/Expenses/7/Items")
 	if len(listed) != 1 {
 		t.Fatalf("expense items under report 7 = %d, want the 1 created through the child URL", len(listed))
+	}
+}
+
+// TestListChildRawIterOfResolvesSegmentsFromTypes pins that the typed raw child
+// iterator builds the same URL as the typed child calls, including a child
+// whose parent segment differs from its parent type's EntityName.
+func TestListChildRawIterOfResolvesSegmentsFromTypes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		list     func(context.Context, *autotask.Client) iter.Seq2[map[string]any, error]
+		wantPath string
+	}{
+		{"ticket notes", func(ctx context.Context, c *autotask.Client) iter.Seq2[map[string]any, error] {
+			return autotask.ListChildRawIterOf[entities.Ticket, entities.TicketNote](ctx, c, 42)
+		}, "/v1.0/Tickets/42/Notes"},
+		{"ticket attachments", func(ctx context.Context, c *autotask.Client) iter.Seq2[map[string]any, error] {
+			return autotask.ListChildRawIterOf[entities.Ticket, entities.TicketAttachment](ctx, c, 42)
+		}, "/v1.0/Tickets/42/Attachments"},
+		{"expense items", func(ctx context.Context, c *autotask.Client) iter.Seq2[map[string]any, error] {
+			return autotask.ListChildRawIterOf[entities.ExpenseReport, entities.ExpenseItem](ctx, c, 7)
+		}, "/v1.0/Expenses/7/Items"},
+		{"quote items", func(ctx context.Context, c *autotask.Client) iter.Seq2[map[string]any, error] {
+			return autotask.ListChildRawIterOf[entities.Quote, entities.QuoteItem](ctx, c, 101)
+		}, "/v1.0/Quotes/101/Items"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv, client := autotasktest.NewServer(t)
+			for _, err := range tt.list(t.Context(), client) {
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			assertLastRequest(t, srv, http.MethodGet, tt.wantPath)
+		})
+	}
+}
+
+// TestListChildRawIterOfMaxPagesGuard pins the page cap of the typed raw child
+// iterator and the entity name its error carries. The mock stops linking the
+// next page after a few pages past the cap, so the loop ends if the cap is
+// ever removed and the test fails on the missing error.
+func TestListChildRawIterOfMaxPagesGuard(t *testing.T) {
+	t.Parallel()
+	page := `{"items":[{"id":1}],"pageDetails":{"count":1,"nextPageUrl":"/v1.0/Tickets/42/Notes?page=next"}}`
+	_, client := autotasktest.NewServer(t,
+		autotasktest.WithResponseOn(http.MethodGet, "/Tickets/42/Notes", http.StatusOK, "application/json", page, autotasktest.Times(1005)))
+
+	var gotError bool
+	for _, err := range autotask.ListChildRawIterOf[entities.Ticket, entities.TicketNote](t.Context(), client, 42) {
+		if err == nil {
+			continue
+		}
+		maxErr, ok := errors.AsType[*autotask.MaxPagesExceededError](err)
+		if !ok {
+			t.Fatalf("expected MaxPagesExceededError, got: %v", err)
+		}
+		if maxErr.EntityName != "TicketNotes" {
+			t.Errorf("MaxPagesExceededError.EntityName = %q, want TicketNotes", maxErr.EntityName)
+		}
+		gotError = true
+		break
+	}
+	if !gotError {
+		t.Fatal("expected MaxPagesExceededError from iterator")
 	}
 }

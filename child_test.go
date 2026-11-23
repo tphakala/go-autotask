@@ -603,6 +603,43 @@ func TestListChildRawIterErrorOnSecondPage(t *testing.T) {
 	}
 }
 
+// TestListChildRawIterRangesTwice pins that each range over one iterator value
+// starts again at the first page, as the other list iterators do.
+func TestListChildRawIterRangesTwice(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1.0/Tickets/42/TicketNotes", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page") == "2" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items":       []any{map[string]any{"id": 12}},
+				"pageDetails": map[string]any{"count": 1},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items":       []any{map[string]any{"id": 10}, map[string]any{"id": 11}},
+			"pageDetails": map[string]any{"count": 2, "nextPageUrl": "/v1.0/Tickets/42/TicketNotes?page=2"},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := testClient(t, srv)
+
+	seq := ListChildRawIter(t.Context(), client, "Tickets", 42, "TicketNotes")
+	for run := 1; run <= 2; run++ {
+		var ids []float64
+		for item, err := range seq {
+			if err != nil {
+				t.Fatal(err)
+			}
+			id, _ := item["id"].(float64)
+			ids = append(ids, id)
+		}
+		if len(ids) != 3 || ids[0] != 10 {
+			t.Fatalf("range %d yielded ids %v; want [10 11 12]", run, ids)
+		}
+	}
+}
+
 func TestListChildRawIterMaxPagesGuard(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1.0/Tickets/42/TicketNotes", func(w http.ResponseWriter, r *http.Request) {
@@ -616,13 +653,18 @@ func TestListChildRawIterMaxPagesGuard(t *testing.T) {
 	client := testClient(t, srv)
 	var gotError bool
 	for _, err := range ListChildRawIter(t.Context(), client, "Tickets", 42, "TicketNotes") {
-		if err != nil {
-			if _, ok := errors.AsType[*MaxPagesExceededError](err); !ok {
-				t.Fatalf("expected MaxPagesExceededError, got: %v", err)
-			}
-			gotError = true
-			break
+		if err == nil {
+			continue
 		}
+		maxErr, ok := errors.AsType[*MaxPagesExceededError](err)
+		if !ok {
+			t.Fatalf("expected MaxPagesExceededError, got: %v", err)
+		}
+		if maxErr.EntityName != "TicketNotes" {
+			t.Errorf("MaxPagesExceededError.EntityName = %q, want the child segment TicketNotes", maxErr.EntityName)
+		}
+		gotError = true
+		break
 	}
 	if !gotError {
 		t.Fatal("expected MaxPagesExceededError from iterator")

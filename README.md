@@ -147,6 +147,8 @@ For large result sets, the `*Iter` functions return Go iterators (`iter.Seq2`) t
 | `ListRaw` | `ListRawIter` | untyped (`map[string]any`), top-level |
 | `ListChildRaw` | `ListChildRawIter` | untyped (`map[string]any`), child of a parent |
 
+`ListChildRawIterOf[P, C]` yields untyped maps like `ListChildRawIter` but builds the URL from the entity types, the same way `ListChildIter` does, so the caller passes no segment strings: `ListChildRawIterOf[entities.Ticket, entities.TicketNote](ctx, client, ticketID)` reads `/v1.0/Tickets/{id}/Notes`.
+
 ```go
 for ticket, err := range autotask.ListIter[entities.Ticket](ctx, client, autotask.NewQuery()) {
     if err != nil {
@@ -157,7 +159,7 @@ for ticket, err := range autotask.ListIter[entities.Ticket](ctx, client, autotas
 }
 ```
 
-The untyped iterators take entity names as strings and yield `map[string]any`, which is handy for entities without a generated Go type:
+`ListRawIter` and `ListChildRawIter` take entity names as strings and yield `map[string]any`, which is handy for entities without a generated Go type:
 
 ```go
 for item, err := range autotask.ListRawIter(ctx, client, "Tickets", autotask.NewQuery()) {
