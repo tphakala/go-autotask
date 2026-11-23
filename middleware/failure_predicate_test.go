@@ -571,7 +571,7 @@ func TestBreakerIgnoresLimiterWaits(t *testing.T) {
 			},
 		},
 		{
-			name: "rate token", limiter: "rate", deadline: time.Second,
+			name: "rate token", limiter: "rate", deadline: 10 * time.Minute,
 			build: func(t *testing.T) *CircuitBreaker {
 				t.Helper()
 				cb := NewCircuitBreaker(
@@ -596,7 +596,7 @@ func TestBreakerIgnoresLimiterWaits(t *testing.T) {
 			},
 		},
 		{
-			name: "adaptive delay", limiter: "rate", deadline: 20 * time.Millisecond, wantDeadline: true,
+			name: "adaptive delay", limiter: "rate", deadline: 100 * time.Millisecond, wantDeadline: true,
 			build: func(t *testing.T) *CircuitBreaker {
 				t.Helper()
 				cb := NewCircuitBreaker(
@@ -634,5 +634,73 @@ func TestBreakerIgnoresLimiterWaits(t *testing.T) {
 				t.Fatalf("state = %s; want closed, a limiter wait is not a breaker failure", cb.State())
 			}
 		})
+	}
+}
+
+// TestBreakerCountsTransportErrorsBehindLimiters pins that an error from the
+// transport, including a deadline that expired in flight, is not wrapped as a
+// limiter wait and still opens the circuit.
+func TestBreakerCountsTransportErrorsBehindLimiters(t *testing.T) {
+	t.Parallel()
+	limiters := map[string]func(http.RoundTripper) http.RoundTripper{
+		"concurrency": func(next http.RoundTripper) http.RoundTripper { return NewConcurrencyLimiter(next, 1) },
+		"rate":        func(next http.RoundTripper) http.RoundTripper { return NewRateLimiter(next) },
+	}
+	transportErrs := map[string]error{
+		"transport error":   errors.New("connection reset"),
+		"deadline exceeded": context.DeadlineExceeded,
+	}
+	for limiter, wrap := range limiters {
+		for name, transportErr := range transportErrs {
+			t.Run(limiter+"/"+name, func(t *testing.T) {
+				t.Parallel()
+				inner := roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, transportErr })
+				cb := NewCircuitBreaker(wrap(inner), WithFailureThreshold(1))
+				resp, err := do(t, cb)
+				drain(t, resp)
+				if !errors.Is(err, transportErr) {
+					t.Fatalf("error = %v; want the transport error", err)
+				}
+				if _, isWait := errors.AsType[*LimiterWaitError](err); isWait {
+					t.Fatalf("error = %v; a transport error must not be a *LimiterWaitError", err)
+				}
+				if cb.State() != StateOpen {
+					t.Fatalf("state = %s; want open, a transport error is a breaker failure", cb.State())
+				}
+			})
+		}
+	}
+}
+
+// TestBreakerLimiterWaitIsNeitherFailureNorProbeSuccess ends a limiter wait
+// while the breaker is half-open. The circuit must stay half-open: reopening
+// would count the wait as a failure and closing would count it as a success.
+func TestBreakerLimiterWaitIsNeitherFailureNorProbeSuccess(t *testing.T) {
+	t.Parallel()
+	tooMany := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		resp := respWith(429, "", "")
+		resp.Header.Set("Retry-After", "3600")
+		return resp, nil
+	})
+	cb := NewCircuitBreaker(NewRateLimiter(tooMany),
+		WithFailureThreshold(1), WithOpenTimeout(5*time.Millisecond), WithSuccessThreshold(1))
+	resp, err := do(t, cb)
+	if err != nil {
+		t.Fatalf("opening request: %v", err)
+	}
+	drain(t, resp)
+	time.Sleep(15 * time.Millisecond)
+	if cb.State() != StateHalfOpen {
+		t.Fatalf("state = %s; want half-open", cb.State())
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	resp, err = cb.RoundTrip(newReq(t).WithContext(ctx))
+	drain(t, resp)
+	if _, isWait := errors.AsType[*LimiterWaitError](err); !isWait {
+		t.Fatalf("error = %v (%T); want *LimiterWaitError from the Retry-After wait", err, err)
+	}
+	if cb.State() != StateHalfOpen {
+		t.Fatalf("state = %s; want half-open after a limiter wait", cb.State())
 	}
 }

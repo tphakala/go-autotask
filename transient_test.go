@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	neturl "net/url"
 	"strings"
 	"testing"
 	"time"
@@ -324,5 +325,35 @@ func TestIsTransientMissingItems(t *testing.T) {
 	}
 	if !autotask.IsTransient(err) {
 		t.Fatal("a list page without items should be transient")
+	}
+}
+
+// TestLimiterWaitErrorKeepsErrorSemantics pins that wrapping an error in a
+// *middleware.LimiterWaitError changes none of the answers callers get from
+// errors.Is, IsTransient and (*url.Error).Timeout.
+func TestLimiterWaitErrorKeepsErrorSemantics(t *testing.T) {
+	t.Parallel()
+	errs := map[string]error{
+		"canceled":          context.Canceled,
+		"deadline exceeded": context.DeadlineExceeded,
+		"rate deadline":     errors.New("rate: Wait(n=1) would exceed context deadline"),
+	}
+	for name, base := range errs {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			wrapped := &middleware.LimiterWaitError{Limiter: "rate", Err: base}
+			for _, target := range []error{context.Canceled, context.DeadlineExceeded} {
+				if got, want := errors.Is(wrapped, target), errors.Is(base, target); got != want {
+					t.Errorf("errors.Is(wrapped, %v) = %v; want %v", target, got, want)
+				}
+			}
+			if got, want := autotask.IsTransient(wrapped), autotask.IsTransient(base); got != want {
+				t.Errorf("IsTransient(wrapped) = %v; want %v", got, want)
+			}
+			if got, want := (&neturl.Error{Op: "Get", URL: "https://example.com", Err: wrapped}).Timeout(),
+				(&neturl.Error{Op: "Get", URL: "https://example.com", Err: base}).Timeout(); got != want {
+				t.Errorf("url.Error.Timeout() = %v; want %v", got, want)
+			}
+		})
 	}
 }
