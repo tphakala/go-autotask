@@ -78,7 +78,7 @@ func redactURLError(ue *url.Error) *url.Error {
 // the only one is a typed nil, and otherwise a copy built from redacted
 // branches, skipping nil ones. The copy keeps err's own text
 // with each branch's text swapped for its redacted text, unless that text
-// would still show a nested URL, query or user info; then it is the redacted
+// would still show a nested URL, query, fragment or user info; then it is the redacted
 // branch texts joined by newlines.
 func redactTree(err error) error {
 	found, ok := errors.AsType[*url.Error](err)
@@ -119,31 +119,38 @@ func redactTree(err error) error {
 		// branches.
 		msg = strings.Join(texts, "\n")
 	}
-	return &redactedError{msg: msg, errs: redacted}
+	timeout, isTimeout := err.(interface{ Timeout() bool })
+	return &redactedError{msg: msg, errs: redacted, timeout: isTimeout && timeout.Timeout()}
 }
 
 // showsSecret reports whether msg still holds, as it is or quoted, a URL of a
-// *url.Error in err's tree that URL would change, or that URL's query or user
-// info.
+// *url.Error in err's tree that URL would change, or that URL's query,
+// fragment or user info.
 func showsSecret(msg string, err error) bool {
 	for _, ue := range urlErrors(err) {
 		if ue.URL == "" || URL(ue.URL) == ue.URL {
 			continue
 		}
-		quoted := strconv.Quote(ue.URL)
-		if strings.Contains(msg, ue.URL) || strings.Contains(msg, quoted[1:len(quoted)-1]) {
-			return true
-		}
+		secrets := []string{ue.URL}
 		if u, perr := url.Parse(ue.URL); perr == nil {
-			if u.RawQuery != "" && strings.Contains(msg, u.RawQuery) {
-				return true
+			secrets = append(secrets, u.RawQuery, u.RawFragment, u.Fragment)
+			if u.User != nil {
+				secrets = append(secrets, u.User.String())
 			}
-			if u.User != nil && strings.Contains(msg, u.User.String()) {
+		}
+		for _, secret := range secrets {
+			if secret != "" && containsAsIsOrQuoted(msg, secret) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// containsAsIsOrQuoted reports whether msg holds s as it is or as %q writes it.
+func containsAsIsOrQuoted(msg, s string) bool {
+	quoted := strconv.Quote(s)
+	return strings.Contains(msg, s) || strings.Contains(msg, quoted[1:len(quoted)-1])
 }
 
 // urlErrors returns every non-nil *url.Error in err's tree. Each node is
@@ -200,11 +207,15 @@ func isNil(err error) bool {
 }
 
 // redactedError stands in for a join or wrapper that held a *url.Error: its
-// text is built by redactTree, and it unwraps to the redacted branches.
+// text is built by redactTree, it unwraps to the redacted branches, and its
+// Timeout reports what the replaced error's Timeout did, because
+// (*url.Error).Timeout asks only its direct cause.
 type redactedError struct {
-	msg  string
-	errs []error
+	msg     string
+	errs    []error
+	timeout bool
 }
 
 func (e *redactedError) Error() string   { return e.msg }
 func (e *redactedError) Unwrap() []error { return e.errs }
+func (e *redactedError) Timeout() bool   { return e.timeout }

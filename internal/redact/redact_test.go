@@ -305,3 +305,43 @@ func TestURLErrorToleratesAnAsMethodThatYieldsNil(t *testing.T) {
 		t.Errorf("error text = %q; want the cause kept and the query dropped", text)
 	}
 }
+
+func TestURLErrorFailsClosedOnQuotedQueryAndFragmentText(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		raw, shown string
+	}{
+		"quoted query": {`https://in.example/x?token=a"SECRET`, `token=a"SECRET`},
+		"fragment":     {"https://in.example/x#SECRET", "#SECRET"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			inner := &url.Error{Op: "Get", URL: tc.raw, Err: io.EOF}
+			got := URLError(&url.Error{Op: "Get", URL: "https://h.example/a", Err: fmt.Errorf("saw %q: %w", tc.shown, inner)})
+			if strings.Contains(got.Error(), "SECRET") {
+				t.Errorf("error text %q still contains the nested secret", got.Error())
+			}
+		})
+	}
+}
+
+// timeoutCauseError is a transport error that reports a timeout and wraps a
+// *url.Error, like a *net.OpError around a redirect target's failure.
+type timeoutCauseError struct{ err error }
+
+func (e timeoutCauseError) Error() string { return "dial: " + e.err.Error() }
+func (e timeoutCauseError) Unwrap() error { return e.err }
+func (e timeoutCauseError) Timeout() bool { return true }
+
+func TestURLErrorKeepsTheTimeoutOfARebuiltCause(t *testing.T) {
+	t.Parallel()
+	inner := &url.Error{Op: "Get", URL: "https://in.example/x?token=SECRET", Err: io.EOF}
+	got := URLError(&url.Error{Op: "Get", URL: "https://h.example/a", Err: timeoutCauseError{inner}})
+	ue, ok := errors.AsType[*url.Error](got)
+	if !ok || !ue.Timeout() {
+		t.Errorf("Timeout() of %v = false; want the cause's timeout kept", got)
+	}
+	if strings.Contains(got.Error(), "SECRET") {
+		t.Errorf("error text %q still contains the nested query", got.Error())
+	}
+}
