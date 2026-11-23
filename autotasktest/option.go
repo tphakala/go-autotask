@@ -182,8 +182,8 @@ func extractID(m map[string]any) int64 {
 	return 0
 }
 
-// ensureStore returns the store named name, creating it when absent. It is for
-// option functions, which run before the server starts.
+// ensureStore returns the store named name, creating it when absent. Option
+// functions call it before the server starts; a request handler must hold ts.mu.
 func (ts *TestServer) ensureStore(name string) *entityStore {
 	store, ok := ts.entities[name]
 	if !ok {
@@ -224,9 +224,11 @@ func WithEntity[T autotask.Entity](items ...T) ServerOption {
 // the route a WithChildEntity registered for that parent and segment, the store
 // named singular(Parent)+Segment (Tickets and Attachments give
 // TicketAttachments), then the store named Segment. A create under an unknown
-// child URL makes the store singular(Parent)+Segment. WithChildEntity is needed
-// to seed children under a parent, and for a child type whose entity name is
-// neither of those two names. Registering the same parent and segment for two
+// child URL makes the store singular(Parent)+Segment, so a child type whose
+// entity name is not singular(Parent)+Segment (Task under Projects) reads back
+// through Get, List and Count only when it is registered here, or seeded with
+// WithEntity when its entity name is the segment. WithChildEntity is needed to
+// seed children under a parent, and for such a type. Registering the same parent and segment for two
 // different entity types fails the test.
 func WithChildEntity[P autotask.Entity, C autotask.Entity](parentID int64, items ...C) ServerOption {
 	return func(ts *TestServer) {
@@ -265,7 +267,8 @@ func WithAuth(username, secret, integrationCode string) ServerOption {
 	}
 }
 
-// WithPageSize sets the maximum number of items per page for query responses.
+// WithPageSize sets the maximum number of items per page for query and list
+// responses. A size of 0 or less puts every item on one page.
 func WithPageSize(n int) ServerOption {
 	return func(ts *TestServer) {
 		ts.opts.pageSize = n

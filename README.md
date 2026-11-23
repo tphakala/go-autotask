@@ -287,7 +287,7 @@ note, err = autotask.UpdateChild[entities.Ticket](ctx, client, ticketID, note)
 err = autotask.DeleteChild[entities.TicketNote, entities.TicketNoteAttachment](ctx, client, noteID, attachmentID)
 ```
 
-Some entities are updated or deleted only through the parent's URL; `Update` and `Delete` send the root URL (`/v1.0/{Entity}`), which the API does not offer for them. `UpdateChildRaw` and `DeleteChildRaw` do the same with entity names instead of types.
+Some entities are updated or deleted only through the parent's URL; `Update` sends `/v1.0/{Entity}` and `Delete` sends `/v1.0/{Entity}/{id}`, URLs the API does not offer for them. `UpdateChildRaw` and `DeleteChildRaw` do the same with entity names instead of types.
 
 ## Problem, incident and change request tickets
 
@@ -375,7 +375,7 @@ func TestMyCode(t *testing.T) {
 }
 ```
 
-`autotasktest.NewServer` is a validating in-memory server that keeps what tests create. It stores child items per parent and per entity type: a child URL such as `/v1.0/Tickets/{id}/Attachments` reaches the store of the `TicketAttachments` entity (the singular parent name plus the segment), so the same items answer `Get`, `List` and `Count` for that type. A child list shows the items created under that parent, child `GET` by id, `PATCH` and `DELETE` check the parent, and a list pages by `?page=N`. `WithChildEntity[Parent](parentID, items...)` seeds children under a parent, and is also how to route a child type whose entity name is neither of those names. Items seeded with `WithEntity` have no parent and appear under every parent. `DELETE` needs `WithDeleteSupport` with the child's entity name, for example `WithDeleteSupport("TicketNoteAttachments")`.
+`autotasktest.NewServer` is a validating in-memory server that keeps what tests create. It stores child items per parent and per entity type: a child URL such as `/v1.0/Tickets/{id}/Attachments` reaches the store of the `TicketAttachments` entity (the singular parent name plus the segment), so the same items answer `Get`, `List` and `Count` for that type. A type whose entity name is not the singular parent name plus the segment (`Task` under `Projects`) needs `WithChildEntity` for that, or a `WithEntity` seed when its entity name is the segment. A child list shows the items created under that parent, child `GET` by id, `PATCH` and `DELETE` check the parent, and a list pages by `?page=N`. `WithChildEntity[Parent](parentID, items...)` seeds children under a parent, and is also how to route a child type whose entity name is neither of those names. Items seeded with `WithEntity` have no parent and appear under every parent. `DELETE` needs `WithDeleteSupport` with the child's entity name, for example `WithDeleteSupport("TicketNoteAttachments")`.
 
 ## Zone discovery
 
