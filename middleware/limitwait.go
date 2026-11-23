@@ -17,8 +17,8 @@ const (
 // errors.AsType[*LimiterWaitError].
 //
 // Unwrap returns Err, so errors.Is still matches context.Canceled and
-// context.DeadlineExceeded, and Timeout reports what Err reports, so
-// IsTransient and (*url.Error).Timeout answer as they do for Err alone. When
+// context.DeadlineExceeded and IsTransient answers as it does for Err alone,
+// and Timeout reports what Err reports, so (*url.Error).Timeout does too. When
 // the rate limiter refuses a request because its deadline is too close for the
 // next token, Err is the plain error golang.org/x/time/rate returns for that
 // (rate/rate.go:276 at v0.16.0), which wraps no context error.
