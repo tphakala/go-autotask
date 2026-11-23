@@ -8,6 +8,14 @@ import (
 	"net/http"
 )
 
+// childPath builds the collection URL of a child entity under its parent:
+// /v1.0/{parent}/{parentID}/{child}. Every child call goes through it, so the
+// same (P, C) pair addresses the same collection for list, create, update and
+// delete.
+func childPath(parentName string, parentID int64, childName string) string {
+	return fmt.Sprintf("/v1.0/%s/%d/%s", parentName, parentID, childName)
+}
+
 // resolveChildName returns the URL segment for a child entity.
 // If the entity implements ChildEntity, its ChildEntityName is used;
 // otherwise it falls back to EntityName.
@@ -24,7 +32,7 @@ func resolveChildName[C Entity](c C) string {
 func GetChild[P Entity, C Entity](ctx context.Context, c *Client, parentID int64) ([]*C, error) {
 	var parent P
 	var child C
-	path := fmt.Sprintf("/v1.0/%s/%d/%s", parent.EntityName(), parentID, resolveChildName(child))
+	path := childPath(parent.EntityName(), parentID, resolveChildName(child))
 	items, _, err := fetchPage[json.RawMessage](ctx, c, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
@@ -57,7 +65,7 @@ func ListChildIter[P Entity, C Entity](ctx context.Context, c *Client, parentID 
 	return func(yield func(*C, error) bool) {
 		var zeroP P
 		var zeroC C
-		path := fmt.Sprintf("/v1.0/%s/%d/%s", zeroP.EntityName(), parentID, resolveChildName(zeroC))
+		path := childPath(zeroP.EntityName(), parentID, resolveChildName(zeroC))
 		label := zeroC.EntityName() + " child"
 		pages := 0
 		for {
@@ -82,7 +90,7 @@ func ListChildIter[P Entity, C Entity](ctx context.Context, c *Client, parentID 
 // attachment's data). It is the untyped counterpart of ListChildIter.
 func ListChildRawIter(ctx context.Context, c *Client, parentEntityName string, parentID int64, childEntityName string) iter.Seq2[map[string]any, error] {
 	return func(yield func(map[string]any, error) bool) {
-		path := fmt.Sprintf("/v1.0/%s/%d/%s", parentEntityName, parentID, childEntityName)
+		path := childPath(parentEntityName, parentID, childEntityName)
 		pages := 0
 		for {
 			pages++
@@ -115,7 +123,7 @@ func ListChildRaw(ctx context.Context, c *Client, parentEntityName string, paren
 
 // CreateChildRaw creates a child entity (untyped) under a parent.
 func CreateChildRaw(ctx context.Context, c *Client, parentEntityName string, parentID int64, childEntityName string, data map[string]any) (map[string]any, error) {
-	path := fmt.Sprintf("/v1.0/%s/%d/%s", parentEntityName, parentID, childEntityName)
+	path := childPath(parentEntityName, parentID, childEntityName)
 	var resp map[string]any
 	if err := c.do(ctx, http.MethodPost, path, data, &resp); err != nil {
 		return nil, err
@@ -133,7 +141,7 @@ func CreateChild[P Entity, C Entity](ctx context.Context, c *Client, parentID in
 		return nil, fmt.Errorf("autotask: child entity must not be nil")
 	}
 	var parent P
-	path := fmt.Sprintf("/v1.0/%s/%d/%s", parent.EntityName(), parentID, resolveChildName(*child))
+	path := childPath(parent.EntityName(), parentID, resolveChildName(*child))
 	var resp struct {
 		ItemID *int64 `json:"itemId"`
 	}
@@ -144,4 +152,48 @@ func CreateChild[P Entity, C Entity](ctx context.Context, c *Client, parentID in
 		assignCreatedID(child, *resp.ItemID)
 	}
 	return child, nil
+}
+
+// UpdateChildRaw updates a child entity (untyped) through its parent:
+// PATCH /v1.0/{parent}/{parentID}/{child}. data carries the child's id and the
+// fields to change. It returns the decoded response body.
+func UpdateChildRaw(ctx context.Context, c *Client, parentEntityName string, parentID int64, childEntityName string, data map[string]any) (map[string]any, error) {
+	path := childPath(parentEntityName, parentID, childEntityName)
+	var resp map[string]any
+	if err := c.do(ctx, http.MethodPatch, path, data, &resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// UpdateChild updates a child entity through its parent:
+// PATCH /v1.0/{parent}/{parentID}/{child}. Use it for entities whose update the
+// API offers only on the parent's child collection; Update sends the root URL
+// instead. Like Update it sends every field that is set, and the child's id
+// travels in the body, so child must have its ID set. The result follows
+// Update: the entity the API returns when the response carries one, else child.
+func UpdateChild[P Entity, C Entity](ctx context.Context, c *Client, parentID int64, child *C) (*C, error) {
+	if child == nil {
+		return nil, fmt.Errorf("autotask: child entity must not be nil")
+	}
+	var parent P
+	return patchEntity(ctx, c, childPath(parent.EntityName(), parentID, resolveChildName(*child)), child)
+}
+
+// DeleteChildRaw deletes a child entity through its parent:
+// DELETE /v1.0/{parent}/{parentID}/{child}/{childID}.
+func DeleteChildRaw(ctx context.Context, c *Client, parentEntityName string, parentID int64, childEntityName string, childID int64) error {
+	path := fmt.Sprintf("%s/%d", childPath(parentEntityName, parentID, childEntityName), childID)
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
+}
+
+// DeleteChild deletes a child entity through its parent:
+// DELETE /v1.0/{parent}/{parentID}/{child}/{childID}. Use it for entities the
+// API deletes only through the parent's URL; Delete sends the root URL
+// /v1.0/{entity}/{id} instead.
+func DeleteChild[P Entity, C Entity](ctx context.Context, c *Client, parentID, childID int64) error {
+	var parent P
+	var child C
+	path := fmt.Sprintf("%s/%d", childPath(parent.EntityName(), parentID, resolveChildName(child)), childID)
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
 }

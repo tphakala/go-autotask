@@ -3,8 +3,10 @@ package autotask
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -635,5 +637,132 @@ func TestCreateChildRaw(t *testing.T) {
 	}
 	if result["itemId"] != float64(99) {
 		t.Fatalf("itemId = %v; want 99", result["itemId"])
+	}
+}
+
+// TestChildWriteRequests pins the method, path and body of each child write
+// call: PATCH and DELETE go to the parent's child collection, never the root.
+func TestChildWriteRequests(t *testing.T) {
+	type recorded struct {
+		method string
+		path   string
+		body   string
+	}
+	tests := []struct {
+		name     string
+		call     func(t *testing.T, c *Client) error
+		wantMeth string
+		wantPath string
+		wantBody string // JSON, compared exactly; empty means no body
+	}{
+		{
+			name: "UpdateChild",
+			call: func(t *testing.T, c *Client) error {
+				t.Helper()
+				child := &testChildEntity{ID: Set(int64(7)), Message: Set("edited")}
+				got, err := UpdateChild[testEntity](t.Context(), c, 42, child)
+				if err == nil && got != child {
+					t.Errorf("UpdateChild returned %p, want the passed entity %p", got, child)
+				}
+				return err
+			},
+			wantMeth: http.MethodPatch,
+			wantPath: "/v1.0/TestEntities/42/Notes",
+			wantBody: `{"id":7,"message":"edited"}`,
+		},
+		{
+			name: "UpdateChildRaw",
+			call: func(t *testing.T, c *Client) error {
+				t.Helper()
+				got, err := UpdateChildRaw(t.Context(), c, "TestEntities", 42, "Notes", map[string]any{"id": 7, "message": "edited"})
+				if err == nil && got["itemId"] != float64(7) {
+					t.Errorf("UpdateChildRaw response = %v, want itemId 7", got)
+				}
+				return err
+			},
+			wantMeth: http.MethodPatch,
+			wantPath: "/v1.0/TestEntities/42/Notes",
+			wantBody: `{"id":7,"message":"edited"}`,
+		},
+		{
+			name: "DeleteChild",
+			call: func(t *testing.T, c *Client) error {
+				t.Helper()
+				return DeleteChild[testEntity, testChildEntity](t.Context(), c, 42, 7)
+			},
+			wantMeth: http.MethodDelete,
+			wantPath: "/v1.0/TestEntities/42/Notes/7",
+		},
+		{
+			name: "DeleteChildRaw",
+			call: func(t *testing.T, c *Client) error {
+				t.Helper()
+				return DeleteChildRaw(t.Context(), c, "TestEntities", 42, "Notes", 7)
+			},
+			wantMeth: http.MethodDelete,
+			wantPath: "/v1.0/TestEntities/42/Notes/7",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got []recorded
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				got = append(got, recorded{r.Method, r.URL.Path, string(body)})
+				_ = json.NewEncoder(w).Encode(map[string]any{"itemId": 7})
+			}))
+			defer srv.Close()
+			client := testClient(t, srv)
+
+			if err := tt.call(t, client); err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != 1 {
+				t.Fatalf("requests = %d, want 1", len(got))
+			}
+			if got[0].method != tt.wantMeth || got[0].path != tt.wantPath {
+				t.Errorf("request = %s %s, want %s %s", got[0].method, got[0].path, tt.wantMeth, tt.wantPath)
+			}
+			assertBodyJSON(t, got[0].body, tt.wantBody)
+		})
+	}
+}
+
+// assertBodyJSON compares body with want as JSON; an empty want means no body.
+func assertBodyJSON(t *testing.T, body, want string) {
+	t.Helper()
+	if want == "" {
+		if body != "" {
+			t.Errorf("body = %q, want none", body)
+		}
+		return
+	}
+	var gotJSON, wantJSON any
+	if err := json.Unmarshal([]byte(body), &gotJSON); err != nil {
+		t.Fatalf("body %q is not JSON: %v", body, err)
+	}
+	if err := json.Unmarshal([]byte(want), &wantJSON); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(gotJSON, wantJSON) {
+		t.Errorf("body = %s, want %s", body, want)
+	}
+}
+
+func TestUpdateChildNilEntity(t *testing.T) {
+	var requests int
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+	defer srv.Close()
+	client := testClient(t, srv)
+
+	got, err := UpdateChild[testEntity, testChildEntity](t.Context(), client, 42, nil)
+	if err == nil || !strings.Contains(err.Error(), "child entity must not be nil") {
+		t.Fatalf("err = %v, want the nil child entity error", err)
+	}
+	if got != nil {
+		t.Errorf("result = %v, want nil", got)
+	}
+	if requests != 0 {
+		t.Errorf("requests = %d, want 0", requests)
 	}
 }

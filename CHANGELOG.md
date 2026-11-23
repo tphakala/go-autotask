@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`UpdateChild`, `UpdateChildRaw`, `DeleteChild` and `DeleteChildRaw`** (#46): update and delete a child entity through its parent, for entities the API serves only on the parent's URL. `UpdateChild[P, C]` and `UpdateChildRaw` send `PATCH /v1.0/{parent}/{parentID}/{child}` with the child's id in the body; `DeleteChild[P, C]` and `DeleteChildRaw` send `DELETE /v1.0/{parent}/{parentID}/{child}/{childID}`. `Update` and `Delete` still send the root URL.
+- **`autotasktest.WithChildEntity[P, C](parentID, items...)`**: seeds child entities under a parent, and routes a child URL to a child type whose entity name is neither `singular(parent)+segment` nor the segment.
+
+### Changed
+
+- **`autotasktest.NewServer` keeps child items per parent and per entity type** (#48). A child URL `/v1.0/{Parent}/{id}/{Segment}` resolves to the store `WithChildEntity` registered for it, else the store named `singular(Parent)+Segment` (`Tickets` and `Attachments` give `TicketAttachments`), else the store named `Segment`; a create under an unknown child URL makes the store `singular(Parent)+Segment`. A child list shows the items created under its parent plus items with no parent, and child `GET` by id, `PATCH` and `DELETE` check the parent (a mismatch answers 404). Items seeded with `WithEntity` have no parent and still appear under every parent. Items created through a child URL are now in the store of their entity type, so `List[T]`, `Count[T]` and `Get[T]` see them. Ids come from one sequence per entity type, so two types that share a child segment (`TicketAttachment` and `TicketNoteAttachment`) no longer share ids.
+- **A child list for a type with no store answers an empty page** instead of 404.
+- **`WithEntity` no longer registers the type's child segment as a store name.** Before, the last type seeded for a segment answered every child URL with that segment, whichever type the URL belonged to. A test that relied on this for a type whose entity name is neither `singular(parent)+segment` nor the segment needs `WithChildEntity`.
+
+### Fixed
+
+- **`autotasktest.NewServer` child `DELETE` and child `GET` by id.** A child `DELETE` went to the parent's store, and a child `GET` by id returned the parent's list.
+- **Child lists in `autotasktest.NewServer` ignored `?page=N`**, so a list longer than `WithPageSize` repeated its first page.
+
 ## [1.8.0] - 2026-11-23
 
 ### Added

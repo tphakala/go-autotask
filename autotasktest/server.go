@@ -29,11 +29,14 @@ type TestServer struct {
 	*httptest.Server
 	mu       sync.Mutex
 	entities map[string]*entityStore
-	auth     authConfig
-	requests []RecordedRequest
-	opts     serverOptions
-	t        testing.TB
-	nextID   int64
+	// childRoutes maps "Parent/Segment" to the store name WithChildEntity
+	// registered for that child URL.
+	childRoutes map[string]string
+	auth        authConfig
+	requests    []RecordedRequest
+	opts        serverOptions
+	t           testing.TB
+	nextID      int64
 }
 
 type authConfig struct {
@@ -117,7 +120,8 @@ type UDFInfoResponse struct {
 func NewServer(tb testing.TB, opts ...ServerOption) (*TestServer, *autotask.Client) {
 	tb.Helper()
 	ts := &TestServer{
-		entities: make(map[string]*entityStore),
+		entities:    make(map[string]*entityStore),
+		childRoutes: make(map[string]string),
 		auth: authConfig{
 			username:        "test-user",
 			secret:          "test-secret",

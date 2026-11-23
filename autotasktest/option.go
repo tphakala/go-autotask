@@ -14,13 +14,27 @@ import (
 // ServerOption configures a TestServer.
 type ServerOption func(*TestServer)
 
+// storedItem is one stored entity and the parent it was created under.
+type storedItem struct {
+	data json.RawMessage // raw JSON for flexible matching
+	// parentID is the id in the child create URL, or 0 for an item seeded with
+	// WithEntity or created through the root URL. Such an item is listed under
+	// every parent.
+	parentID int64
+}
+
+// underParent reports whether the item is visible under the URL parent pid.
+func (it storedItem) underParent(pid int64) bool {
+	return it.parentID == 0 || it.parentID == pid
+}
+
 // entityStore holds in-memory entities for a single entity type.
 type entityStore struct {
 	mu             sync.RWMutex
 	name           string
-	items          []json.RawMessage // stored as raw JSON for flexible matching
-	idField        string            // JSON field name for the ID (always "id")
-	requiredFields []string          // fields required on create
+	items          []storedItem
+	idField        string   // JSON field name for the ID (always "id")
+	requiredFields []string // fields required on create
 	canDelete      bool
 	nextID         int64
 }
@@ -33,65 +47,115 @@ func newEntityStore(name string) *entityStore {
 	}
 }
 
-func (s *entityStore) add(data json.RawMessage) {
+// add stores data under parentID (0 for no parent).
+func (s *entityStore) add(data json.RawMessage, parentID int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.items = append(s.items, data)
+	s.items = append(s.items, storedItem{data: data, parentID: parentID})
+}
+
+// indexOf returns the position of the item with the given id for which match
+// holds, or -1. The caller holds s.mu.
+func (s *entityStore) indexOf(id int64, match func(storedItem) bool) int {
+	for i, item := range s.items {
+		var m map[string]any
+		if err := json.Unmarshal(item.data, &m); err != nil {
+			continue
+		}
+		if extractID(m) == id && match(item) {
+			return i
+		}
+	}
+	return -1
+}
+
+func anyParent(storedItem) bool { return true }
+
+func parentMatcher(pid int64) func(storedItem) bool {
+	return func(it storedItem) bool { return it.underParent(pid) }
 }
 
 func (s *entityStore) getByID(id int64) (json.RawMessage, bool) {
+	return s.getMatching(id, anyParent)
+}
+
+// getByIDForParent returns the item only when it is visible under parent pid.
+func (s *entityStore) getByIDForParent(id, pid int64) (json.RawMessage, bool) {
+	return s.getMatching(id, parentMatcher(pid))
+}
+
+func (s *entityStore) getMatching(id int64, match func(storedItem) bool) (json.RawMessage, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	for _, item := range s.items {
-		var m map[string]any
-		if err := json.Unmarshal(item, &m); err != nil {
-			continue
-		}
-		if extractID(m) == id {
-			return item, true
-		}
+	if i := s.indexOf(id, match); i >= 0 {
+		return s.items[i].data, true
 	}
 	return nil, false
 }
 
+// updateByID replaces the item's data and keeps its stored parent id: a PATCH
+// body carries no parent.
 func (s *entityStore) updateByID(id int64, data json.RawMessage) bool {
+	return s.updateMatching(id, data, anyParent)
+}
+
+// updateByIDForParent is updateByID limited to items visible under parent pid.
+func (s *entityStore) updateByIDForParent(id, pid int64, data json.RawMessage) bool {
+	return s.updateMatching(id, data, parentMatcher(pid))
+}
+
+func (s *entityStore) updateMatching(id int64, data json.RawMessage, match func(storedItem) bool) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for i, item := range s.items {
-		var m map[string]any
-		if err := json.Unmarshal(item, &m); err != nil {
-			continue
-		}
-		if extractID(m) == id {
-			s.items[i] = data
-			return true
-		}
+	i := s.indexOf(id, match)
+	if i < 0 {
+		return false
 	}
-	return false
+	s.items[i].data = data
+	return true
 }
 
 func (s *entityStore) deleteByID(id int64) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i, item := range s.items {
-		var m map[string]any
-		if err := json.Unmarshal(item, &m); err != nil {
-			continue
-		}
-		if extractID(m) == id {
-			s.items = append(s.items[:i], s.items[i+1:]...)
-			return true
-		}
-	}
-	return false
+	return s.deleteMatching(id, anyParent)
 }
 
+// deleteByIDForParent is deleteByID limited to items visible under parent pid.
+func (s *entityStore) deleteByIDForParent(id, pid int64) bool {
+	return s.deleteMatching(id, parentMatcher(pid))
+}
+
+func (s *entityStore) deleteMatching(id int64, match func(storedItem) bool) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := s.indexOf(id, match)
+	if i < 0 {
+		return false
+	}
+	s.items = append(s.items[:i], s.items[i+1:]...)
+	return true
+}
+
+// all returns every item, whatever its parent.
 func (s *entityStore) all() []json.RawMessage {
+	return s.collect(anyParent)
+}
+
+// forParent returns the items visible under parent pid: those created under pid
+// and those with no parent. The slice is never nil, so it encodes as [].
+func (s *entityStore) forParent(pid int64) []json.RawMessage {
+	return s.collect(parentMatcher(pid))
+}
+
+func (s *entityStore) collect(match func(storedItem) bool) []json.RawMessage {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	cp := make([]json.RawMessage, len(s.items))
-	copy(cp, s.items)
-	return cp
+	out := make([]json.RawMessage, 0, len(s.items))
+	for _, it := range s.items {
+		if match(it) {
+			out = append(out, it.data)
+		}
+	}
+	return out
 }
 
 func (s *entityStore) allocateID() int64 {
@@ -118,34 +182,74 @@ func extractID(m map[string]any) int64 {
 	return 0
 }
 
+// ensureStore returns the store named name, creating it when absent. It is for
+// option functions, which run before the server starts.
+func (ts *TestServer) ensureStore(name string) *entityStore {
+	store, ok := ts.entities[name]
+	if !ok {
+		store = newEntityStore(name)
+		ts.entities[name] = store
+	}
+	return store
+}
+
 // WithEntity seeds the server with one or more entities of type T.
-// The entity's EntityName() determines which store it goes into.
-// If the entity implements ChildEntity, the store is also registered under
-// the child name so child URL lookups resolve correctly.
+// The entity's EntityName() determines which store it goes into. The items have
+// no parent, so a child list under any parent includes them. A child URL finds
+// this store through the resolution rule described on WithChildEntity, so no
+// child segment alias is registered.
 func WithEntity[T autotask.Entity](items ...T) ServerOption {
 	return func(ts *TestServer) {
 		if len(items) == 0 {
 			return
 		}
 		name := items[0].EntityName()
-		store, ok := ts.entities[name]
-		if !ok {
-			store = newEntityStore(name)
-			ts.entities[name] = store
-		}
-		// Also register under ChildEntityName so child URL lookups work.
-		if ce, ok := any(items[0]).(autotask.ChildEntity); ok {
-			childName := ce.ChildEntityName()
-			if childName != name {
-				ts.entities[childName] = store
-			}
-		}
+		store := ts.ensureStore(name)
 		for _, item := range items {
 			data, err := json.Marshal(item)
 			if err != nil {
 				ts.t.Fatalf("autotasktest: marshaling %s fixture: %v", name, err)
 			}
-			store.add(data)
+			store.add(data, 0)
+		}
+	}
+}
+
+// WithChildEntity seeds child entities of type C under the parent entity of
+// type P with the given id. The items go into the store named C.EntityName(),
+// the same store Get, List and Count read, and a child list under parentID
+// includes them while a list under another parent does not.
+//
+// A child URL /v1.0/{Parent}/{id}/{Segment} resolves to a store in this order:
+// the route a WithChildEntity registered for that parent and segment, the store
+// named singular(Parent)+Segment (Tickets and Attachments give
+// TicketAttachments), then the store named Segment. A create under an unknown
+// child URL makes the store singular(Parent)+Segment. WithChildEntity is needed
+// to seed children under a parent, and for a child type whose entity name is
+// neither of those two names. Registering the same parent and segment for two
+// different entity types fails the test.
+func WithChildEntity[P autotask.Entity, C autotask.Entity](parentID int64, items ...C) ServerOption {
+	return func(ts *TestServer) {
+		var parent P
+		var child C
+		name := child.EntityName()
+		segment := name
+		if ce, ok := any(child).(autotask.ChildEntity); ok {
+			segment = ce.ChildEntityName()
+		}
+		route := parent.EntityName() + "/" + segment
+		if prev, ok := ts.childRoutes[route]; ok && prev != name {
+			ts.t.Fatalf("autotasktest: child route %s is already registered for %s, cannot register it for %s", route, prev, name)
+			return
+		}
+		ts.childRoutes[route] = name
+		store := ts.ensureStore(name)
+		for _, item := range items {
+			data, err := json.Marshal(item)
+			if err != nil {
+				ts.t.Fatalf("autotasktest: marshaling %s fixture: %v", name, err)
+			}
+			store.add(data, parentID)
 		}
 	}
 }

@@ -6,13 +6,11 @@ import (
 	"io"
 	"math"
 	"net/http"
-	"strconv"
 	"strings"
 )
 
 func (ts *TestServer) handleQuery(w http.ResponseWriter, r *http.Request) {
-	entityName, _, _, _ := parseEntityAndID(strings.TrimSuffix(r.URL.Path, "/query"))
-	store, ok := ts.getStore(entityName)
+	store, ok := ts.getStore(parsePath(strings.TrimSuffix(r.URL.Path, "/query")).entity)
 	if !ok {
 		writeJSON(w, map[string]any{
 			"items":       []any{},
@@ -40,49 +38,16 @@ func (ts *TestServer) handleQuery(w http.ResponseWriter, r *http.Request) {
 	allItems := store.all()
 	matched := filterItems(allItems, body)
 
-	// Determine page from query param.
-	pageNum := 1
-	if p := r.URL.Query().Get("page"); p != "" {
-		if n, err := strconv.Atoi(p); err == nil && n > 0 {
-			pageNum = n
-		}
-	}
-
 	// Pagination is governed solely by pageSize. The query's MaxRecords is
 	// validated for range (see validate.go) but intentionally NOT applied to the
 	// returned set: the client caps to MaxRecords itself, and the List/ListRaw
 	// MaxRecords tests rely on this mock returning the full page so they exercise
 	// the client-side cap. Do not add server-side MaxRecords capping here.
-	pageSize := ts.opts.pageSize
-	start := (pageNum - 1) * pageSize
-	start = min(start, len(matched))
-	end := start + pageSize
-	end = min(end, len(matched))
-	page := matched[start:end]
-
-	var nextPageURL any
-	if end < len(matched) {
-		nextPageURL = fmt.Sprintf("%s%s?page=%d", ts.URL, r.URL.Path, pageNum+1)
-	}
-	var prevPageURL any
-	if pageNum > 1 {
-		prevPageURL = fmt.Sprintf("%s%s?page=%d", ts.URL, r.URL.Path, pageNum-1)
-	}
-
-	writeJSON(w, map[string]any{
-		"items": page,
-		"pageDetails": map[string]any{
-			"count":        len(page),
-			"requestCount": ts.opts.pageSize,
-			"prevPageUrl":  prevPageURL,
-			"nextPageUrl":  nextPageURL,
-		},
-	})
+	ts.writePage(w, r, matched)
 }
 
 func (ts *TestServer) handleCount(w http.ResponseWriter, r *http.Request) {
-	entityName, _, _, _ := parseEntityAndID(strings.TrimSuffix(r.URL.Path, "/query/count"))
-	store, ok := ts.getStore(entityName)
+	store, ok := ts.getStore(parsePath(strings.TrimSuffix(r.URL.Path, "/query/count")).entity)
 	if !ok {
 		writeJSON(w, map[string]any{"queryCount": 0})
 		return

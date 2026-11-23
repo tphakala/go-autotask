@@ -2,6 +2,8 @@ package autotasktest
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -153,6 +155,304 @@ func TestDiscoveryBypassIsLimitedToDiscoveryGETs(t *testing.T) {
 		_ = resp.Body.Close()
 		if resp.StatusCode != http.StatusUnauthorized {
 			t.Errorf("%s %s without credentials: status = %d, want 401", tc.method, tc.path, resp.StatusCode)
+		}
+	}
+}
+
+// titlesOf returns the titles of the items, for comparing lists across entity
+// types whose ids come from separate sequences.
+func titlesOf[T any](items []*T, title func(*T) autotask.Optional[string]) []string {
+	got := make([]string, 0, len(items))
+	for _, it := range items {
+		v, _ := title(it).Get()
+		got = append(got, v)
+	}
+	slices.Sort(got)
+	return got
+}
+
+func noteTitle(n *entities.TicketNote) autotask.Optional[string]                   { return n.Title }
+func ticketAttachmentTitle(a *entities.TicketAttachment) autotask.Optional[string] { return a.Title }
+func noteAttachmentTitle(a *entities.TicketNoteAttachment) autotask.Optional[string] {
+	return a.Title
+}
+
+func assertTitles(t *testing.T, what string, got, want []string) {
+	t.Helper()
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("%s = %v, want %v", what, got, want)
+	}
+}
+
+// TestChildStoresArePerParentAndType pins that a child URL resolves to the
+// store of the child's entity type (not one store per URL segment) and that
+// child items stay under the parent named in their create URL.
+func TestChildStoresArePerParentAndType(t *testing.T) {
+	seeded := TicketNoteFixture(func(n *entities.TicketNote) { n.Title = autotask.Set("seeded") })
+	forOne := TicketNoteFixture(func(n *entities.TicketNote) { n.Title = autotask.Set("for ticket 1") })
+	_, client := NewServer(t,
+		WithEntity(seeded),
+		WithChildEntity[entities.Ticket](1, forOne),
+	)
+	ctx := t.Context()
+
+	// A child type nothing was seeded for answers an empty page, not 404.
+	empty, err := autotask.ListChild[entities.TicketNote, entities.TicketNoteAttachment](ctx, client, 10)
+	if err != nil {
+		t.Fatalf("list of an unpopulated child type: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("unpopulated child list = %d items, want 0", len(empty))
+	}
+
+	created := TicketNoteFixture(func(n *entities.TicketNote) {
+		n.ID = autotask.Optional[int64]{}
+		n.Title = autotask.Set("for ticket 2")
+	})
+	if _, err := autotask.CreateChild[entities.Ticket](ctx, client, 2, &created); err != nil {
+		t.Fatal(err)
+	}
+	noteAtt := entities.TicketNoteAttachment{Title: autotask.Set("note attachment")}
+	if _, err := autotask.CreateChild[entities.TicketNote](ctx, client, 10, &noteAtt); err != nil {
+		t.Fatal(err)
+	}
+	ticketAtt := entities.TicketAttachment{Title: autotask.Set("ticket attachment")}
+	if _, err := autotask.CreateChild[entities.Ticket](ctx, client, 2, &ticketAtt); err != nil {
+		t.Fatal(err)
+	}
+
+	// Items seeded without a parent are listed under every parent.
+	notes1, err := autotask.ListChild[entities.Ticket, entities.TicketNote](ctx, client, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertTitles(t, "ticket 1 notes", titlesOf(notes1, noteTitle), []string{"seeded", "for ticket 1"})
+	notes2, err := autotask.ListChild[entities.Ticket, entities.TicketNote](ctx, client, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertTitles(t, "ticket 2 notes", titlesOf(notes2, noteTitle), []string{"seeded", "for ticket 2"})
+
+	// Both attachment types use the segment Attachments; neither sees the other.
+	noteAtts, err := autotask.ListChild[entities.TicketNote, entities.TicketNoteAttachment](ctx, client, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertTitles(t, "note 10 attachments", titlesOf(noteAtts, noteAttachmentTitle), []string{"note attachment"})
+	ticketAtts, err := autotask.ListChild[entities.Ticket, entities.TicketAttachment](ctx, client, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertTitles(t, "ticket 2 attachments", titlesOf(ticketAtts, ticketAttachmentTitle), []string{"ticket attachment"})
+
+	// The child URL and the root URL share one store per entity type.
+	id, _ := noteAtt.ID.Get()
+	direct, err := autotask.Get[entities.TicketNoteAttachment](ctx, client, id)
+	if err != nil {
+		t.Fatalf("Get after CreateChild: %v", err)
+	}
+	if title, _ := direct.Title.Get(); title != "note attachment" {
+		t.Errorf("Get title = %q, want %q", title, "note attachment")
+	}
+}
+
+func TestChildGetByID(t *testing.T) {
+	_, client := NewServer(t)
+	ctx := t.Context()
+
+	att := entities.TicketNoteAttachment{Title: autotask.Set("file")}
+	if _, err := autotask.CreateChild[entities.TicketNote](ctx, client, 10, &att); err != nil {
+		t.Fatal(err)
+	}
+	attID, _ := att.ID.Get()
+
+	getItem := func(parent int64) string {
+		t.Helper()
+		var resp struct {
+			Item json.RawMessage `json:"item"`
+		}
+		path := fmt.Sprintf("/v1.0/TicketNotes/%d/Attachments/%d", parent, attID)
+		if err := client.Do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+			t.Fatal(err)
+		}
+		return string(resp.Item)
+	}
+	if got := getItem(10); !strings.Contains(got, `"title":"file"`) {
+		t.Errorf("child GET by id under its parent = %s, want the attachment", got)
+	}
+	if got := getItem(11); got != "null" {
+		t.Errorf("child GET by id under another parent = %s, want null", got)
+	}
+}
+
+func TestChildUpdateKeepsParent(t *testing.T) {
+	_, client := NewServer(t)
+	ctx := t.Context()
+
+	note := TicketNoteFixture(func(n *entities.TicketNote) {
+		n.ID = autotask.Optional[int64]{}
+		n.Title = autotask.Set("before")
+	})
+	if _, err := autotask.CreateChild[entities.Ticket](ctx, client, 2, &note); err != nil {
+		t.Fatal(err)
+	}
+	note.Title = autotask.Set("after")
+	if _, err := autotask.UpdateChild[entities.Ticket](ctx, client, 2, &note); err != nil {
+		t.Fatalf("UpdateChild: %v", err)
+	}
+	noteID, _ := note.ID.Get()
+	got, err := autotask.Get[entities.TicketNote](ctx, client, noteID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if title, _ := got.Title.Get(); title != "after" {
+		t.Errorf("title after UpdateChild = %q, want %q", title, "after")
+	}
+	for parent, want := range map[int64][]string{2: {"after"}, 3: {}} {
+		list, err := autotask.ListChild[entities.Ticket, entities.TicketNote](ctx, client, parent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertTitles(t, fmt.Sprintf("ticket %d notes", parent), titlesOf(list, noteTitle), want)
+	}
+
+	other := entities.TicketNote{ID: note.ID, Title: autotask.Set("hijack")}
+	_, err = autotask.UpdateChild[entities.Ticket](ctx, client, 3, &other)
+	if _, ok := errors.AsType[*autotask.NotFoundError](err); !ok {
+		t.Errorf("UpdateChild under the wrong parent err = %v, want *NotFoundError", err)
+	}
+}
+
+func TestChildDeleteChecksParent(t *testing.T) {
+	_, client := NewServer(t, WithDeleteSupport("TicketNoteAttachments"))
+	ctx := t.Context()
+
+	att := entities.TicketNoteAttachment{Title: autotask.Set("file")}
+	if _, err := autotask.CreateChild[entities.TicketNote](ctx, client, 10, &att); err != nil {
+		t.Fatal(err)
+	}
+	attID, _ := att.ID.Get()
+	del := func(parent int64) error {
+		return autotask.DeleteChild[entities.TicketNote, entities.TicketNoteAttachment](ctx, client, parent, attID)
+	}
+	remaining := func() int {
+		t.Helper()
+		list, err := autotask.ListChild[entities.TicketNote, entities.TicketNoteAttachment](ctx, client, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(list)
+	}
+
+	if _, ok := errors.AsType[*autotask.NotFoundError](del(11)); !ok {
+		t.Error("DeleteChild under the wrong parent did not return *NotFoundError")
+	}
+	if got := remaining(); got != 1 {
+		t.Fatalf("attachments after a refused delete = %d, want 1", got)
+	}
+	if err := del(10); err != nil {
+		t.Fatalf("DeleteChild: %v", err)
+	}
+	if got := remaining(); got != 0 {
+		t.Fatalf("attachments after delete = %d, want 0", got)
+	}
+	if _, ok := errors.AsType[*autotask.NotFoundError](del(10)); !ok {
+		t.Error("second DeleteChild did not return *NotFoundError")
+	}
+}
+
+// TestChildDeleteNeedsDeleteSupport pins that a child DELETE honors the store's
+// WithDeleteSupport gate like a root DELETE does.
+func TestChildDeleteNeedsDeleteSupport(t *testing.T) {
+	_, client := NewServer(t)
+	ctx := t.Context()
+
+	att := entities.TicketAttachment{Title: autotask.Set("kept")}
+	if _, err := autotask.CreateChild[entities.Ticket](ctx, client, 2, &att); err != nil {
+		t.Fatal(err)
+	}
+	id, _ := att.ID.Get()
+	err := autotask.DeleteChild[entities.Ticket, entities.TicketAttachment](ctx, client, 2, id)
+	apiErr, ok := errors.AsType[*autotask.Error](err)
+	if !ok || apiErr.StatusCode != http.StatusBadRequest {
+		t.Errorf("DeleteChild without delete support err = %v, want a 400 *Error", err)
+	}
+}
+
+// TestWithChildEntityReusesExistingStore pins that option order does not matter:
+// WithChildEntity adds to a store WithDeleteSupport or WithEntity created first,
+// and a store it creates is reused by a later WithEntity.
+func TestWithChildEntityReusesExistingStore(t *testing.T) {
+	att := entities.TicketNoteAttachment{Title: autotask.Set("child")}
+	root := entities.TicketNoteAttachment{Title: autotask.Set("root")}
+	for name, opts := range map[string][]ServerOption{
+		"delete support first": {WithDeleteSupport("TicketNoteAttachments"), WithChildEntity[entities.TicketNote](10, att)},
+		"child first":          {WithChildEntity[entities.TicketNote](10, att), WithDeleteSupport("TicketNoteAttachments"), WithEntity(root)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ts, client := NewServer(t, opts...)
+			stores := 0
+			for key, st := range ts.entities {
+				if st.name == "TicketNoteAttachments" {
+					stores++
+					if key != "TicketNoteAttachments" {
+						t.Errorf("store registered under %q", key)
+					}
+				}
+			}
+			if stores != 1 {
+				t.Fatalf("stores named TicketNoteAttachments = %d, want 1", stores)
+			}
+			if !ts.entities["TicketNoteAttachments"].canDelete {
+				t.Error("delete support was lost")
+			}
+			list, err := autotask.ListChild[entities.TicketNote, entities.TicketNoteAttachment](t.Context(), client, 10)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(list) == 0 {
+				t.Error("seeded child missing under its parent")
+			}
+		})
+	}
+}
+
+// TestChildListPages pins that child lists page by ?page=N and filter by parent
+// before paging.
+func TestChildListPages(t *testing.T) {
+	mk := func(title string) entities.TicketNote {
+		return TicketNoteFixture(func(n *entities.TicketNote) { n.Title = autotask.Set(title) })
+	}
+	_, client := NewServer(t,
+		WithPageSize(1),
+		WithChildEntity[entities.Ticket](1, mk("a1"), mk("a2")),
+		WithChildEntity[entities.Ticket](2, mk("b1")),
+	)
+	got, err := autotask.ListChild[entities.Ticket, entities.TicketNote](t.Context(), client, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertTitles(t, "ticket 1 notes", titlesOf(got, noteTitle), []string{"a1", "a2"})
+}
+
+// TestChildSegmentResolvesThroughSingularParent pins the store a child URL
+// reaches for each suffix rule of singularEntityName: the singular parent name
+// plus the segment must be the entity name the library's child types use.
+func TestChildSegmentResolvesThroughSingularParent(t *testing.T) {
+	for _, tt := range []struct{ parent, segment, want string }{
+		{"Tickets", "Attachments", "TicketAttachments"},
+		{"Companies", "Notes", "CompanyNotes"},
+		{"Statuses", "Items", "StatusItems"},
+		{"Addresses", "Lines", "AddressLines"},
+	} {
+		ts, client := NewServer(t)
+		path := "/v1.0/" + tt.parent + "/5/" + tt.segment
+		if err := client.Do(t.Context(), http.MethodPost, path, map[string]any{"title": "x"}, nil); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := ts.entities[tt.want]; !ok {
+			t.Errorf("POST %s did not create store %s", path, tt.want)
 		}
 	}
 }
