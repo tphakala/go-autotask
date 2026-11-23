@@ -242,9 +242,10 @@ func WithEntity[T autotask.Entity](items ...T) ServerOption {
 // on a URL that names a type in package entities this way goes to that type's
 // store, and needs WithChildEntity. On any other URL it resolves to an existing
 // store named Segment if there is one, else a create makes
-// singular(Parent)+Segment; it needs WithChildEntity, or a WithEntity seed, to
-// read back when its entity name is neither. WithChildEntity
-// is also needed to seed children under a parent. Registering the same parent
+// singular(Parent)+Segment. Such a type whose entity name is the segment reads
+// back once its store exists (a WithEntity seed creates it); one whose entity
+// name is neither name needs WithChildEntity. WithChildEntity is also needed to
+// seed children under a parent. Registering the same parent
 // and segment for two different entity types fails the test.
 func WithChildEntity[P autotask.Entity, C autotask.Entity](parentID int64, items ...C) ServerOption {
 	return func(ts *TestServer) {
