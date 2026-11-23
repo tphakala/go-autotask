@@ -206,9 +206,10 @@ func attachmentTitles[T any](items []*T, title func(*T) autotask.Optional[string
 	return out
 }
 
-// TestConfigurationItemAttachmentsStayApart checks that the three attachment
-// types sharing the Attachments segment (configuration item, configuration
-// item note, ticket note) are listed only under their own parent.
+// TestConfigurationItemAttachmentsStayApart checks that attachments of the
+// configuration item, configuration item note and ticket note types, which
+// share the Attachments segment, are each listed only for their own type. All
+// three sit under the parent id 1, so a list that mixed types would show it.
 func TestConfigurationItemAttachmentsStayApart(t *testing.T) {
 	t.Parallel()
 	_, client := autotasktest.NewServer(t)
@@ -218,11 +219,11 @@ func TestConfigurationItemAttachmentsStayApart(t *testing.T) {
 		&entities.ConfigurationItemAttachment{Title: autotask.Set("ci attachment")}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := autotask.CreateChild[entities.ConfigurationItemNote](ctx, client, 5,
+	if _, err := autotask.CreateChild[entities.ConfigurationItemNote](ctx, client, 1,
 		&entities.ConfigurationItemNoteAttachment{Title: autotask.Set("ci note attachment")}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := autotask.CreateChild[entities.TicketNote](ctx, client, 9,
+	if _, err := autotask.CreateChild[entities.TicketNote](ctx, client, 1,
 		&entities.TicketNoteAttachment{Title: autotask.Set("ticket note attachment")}); err != nil {
 		t.Fatal(err)
 	}
@@ -231,11 +232,11 @@ func TestConfigurationItemAttachmentsStayApart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ciNoteAtt, err := autotask.ListChild[entities.ConfigurationItemNote, entities.ConfigurationItemNoteAttachment](ctx, client, 5)
+	ciNoteAtt, err := autotask.ListChild[entities.ConfigurationItemNote, entities.ConfigurationItemNoteAttachment](ctx, client, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ticketNoteAtt, err := autotask.ListChild[entities.TicketNote, entities.TicketNoteAttachment](ctx, client, 9)
+	ticketNoteAtt, err := autotask.ListChild[entities.TicketNote, entities.TicketNoteAttachment](ctx, client, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,13 +251,31 @@ func TestConfigurationItemAttachmentsStayApart(t *testing.T) {
 		want []string
 	}{
 		{"CI 1 attachments", attachmentTitles(ciAtt, func(a *entities.ConfigurationItemAttachment) autotask.Optional[string] { return a.Title }), []string{"ci attachment"}},
-		{"CI note 5 attachments", attachmentTitles(ciNoteAtt, func(a *entities.ConfigurationItemNoteAttachment) autotask.Optional[string] { return a.Title }), []string{"ci note attachment"}},
-		{"ticket note 9 attachments", attachmentTitles(ticketNoteAtt, func(a *entities.TicketNoteAttachment) autotask.Optional[string] { return a.Title }), []string{"ticket note attachment"}},
+		{"CI note 1 attachments", attachmentTitles(ciNoteAtt, func(a *entities.ConfigurationItemNoteAttachment) autotask.Optional[string] { return a.Title }), []string{"ci note attachment"}},
+		{"ticket note 1 attachments", attachmentTitles(ticketNoteAtt, func(a *entities.TicketNoteAttachment) autotask.Optional[string] { return a.Title }), []string{"ticket note attachment"}},
 		{"CI 2 attachments", attachmentTitles(otherCI, func(a *entities.ConfigurationItemAttachment) autotask.Optional[string] { return a.Title }), []string{}},
 	}
 	for _, c := range checks {
 		if !slices.Equal(c.got, c.want) {
 			t.Errorf("%s = %v, want %v", c.name, c.got, c.want)
 		}
+	}
+}
+
+// TestConfigurationItemFixtureSetsProductID checks that the fixture carries
+// ProductID, the field the API requires when creating a configuration item,
+// through the mock server's JSON round trip.
+func TestConfigurationItemFixtureSetsProductID(t *testing.T) {
+	t.Parallel()
+	ci := autotasktest.ConfigurationItemFixture()
+	_, client := autotasktest.NewServer(t, autotasktest.WithEntity(ci))
+	id, _ := ci.ID.Get()
+
+	got, err := autotask.Get[entities.ConfigurationItem](t.Context(), client, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if productID, ok := got.ProductID.Get(); !ok || productID == 0 {
+		t.Fatalf("ProductID = %d (set=%v), want the fixture's value", productID, ok)
 	}
 }
