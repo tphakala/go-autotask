@@ -8,8 +8,8 @@ import (
 // resources.
 //
 // It is read-only: Get, List and Count work at the root, and the entity
-// information reports canCreate, canUpdate and canDelete as false. Assign
-// skills to resources through ResourceSkill. It has no user-defined fields.
+// information reports canCreate, canUpdate and canDelete as false. It has
+// no user-defined fields.
 //
 // The field CategoryID takes a value of the field's picklist; list the values
 // with metadata.GetPickList.
