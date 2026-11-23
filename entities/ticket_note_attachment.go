@@ -13,7 +13,7 @@ import (
 // posts it to /v1.0/TicketNotes/{noteID}/Attachments, and
 // autotask.ListChild[TicketNote, TicketNoteAttachment] lists a note's
 // attachments from the same path. The page sends deletes through the parent
-// too, and this package has no call for that: autotask.Delete sends
+// too, and this package has no typed call for that: autotask.Delete sends
 // DELETE /v1.0/TicketNoteAttachments/{id}, which the page does not list. The file
 // content goes base64-encoded in Data. The API has no update for this entity,
 // and it has no user-defined fields.
