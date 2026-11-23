@@ -9,11 +9,13 @@ import (
 // TicketNoteAttachment represents an Autotask TicketNoteAttachment entity, a
 // file attached to a ticket note. Per
 // https://www.autotask.net/help/developerhelp/Content/APIs/REST/Entities/TicketNoteAttachmentsEntity.htm,
-// it is created and deleted through its parent note, so use
-// autotask.CreateChild[TicketNote] and autotask.ListChild[TicketNote,
-// TicketNoteAttachment], which use /v1.0/TicketNotes/{noteID}/Attachments.
-// The file content goes base64-encoded in Data. The API has no update for
-// this entity; delete the attachment and create a new one.
+// it is created through its parent note: autotask.CreateChild[TicketNote]
+// posts it to /v1.0/TicketNotes/{noteID}/Attachments, and
+// autotask.ListChild[TicketNote, TicketNoteAttachment] lists a note's
+// attachments from the same path. The page sends deletes through the parent
+// too, and this package has no call for that: autotask.Delete sends
+// DELETE /v1.0/TicketNoteAttachments/{id}, which the page does not list. The file
+// content goes base64-encoded in Data. The API has no update for this entity.
 //
 // This file is hand-written. Its fields follow the documentation page above;
 // it was not generated from the entity's field metadata.
