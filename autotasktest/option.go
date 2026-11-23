@@ -246,7 +246,9 @@ func WithEntity[T autotask.Entity](items ...T) ServerOption {
 // back once its store exists (a WithEntity seed creates it); one whose entity
 // name is neither name needs WithChildEntity. WithChildEntity is also needed to
 // seed children under a parent. Registering the same parent
-// and segment for two different entity types fails the test.
+// and segment for two different entity types fails the test. When C implements
+// autotask.ChildParentEntity, the route's parent half is its ChildParentName,
+// the segment the typed child calls send, instead of P's entity name.
 func WithChildEntity[P autotask.Entity, C autotask.Entity](parentID int64, items ...C) ServerOption {
 	return func(ts *TestServer) {
 		var parent P
@@ -256,7 +258,11 @@ func WithChildEntity[P autotask.Entity, C autotask.Entity](parentID int64, items
 		if ce, ok := any(child).(autotask.ChildEntity); ok {
 			segment = ce.ChildEntityName()
 		}
-		route := parent.EntityName() + "/" + segment
+		parentSegment := parent.EntityName()
+		if cp, ok := any(child).(autotask.ChildParentEntity); ok {
+			parentSegment = cp.ChildParentName()
+		}
+		route := parentSegment + "/" + segment
 		if prev, ok := ts.childRoutes[route]; ok && prev != name {
 			ts.t.Fatalf("autotasktest: child route %s is already registered for %s, cannot register it for %s", route, prev, name)
 			return

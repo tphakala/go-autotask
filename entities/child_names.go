@@ -10,6 +10,9 @@ const childNameNotes = "Notes"
 // childNameAttachments is the shared child URL segment for attachment entities.
 const childNameAttachments = "Attachments"
 
+// childNameItems is the shared child URL segment for quote and expense items.
+const childNameItems = "Items"
+
 func (TicketNote) ChildEntityName() string           { return childNameNotes }
 func (ProjectNote) ChildEntityName() string          { return childNameNotes }
 func (CompanyNote) ChildEntityName() string          { return childNameNotes }
@@ -79,3 +82,32 @@ func (ResourceAttachment) ChildEntityName() string { return childNameAttachments
 // ChildEntityName returns the URL segment of a contact group's member
 // collection.
 func (ContactGroupContact) ChildEntityName() string { return "Contacts" }
+
+// ChildEntityName returns the URL segment of a quote's item collection.
+//
+// Per the REST swagger (not checked with a live write), quote items are
+// written through their quote: autotask.CreateChild[Quote] posts to
+// /v1.0/Quotes/{quoteID}/Items, autotask.UpdateChild[Quote] sends PATCH to it
+// with the item's ID in the body, and
+// autotask.DeleteChild[Quote, QuoteItem] sends DELETE to
+// /v1.0/Quotes/{quoteID}/Items/{id}. autotask.Create, autotask.Update and
+// autotask.Delete send root URLs the swagger does not list for this entity.
+// autotask.Get, autotask.List and autotask.Count work at the root.
+func (QuoteItem) ChildEntityName() string { return childNameItems }
+
+// ChildEntityName returns the URL segment of an expense report's item
+// collection.
+//
+// Per the REST swagger (not checked with a live write), expense items are
+// written through their expense report: autotask.CreateChild[ExpenseReport]
+// posts to /v1.0/Expenses/{reportID}/Items and autotask.UpdateChild[ExpenseReport]
+// sends PATCH to it with the item's ID in the body. The swagger lists no
+// delete for expense items. autotask.Create, autotask.Update and
+// autotask.Delete send root URLs the swagger does not list for this entity.
+// autotask.Get, autotask.List and autotask.Count work at the root.
+func (ExpenseItem) ChildEntityName() string { return childNameItems }
+
+// ChildParentName returns the segment that names the expense report in child
+// URLs: /v1.0/Expenses/{reportID}/Items, not the root EntityName
+// "ExpenseReports". See autotask.ChildParentEntity.
+func (ExpenseItem) ChildParentName() string { return "Expenses" }

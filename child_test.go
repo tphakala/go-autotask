@@ -796,3 +796,98 @@ func TestUpdateChildNilEntity(t *testing.T) {
 		t.Errorf("requests = %d, want 0", requests)
 	}
 }
+
+// testParentSegmentChild names its parent collection ("Widgets") in child URLs
+// with a segment that is not the parent's EntityName ("TestEntities"), as
+// ExpenseItem does under ExpenseReport.
+type testParentSegmentChild struct {
+	ID      Optional[int64]  `json:"id,omitzero"`
+	Message Optional[string] `json:"message,omitzero"`
+}
+
+func (testParentSegmentChild) EntityName() string      { return "TestParentSegmentChildren" }
+func (testParentSegmentChild) ChildEntityName() string { return "Items" }
+func (testParentSegmentChild) ChildParentName() string { return "Widgets" }
+
+// TestTypedChildCallsUseChildParentName pins that every typed child call takes
+// the parent segment from the child's ChildParentName instead of the parent's
+// EntityName, and keeps the child segment from ChildEntityName.
+func TestTypedChildCallsUseChildParentName(t *testing.T) {
+	tests := []struct {
+		name     string
+		call     func(t *testing.T, c *Client) error
+		wantMeth string
+		wantPath string
+	}{
+		{
+			name: "GetChild",
+			call: func(t *testing.T, c *Client) error {
+				t.Helper()
+				_, err := GetChild[testEntity, testParentSegmentChild](t.Context(), c, 42)
+				return err
+			},
+			wantMeth: http.MethodGet,
+			wantPath: "/v1.0/Widgets/42/Items",
+		},
+		{
+			name: "ListChild",
+			call: func(t *testing.T, c *Client) error {
+				t.Helper()
+				_, err := ListChild[testEntity, testParentSegmentChild](t.Context(), c, 42)
+				return err
+			},
+			wantMeth: http.MethodGet,
+			wantPath: "/v1.0/Widgets/42/Items",
+		},
+		{
+			name: "CreateChild",
+			call: func(t *testing.T, c *Client) error {
+				t.Helper()
+				_, err := CreateChild[testEntity](t.Context(), c, 42, &testParentSegmentChild{Message: Set("new")})
+				return err
+			},
+			wantMeth: http.MethodPost,
+			wantPath: "/v1.0/Widgets/42/Items",
+		},
+		{
+			name: "UpdateChild",
+			call: func(t *testing.T, c *Client) error {
+				t.Helper()
+				_, err := UpdateChild[testEntity](t.Context(), c, 42, &testParentSegmentChild{ID: Set(int64(7)), Message: Set("edited")})
+				return err
+			},
+			wantMeth: http.MethodPatch,
+			wantPath: "/v1.0/Widgets/42/Items",
+		},
+		{
+			name: "DeleteChild",
+			call: func(t *testing.T, c *Client) error {
+				t.Helper()
+				return DeleteChild[testEntity, testParentSegmentChild](t.Context(), c, 42, 7)
+			},
+			wantMeth: http.MethodDelete,
+			wantPath: "/v1.0/Widgets/42/Items/7",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotMeth, gotPath string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotMeth, gotPath = r.Method, r.URL.Path
+				if r.Method == http.MethodGet {
+					_, _ = io.WriteString(w, `{"items":[],"pageDetails":{}}`)
+					return
+				}
+				_, _ = io.WriteString(w, `{"itemId":7}`)
+			}))
+			defer srv.Close()
+
+			if err := tt.call(t, testClient(t, srv)); err != nil {
+				t.Fatal(err)
+			}
+			if gotMeth != tt.wantMeth || gotPath != tt.wantPath {
+				t.Errorf("request = %s %s, want %s %s", gotMeth, gotPath, tt.wantMeth, tt.wantPath)
+			}
+		})
+	}
+}

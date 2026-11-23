@@ -917,3 +917,46 @@ func TestCreateWithInvalidBodyAnswers400(t *testing.T) {
 		}
 	}
 }
+
+// widgetReport is a parent type whose EntityName ("WidgetReports") is not the
+// parent segment its child URLs use ("Widgets").
+type widgetReport struct{}
+
+func (widgetReport) EntityName() string { return "WidgetReports" }
+
+// gadget is a type outside this module whose child URL is
+// /v1.0/Widgets/{id}/Items although its parent type is named WidgetReports.
+type gadget struct {
+	ID autotask.Optional[int64] `json:"id,omitzero"`
+}
+
+func (gadget) EntityName() string      { return "Gadgets" }
+func (gadget) ChildEntityName() string { return "Items" }
+func (gadget) ChildParentName() string { return "Widgets" }
+
+// TestWithChildEntityRoutesChildParentName pins that WithChildEntity keys its
+// route on the same parent segment the typed child calls send: ChildParentName
+// when the child type has one. Keyed on the parent's EntityName instead, the
+// request /Widgets/42/Items would derive the store WidgetItems, find none and
+// answer an empty list.
+func TestWithChildEntityRoutesChildParentName(t *testing.T) {
+	_, client := NewServer(t, WithChildEntity[widgetReport](42, gadget{ID: autotask.Set(int64(5))}))
+	ctx := t.Context()
+
+	for parent, want := range map[int64]int{42: 1, 43: 0} {
+		list, err := autotask.ListChild[widgetReport, gadget](ctx, client, parent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(list) != want {
+			t.Errorf("typed items under parent %d = %d, want %d", parent, len(list), want)
+		}
+		raw, err := autotask.ListChildRaw(ctx, client, "Widgets", parent, "Items")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(raw) != want {
+			t.Errorf("raw items under /Widgets/%d/Items = %d, want %d", parent, len(raw), want)
+		}
+	}
+}
