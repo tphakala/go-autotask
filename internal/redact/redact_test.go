@@ -3,8 +3,10 @@ package redact
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -143,5 +145,89 @@ func TestURLErrorHidesAParseCauseWithUserInfoUnderAJoin(t *testing.T) {
 	}
 	if !errors.Is(got, context.Canceled) {
 		t.Errorf("errors.Is(%v, context.Canceled) = false; want the joined branch kept", got)
+	}
+}
+
+func TestURLErrorRedactsAQuotedNestedURLAndNeverExposesIt(t *testing.T) {
+	t.Parallel()
+	// url.Error quotes its URL with %q, so a quote in the URL is escaped in the
+	// text; the redacted copy must not depend on finding the raw URL there.
+	inner := &url.Error{Op: "Get", URL: `https://in.example/x?token=a"SECRET`, Err: io.EOF}
+	prefix := &url.Error{Op: "Get", URL: "https://in.example/x", Err: io.ErrUnexpectedEOF}
+	wrapped := fmt.Errorf("transport: %w", errors.Join(prefix, inner))
+	got := URLError(&url.Error{Op: "Get", URL: "https://h.example/a", Err: wrapped})
+	if strings.Contains(got.Error(), "SECRET") || strings.Contains(got.Error(), "token") {
+		t.Errorf("error text %q still contains the nested query", got.Error())
+	}
+	if !errors.Is(got, io.EOF) || !errors.Is(got, io.ErrUnexpectedEOF) {
+		t.Errorf("errors.Is lost a branch of %v", got)
+	}
+	var walk func(error)
+	walk = func(e error) {
+		if ue, ok := errors.AsType[*url.Error](e); ok && strings.Contains(ue.URL, "SECRET") {
+			t.Errorf("a *url.Error with the original URL %q is reachable", ue.URL)
+		}
+		if multi, ok := e.(interface{ Unwrap() []error }); ok {
+			for _, c := range multi.Unwrap() {
+				walk(c)
+			}
+		} else if c := errors.Unwrap(e); c != nil {
+			walk(c)
+		}
+	}
+	walk(got)
+}
+
+func TestURLErrorCopiesADirectlyNestedURLError(t *testing.T) {
+	t.Parallel()
+	// net/http wraps a transport's *url.Error in its own; errors.As on the
+	// result must reach a redacted copy of the inner one, never the original.
+	inner := &url.Error{Op: "Get", URL: "https://other.example/x?tok=SECRET", Err: io.EOF}
+	got := URLError(&url.Error{Op: "Get", URL: "https://h.example/a", Err: inner})
+	next, ok := errors.AsType[*url.Error](errors.Unwrap(got))
+	if !ok || next.URL != "https://other.example/x" {
+		t.Errorf("unwrapped cause = %v; want a *url.Error copy with URL https://other.example/x", errors.Unwrap(got))
+	}
+	if inner.URL != "https://other.example/x?tok=SECRET" {
+		t.Error("the nested error must not be modified")
+	}
+}
+
+// quotingWrapError wraps an error but quotes its text, so the wrapped text does
+// not appear in its own as it is.
+type quotingWrapError struct{ err error }
+
+func (w quotingWrapError) Error() string { return "wrapped " + strconv.Quote(w.err.Error()) }
+func (w quotingWrapError) Unwrap() error { return w.err }
+
+// asOnlyError reaches a *url.Error only through its As method.
+type asOnlyError struct{ ue *url.Error }
+
+func (a asOnlyError) Error() string { return "as only: " + a.ue.Error() }
+func (a asOnlyError) As(target any) bool {
+	if p, ok := target.(**url.Error); ok {
+		*p = a.ue
+		return true
+	}
+	return false
+}
+
+func TestURLErrorRedactsCausesItCannotRewriteInPlace(t *testing.T) {
+	t.Parallel()
+	inner := &url.Error{Op: "Get", URL: "https://in.example/x?token=SECRET", Err: io.EOF}
+	for name, cause := range map[string]error{
+		"wrapper that quotes its cause": quotingWrapError{inner},
+		"cause reached through As":      asOnlyError{inner},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			got := URLError(&url.Error{Op: "Get", URL: "https://h.example/a", Err: cause})
+			if strings.Contains(got.Error(), "SECRET") || strings.Contains(got.Error(), "token") {
+				t.Errorf("error text %q still contains the nested query", got.Error())
+			}
+			if !errors.Is(got, io.EOF) {
+				t.Errorf("errors.Is(%v, io.EOF) = false", got)
+			}
+		})
 	}
 }
