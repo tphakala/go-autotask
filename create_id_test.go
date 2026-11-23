@@ -18,6 +18,8 @@ import (
 
 // createIDCases lists every entity type in entities/, keyed by Go type name.
 // TestCreateIDCoversAllEntities fails when a type is added there without a row.
+// A row checks id assignment through the mock's root create, not that the API
+// offers a root create for the type.
 var createIDCases = map[string]func(*testing.T){
 	"BillingCode":                 createSetsID[entities.BillingCode],
 	"BillingItemApprovalLevel":    createSetsID[entities.BillingItemApprovalLevel],
@@ -58,6 +60,17 @@ var createIDCases = map[string]func(*testing.T){
 	"TicketNote":                                 createSetsID[entities.TicketNote],
 	"Ticket":                                     createSetsID[entities.Ticket],
 	"TimeEntry":                                  createSetsID[entities.TimeEntry],
+	"ClientPortalUser":                           createSetsID[entities.ClientPortalUser],
+	"ContactGroup":                               createSetsID[entities.ContactGroup],
+	"ContactGroupContact":                        createSetsID[entities.ContactGroupContact],
+	"ResourceAttachment":                         createSetsID[entities.ResourceAttachment],
+	"ResourceRole":                               createSetsID[entities.ResourceRole],
+	"ResourceRoleDepartment":                     createSetsID[entities.ResourceRoleDepartment],
+	"ResourceRoleQueue":                          createSetsID[entities.ResourceRoleQueue],
+	"ResourceServiceDeskRole":                    createSetsID[entities.ResourceServiceDeskRole],
+	"ResourceSkill":                              createSetsID[entities.ResourceSkill],
+	"Role":                                       createSetsID[entities.Role],
+	"Skill":                                      createSetsID[entities.Skill],
 }
 
 // idOf returns the value of the entity's "id" JSON member, or false when absent.

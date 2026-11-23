@@ -23,6 +23,13 @@ func TestChildEntityNames(t *testing.T) {
 		{"ConfigurationItemDnsRecord", ConfigurationItemDnsRecord{}.ChildEntityName(), "DnsRecords"},
 		{"ConfigurationItemSslSubjectAlternativeName", ConfigurationItemSslSubjectAlternativeName{}.ChildEntityName(), "SslSubjectAlternativeNames"},
 		{"TicketAdditionalConfigurationItem", TicketAdditionalConfigurationItem{}.ChildEntityName(), "AdditionalConfigurationItems"},
+		{"ResourceRoleDepartment", ResourceRoleDepartment{}.ChildEntityName(), "RoleDepartments"},
+		{"ResourceRoleQueue", ResourceRoleQueue{}.ChildEntityName(), "RoleQueues"},
+		{"ResourceServiceDeskRole", ResourceServiceDeskRole{}.ChildEntityName(), "ServiceDeskRoles"},
+		{"ResourceSkill", ResourceSkill{}.ChildEntityName(), "Skills"},
+		{"ResourceRole", ResourceRole{}.ChildEntityName(), "Roles"},
+		{"ResourceAttachment", ResourceAttachment{}.ChildEntityName(), "Attachments"},
+		{"ContactGroupContact", ContactGroupContact{}.ChildEntityName(), "Contacts"},
 	}
 	for _, tt := range tests {
 		if tt.got != tt.want {

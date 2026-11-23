@@ -54,3 +54,28 @@ func (ConfigurationItemSslSubjectAlternativeName) ChildEntityName() string {
 func (TicketAdditionalConfigurationItem) ChildEntityName() string {
 	return "AdditionalConfigurationItems"
 }
+
+// ChildEntityName returns the URL segment of a resource's role department
+// collection.
+func (ResourceRoleDepartment) ChildEntityName() string { return "RoleDepartments" }
+
+// ChildEntityName returns the URL segment of a resource's role queue
+// collection.
+func (ResourceRoleQueue) ChildEntityName() string { return "RoleQueues" }
+
+// ChildEntityName returns the URL segment of a resource's service desk role
+// collection.
+func (ResourceServiceDeskRole) ChildEntityName() string { return "ServiceDeskRoles" }
+
+// ChildEntityName returns the URL segment of a resource's skill collection.
+func (ResourceSkill) ChildEntityName() string { return "Skills" }
+
+// ChildEntityName returns the URL segment of a resource's role collection.
+func (ResourceRole) ChildEntityName() string { return "Roles" }
+
+// ChildEntityName returns the shared attachment segment.
+func (ResourceAttachment) ChildEntityName() string { return childNameAttachments }
+
+// ChildEntityName returns the URL segment of a contact group's member
+// collection.
+func (ContactGroupContact) ChildEntityName() string { return "Contacts" }
