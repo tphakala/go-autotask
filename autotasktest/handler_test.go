@@ -5,8 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"maps"
 	"math"
 	"net/http"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -579,6 +584,120 @@ func TestChildSegmentResolvesThroughSingularParent(t *testing.T) {
 			t.Errorf("POST %s did not create store %s", path, tt.want)
 		}
 	}
+}
+
+// segmentNamedEntity is a type outside this module whose entity name equals the
+// child segment of TicketNote ("Notes").
+type segmentNamedEntity struct {
+	ID autotask.Optional[int64] `json:"id,omitzero"`
+}
+
+func (segmentNamedEntity) EntityName() string { return "Notes" }
+
+// TestKnownChildTypeIgnoresSegmentStore pins that a child URL of a module type
+// does not fall back to a store named after the segment: a store "Notes" seeded
+// for another type must not receive or serve TicketNote items.
+func TestKnownChildTypeIgnoresSegmentStore(t *testing.T) {
+	_, client := NewServer(t, WithEntity(segmentNamedEntity{ID: autotask.Set(int64(100))}))
+	ctx := t.Context()
+
+	note := entities.TicketNote{Title: autotask.Set("child note")}
+	if _, err := autotask.CreateChild[entities.Ticket](ctx, client, 1, &note); err != nil {
+		t.Fatal(err)
+	}
+	id, _ := note.ID.Get()
+	got, err := autotask.Get[entities.TicketNote](ctx, client, id)
+	if err != nil {
+		t.Fatalf("Get[TicketNote] after CreateChild: %v", err)
+	}
+	if title, _ := got.Title.Get(); title != "child note" {
+		t.Errorf("Get[TicketNote] title = %q, want %q", title, "child note")
+	}
+	other, err := autotask.List[segmentNamedEntity](ctx, client, autotask.NewQuery().Where("id", autotask.OpGt, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(other) != 1 {
+		t.Errorf("List of the segment-named type = %d items, want 1 (the seeded one)", len(other))
+	}
+}
+
+// TestUnseededChildCreateUsesSegmentEntity pins that a child create of a type
+// whose entity name is the segment (Contact under Companies) lands in that
+// type's store, which Get and List read, not in CompanyContacts.
+func TestUnseededChildCreateUsesSegmentEntity(t *testing.T) {
+	_, client := NewServer(t)
+	ctx := t.Context()
+
+	contact := entities.Contact{FirstName: autotask.Set("Ada")}
+	if _, err := autotask.CreateChild[entities.Company](ctx, client, 1, &contact); err != nil {
+		t.Fatal(err)
+	}
+	id, _ := contact.ID.Get()
+	if _, err := autotask.Get[entities.Contact](ctx, client, id); err != nil {
+		t.Fatalf("Get[Contact] after CreateChild: %v", err)
+	}
+	for parent, want := range map[int64]int{1: 1, 2: 0} {
+		list, err := autotask.ListChild[entities.Company, entities.Contact](ctx, client, parent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(list) != want {
+			t.Errorf("contacts under company %d = %d, want %d", parent, len(list), want)
+		}
+	}
+}
+
+// TestKnownEntityNamesCoverEntities pins that knownEntityNames holds the entity
+// name of every type declared in the entities package, so a new entity type
+// cannot silently fall back to URL-shape resolution.
+func TestKnownEntityNamesCoverEntities(t *testing.T) {
+	found := entityNamesDeclared(t, filepath.Join("..", "entities"))
+	if len(found) == 0 {
+		t.Fatal("found no entity types in ../entities")
+	}
+	if got, want := slices.Sorted(maps.Keys(knownEntityNames)), slices.Sorted(maps.Keys(found)); !slices.Equal(got, want) {
+		t.Fatalf("knownEntityNames = %v, entity names in ../entities = %v", got, want)
+	}
+}
+
+// entityNamesDeclared returns the string each EntityName method in the non-test
+// files of dir returns.
+func entityNamesDeclared(t *testing.T, dir string) map[string]bool {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join(dir, "*.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]bool{}
+	fset := token.NewFileSet()
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, file, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, d := range f.Decls {
+			fn, ok := d.(*ast.FuncDecl)
+			if !ok || fn.Recv == nil || fn.Name.Name != "EntityName" || len(fn.Body.List) != 1 {
+				continue
+			}
+			ret, ok := fn.Body.List[0].(*ast.ReturnStmt)
+			if !ok || len(ret.Results) != 1 {
+				continue
+			}
+			if lit, ok := ret.Results[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				name, err := strconv.Unquote(lit.Value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				found[name] = true
+			}
+		}
+	}
+	return found
 }
 
 // TestChildListOfUnknownTypeSendsEmptyItemsArray pins the wire shape of a child

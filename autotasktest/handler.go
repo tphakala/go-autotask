@@ -71,11 +71,24 @@ func singularEntityName(s string) string {
 	return strings.TrimSuffix(s, "s")
 }
 
-// resolveChildStore finds the store behind a child URL: the route registered by
-// WithChildEntity, else the store singular(parent)+segment, else the store
-// segment. When none exists it creates singular(parent)+segment if create is
-// set, and otherwise reports false. Lookup and creation share one lock hold, so
-// concurrent creates under a new child URL share one store.
+// resolveChildStore finds the store behind a child URL
+// /{parent}/{id}/{segment}. With derived = singular(parent)+segment, in order:
+//
+//  1. the route registered by WithChildEntity;
+//  2. the store named derived, when it exists;
+//  3. derived itself when it is the entity name of a type in package entities
+//     (knownEntityNames): a create makes it, a read reports false when it is
+//     missing, and the store named segment is never used;
+//  4. the store named segment, when it exists;
+//  5. on a create, the store named segment when that is the entity name of a
+//     type in package entities (Contact under Companies), else derived.
+//
+// Steps 3 and 5 use only knownEntityNames and the URL, so an item of a type in
+// package entities lands in the store Get, List and Count read for that type,
+// whichever other stores exist. A type from outside this module is resolved by
+// steps 2 and 4 and the derived fallback of step 5, which depend on the stores
+// that exist. Lookup and creation share one lock hold, so concurrent creates
+// under a new child URL share one store.
 func (ts *TestServer) resolveChildStore(parent, segment string, create bool) (*entityStore, bool) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
@@ -88,15 +101,19 @@ func (ts *TestServer) resolveChildStore(parent, segment string, create bool) (*e
 	if store, ok := ts.entities[derived]; ok {
 		return store, true
 	}
-	if store, ok := ts.entities[segment]; ok {
-		return store, true
+	name := derived
+	if !knownEntityNames[derived] {
+		if store, ok := ts.entities[segment]; ok {
+			return store, true
+		}
+		if knownEntityNames[segment] {
+			name = segment
+		}
 	}
 	if !create {
 		return nil, false
 	}
-	store := newEntityStore(derived)
-	ts.entities[derived] = store
-	return store, true
+	return ts.ensureStore(name), true
 }
 
 func (ts *TestServer) getStore(entityName string) (*entityStore, bool) {
