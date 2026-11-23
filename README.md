@@ -219,18 +219,19 @@ client, err := autotask.NewClient(ctx, auth,
 
 Three-state circuit breaker (closed, open, half-open) that stops sending requests after repeated failures. `WithFailureWindow` and `WithSuccessThreshold` tune the trip and recovery behavior.
 
-By default a round trip counts as a failure when it is a transport error (a caller's context cancellation excepted), a 429 or a 5xx, or a 2xx response with a non-JSON `Content-Type` such as the HTML maintenance page. A 500 whose error message matches the validation wording that `(*ServerError).IsValidation` uses does not count, so repeated validation failures cannot open the breaker for all traffic. A validation 500 worded differently still counts. `WithFailurePredicate(fn)` replaces that rule. `middleware.DefaultFailure` is the default and `middleware.StatusFailure` is the rule the breaker used before: transport errors, 429 and 5xx. The predicate can read the first 64 KiB of the response body and the caller still gets the whole body.
+By default a round trip counts as a failure when it is a transport error (a caller's context cancellation and a request that gave up waiting in the concurrency or rate limiter excepted), a 429 or a 5xx, or a 2xx response with a non-JSON `Content-Type` such as the HTML maintenance page. A 500 whose error message matches the validation wording that `(*ServerError).IsValidation` uses does not count, so repeated validation failures cannot open the breaker for all traffic. A validation 500 worded differently still counts. `WithFailurePredicate(fn)` replaces that rule. `middleware.DefaultFailure` is the default and `middleware.StatusFailure` is the rule the breaker used before: transport errors, 429 and 5xx. The predicate can read the first 64 KiB of the response body and the caller still gets the whole body.
 
 ### Concurrency limiter
 
 ```go
 client, err := autotask.NewClient(ctx, auth,
-    autotask.WithRateLimiter(),      // enforce the hourly rate first
+    autotask.WithCircuitBreaker(),   // fail fast if the circuit is open
+    autotask.WithRateLimiter(),      // then enforce the hourly rate
     autotask.WithMaxConcurrency(3),  // then cap in-flight requests
 )
 ```
 
-Caps the number of requests in flight at once. Compose it after the rate limiter so the rate limit is enforced before the concurrency gate.
+Caps the number of requests in flight at once. The first option is the outermost middleware, so put the circuit breaker first, then the rate limiter, then the concurrency limiter: an open circuit rejects a request before it waits for a token or a slot, and the rate limit is enforced before the concurrency gate. A request that times out or is cancelled while waiting in either limiter fails with a `*middleware.LimiterWaitError`, which the default failure predicate does not count against the circuit breaker.
 
 ### Threshold monitor
 

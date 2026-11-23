@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`autotasktest.WithChildOnlyWrites[P, C]()`** (#58): opt-in. The mock accepts writes of `C` only on the child URL that `CreateChild[P]`, `UpdateChild[P]` and `DeleteChild[P, C]` send. A root write, a child write that resolves to the type's store under another parent or segment, and a create under a segment the type uses that matches no store and no `entities` type, answer 400, and a rejected write creates no store or item.
 - **`autotasktest.WithoutUpdateSupport` and `autotasktest.WithoutCreateSupport`** (#35): opt-in. Each takes an entity name and answers PATCH (or POST) for it with a 400 at the root URL and at every child URL that resolves to its store.
 - **`ChildParentEntity`** (#52): an optional interface for a child entity whose child URLs name the parent collection with a segment other than the parent's `EntityName`. The typed child calls use its `ChildParentName() string` in place of the parent type's `EntityName`. `entities.ExpenseItem` implements it with `Expenses`.
+- **`middleware.LimiterWaitError`**: the error `ConcurrencyLimiter` and `RateLimiter` return when a request gives up waiting before it is sent, because its context ended or its deadline was too close for the next rate token. `Limiter` is `"concurrency"` or `"rate"`. It wraps the underlying error, so `errors.Is` for `context.Canceled` and `context.DeadlineExceeded`, `IsTransient` and `(*url.Error).Timeout` answer as before.
 
 ### Changed
 
@@ -21,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A request that timed out waiting in a limiter counted as a circuit breaker failure.** With the circuit breaker composed before the rate or concurrency limiter, as the `WithMaxConcurrency` doc recommends, local queueing could open the breaker. `DefaultFailure` now returns false for a `*middleware.LimiterWaitError`; a request that reached the transport and timed out still counts. The error text of a limiter wait now starts with `autotask: concurrency limiter: ` or `autotask: rate limiter: `.
 - **Typed child calls for `entities.QuoteItem` and `entities.ExpenseItem` addressed URLs the REST swagger does not list** (#52). `CreateChild`, `UpdateChild`, `DeleteChild`, `GetChild`, `ListChild` and `ListChildIter` now use the collection `/v1.0/Quotes/{id}/Items` for `QuoteItem` (`DeleteChild` appends the item id) (was `/v1.0/Quotes/{id}/QuoteItems`) and `/v1.0/Expenses/{id}/Items` for `ExpenseItem` (was `/v1.0/ExpenseReports/{id}/ExpenseItems`). This changes the URL for any caller of those calls with these two types. Root `Get`, `List`, `Count`, `Create`, `Update` and `Delete` are unchanged.
 
 ## [1.9.0] - 2026-11-23

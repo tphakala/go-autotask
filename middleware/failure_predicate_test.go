@@ -520,3 +520,119 @@ func TestPredicateClosingItsBodyLeavesTheCallersBodyOpen(t *testing.T) {
 		t.Fatal("closing the returned body must close the original body")
 	}
 }
+
+// TestBreakerIgnoresLimiterWaits composes the breaker in front of each limiter
+// wait exit, the order WithMaxConcurrency recommends, and ends one wait. Each
+// row has a failure threshold that a single counted error would reach, so the
+// circuit must stay closed.
+func TestBreakerIgnoresLimiterWaits(t *testing.T) {
+	t.Parallel()
+	ok := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return respWith(200, "application/json", `{}`), nil
+	})
+	prime := func(t *testing.T, cb *CircuitBreaker) {
+		t.Helper()
+		resp, err := do(t, cb)
+		if err != nil {
+			t.Fatalf("priming request: %v", err)
+		}
+		drain(t, resp)
+	}
+	tests := []struct {
+		name         string
+		limiter      string
+		deadline     time.Duration
+		wantDeadline bool // the wait ended on the context deadline
+		build        func(t *testing.T) *CircuitBreaker
+	}{
+		{
+			name: "concurrency slot", limiter: "concurrency", deadline: 20 * time.Millisecond, wantDeadline: true,
+			build: func(t *testing.T) *CircuitBreaker {
+				t.Helper()
+				entered := make(chan struct{}, 1)
+				release := make(chan struct{})
+				done := make(chan struct{})
+				inner := roundTripFunc(func(*http.Request) (*http.Response, error) {
+					entered <- struct{}{}
+					<-release
+					return respWith(200, "application/json", `{}`), nil
+				})
+				cb := NewCircuitBreaker(NewConcurrencyLimiter(inner, 1), WithFailureThreshold(1))
+				t.Cleanup(func() { close(release); <-done })
+				go func() {
+					defer close(done)
+					resp, err := cb.RoundTrip(newReq(t))
+					if err == nil {
+						drain(t, resp)
+					}
+				}()
+				<-entered
+				return cb
+			},
+		},
+		{
+			name: "rate token", limiter: "rate", deadline: time.Second,
+			build: func(t *testing.T) *CircuitBreaker {
+				t.Helper()
+				cb := NewCircuitBreaker(
+					NewRateLimiter(ok, WithRequestsPerHour(1), WithBurstSize(1)), WithFailureThreshold(1))
+				prime(t, cb)
+				return cb
+			},
+		},
+		{
+			name: "retry-after wait", limiter: "rate", deadline: 20 * time.Millisecond, wantDeadline: true,
+			build: func(t *testing.T) *CircuitBreaker {
+				t.Helper()
+				tooMany := roundTripFunc(func(*http.Request) (*http.Response, error) {
+					resp := respWith(429, "", "")
+					resp.Header.Set("Retry-After", "3600")
+					return resp, nil
+				})
+				// The 429 is one real failure, so the threshold is 2.
+				cb := NewCircuitBreaker(NewRateLimiter(tooMany), WithFailureThreshold(2))
+				prime(t, cb)
+				return cb
+			},
+		},
+		{
+			name: "adaptive delay", limiter: "rate", deadline: 20 * time.Millisecond, wantDeadline: true,
+			build: func(t *testing.T) *CircuitBreaker {
+				t.Helper()
+				cb := NewCircuitBreaker(
+					NewRateLimiter(ok, WithRequestsPerHour(2), WithBurstSize(2)), WithFailureThreshold(1))
+				prime(t, cb) // 1 of 2 requests used: the next one waits out an adaptive delay
+				return cb
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cb := tt.build(t)
+			ctx, cancel := context.WithTimeout(t.Context(), tt.deadline)
+			defer cancel()
+			resp, err := cb.RoundTrip(newReq(t).WithContext(ctx))
+			drain(t, resp)
+			lw, isWait := errors.AsType[*LimiterWaitError](err)
+			if !isWait {
+				t.Fatalf("error = %v (%T); want *LimiterWaitError", err, err)
+			}
+			if lw.Limiter != tt.limiter {
+				t.Errorf("Limiter = %q; want %q", lw.Limiter, tt.limiter)
+			}
+			if want := "autotask: " + tt.limiter + " limiter: "; !strings.HasPrefix(err.Error(), want) {
+				t.Errorf("error text = %q; want prefix %q", err.Error(), want)
+			}
+			if got := errors.Is(err, context.DeadlineExceeded); got != tt.wantDeadline {
+				t.Errorf("errors.Is(err, DeadlineExceeded) = %v; want %v", got, tt.wantDeadline)
+			}
+			if lw.Timeout() != tt.wantDeadline {
+				t.Errorf("Timeout() = %v; want %v", lw.Timeout(), tt.wantDeadline)
+			}
+			if cb.State() != StateClosed {
+				t.Fatalf("state = %s; want closed, a limiter wait is not a breaker failure", cb.State())
+			}
+		})
+	}
+}
