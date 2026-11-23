@@ -601,6 +601,16 @@ func TestKnownChildTypeIgnoresSegmentStore(t *testing.T) {
 	_, client := NewServer(t, WithEntity(segmentNamedEntity{ID: autotask.Set(int64(100))}))
 	ctx := t.Context()
 
+	// Nothing was created under the ticket, so a read must not be answered by
+	// the seeded "Notes" store.
+	before, err := autotask.ListChild[entities.Ticket, entities.TicketNote](ctx, client, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 0 {
+		t.Errorf("ticket notes before any create = %d items, want 0", len(before))
+	}
+
 	note := entities.TicketNote{Title: autotask.Set("child note")}
 	if _, err := autotask.CreateChild[entities.Ticket](ctx, client, 1, &note); err != nil {
 		t.Fatal(err)
@@ -619,6 +629,47 @@ func TestKnownChildTypeIgnoresSegmentStore(t *testing.T) {
 	}
 	if len(other) != 1 {
 		t.Errorf("List of the segment-named type = %d items, want 1 (the seeded one)", len(other))
+	}
+}
+
+// TestOutsideTypeUsesExistingSegmentStore pins that on a URL no type in package
+// entities claims, an existing store named after the segment serves a child list.
+func TestOutsideTypeUsesExistingSegmentStore(t *testing.T) {
+	_, client := NewServer(t, WithEntity(segmentNamedEntity{ID: autotask.Set(int64(100))}))
+	var resp struct {
+		Items []json.RawMessage `json:"items"`
+	}
+	if err := client.Do(t.Context(), http.MethodGet, "/v1.0/Gadgets/1/Notes", nil, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Items) != 1 {
+		t.Errorf("child list under an unclaimed URL = %d items, want the 1 seeded in the Notes store", len(resp.Items))
+	}
+}
+
+// TestChildEntityRouteClaimsKnownURL pins the escape hatch the docs name: a type
+// from outside this module registered with WithChildEntity reads back on a URL
+// that otherwise belongs to a type in package entities (Tickets/Notes).
+func TestChildEntityRouteClaimsKnownURL(t *testing.T) {
+	_, client := NewServer(t, WithChildEntity[entities.Ticket, segmentNamedEntity](1))
+	ctx := t.Context()
+
+	item := segmentNamedEntity{}
+	if _, err := autotask.CreateChild[entities.Ticket](ctx, client, 1, &item); err != nil {
+		t.Fatal(err)
+	}
+	id, _ := item.ID.Get()
+	if _, err := autotask.Get[segmentNamedEntity](ctx, client, id); err != nil {
+		t.Fatalf("Get after CreateChild through the route: %v", err)
+	}
+	for parent, want := range map[int64]int{1: 1, 2: 0} {
+		list, err := autotask.ListChild[entities.Ticket, segmentNamedEntity](ctx, client, parent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(list) != want {
+			t.Errorf("items under ticket %d = %d, want %d", parent, len(list), want)
+		}
 	}
 }
 
@@ -681,23 +732,36 @@ func entityNamesDeclared(t *testing.T, dir string) map[string]bool {
 		}
 		for _, d := range f.Decls {
 			fn, ok := d.(*ast.FuncDecl)
-			if !ok || fn.Recv == nil || fn.Name.Name != "EntityName" || len(fn.Body.List) != 1 {
+			if !ok || fn.Recv == nil || fn.Name.Name != "EntityName" {
 				continue
 			}
-			ret, ok := fn.Body.List[0].(*ast.ReturnStmt)
-			if !ok || len(ret.Results) != 1 {
+			name, ok := returnedStringLiteral(fn)
+			if !ok {
+				t.Errorf("%s: EntityName does not return a single string literal, so the registry test cannot read it", file)
 				continue
 			}
-			if lit, ok := ret.Results[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
-				name, err := strconv.Unquote(lit.Value)
-				if err != nil {
-					t.Fatal(err)
-				}
-				found[name] = true
-			}
+			found[name] = true
 		}
 	}
 	return found
+}
+
+// returnedStringLiteral returns the value of fn's body when it is a single
+// "return <string literal>" statement.
+func returnedStringLiteral(fn *ast.FuncDecl) (string, bool) {
+	if fn.Body == nil || len(fn.Body.List) != 1 {
+		return "", false
+	}
+	ret, ok := fn.Body.List[0].(*ast.ReturnStmt)
+	if !ok || len(ret.Results) != 1 {
+		return "", false
+	}
+	lit, ok := ret.Results[0].(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	name, err := strconv.Unquote(lit.Value)
+	return name, err == nil
 }
 
 // TestChildListOfUnknownTypeSendsEmptyItemsArray pins the wire shape of a child
