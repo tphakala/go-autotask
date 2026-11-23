@@ -1,7 +1,9 @@
 package autotasktest
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,33 +11,92 @@ import (
 	"strings"
 )
 
-// parseEntityAndID extracts entity name, optional ID, and parent info from path.
-// Paths: /v1.0/{entity}/{id} or /v1.0/{parent}/{parentID}/{child}
+// requestPath is a parsed request path.
+type requestPath struct {
+	entity   string // entity name, or the child segment for a child path
+	id       int64  // item id, or 0 when the path names a collection
+	child    bool   // the path is under a parent
+	parent   string // parent entity name, for a child path
+	parentID int64  // parent id, for a child path
+}
+
+// parsePath splits a request path. Paths:
 //
-// For child paths, parentID is returned so callers can optionally filter by parent.
-// Currently the mock returns all children regardless of parentID — this is a known
-// simplification since the mock primarily validates path correctness, not FK relationships.
-func parseEntityAndID(path string) (entityName string, id int64, isChild bool, parentID int64) { //nolint:unparam // parentID is intentionally returned for future FK filtering
-	// Strip leading "/v1.0/"
-	trimmed := strings.TrimPrefix(path, "/v1.0/")
-	parts := strings.Split(trimmed, "/")
+//	/v1.0/{entity}
+//	/v1.0/{entity}/{id}
+//	/v1.0/{parent}/{parentID}/{child}
+//	/v1.0/{parent}/{parentID}/{child}/{id}
+//
+// Any longer path is read as /v1.0/{entity}.
+func parsePath(path string) requestPath {
+	parts := strings.Split(strings.TrimPrefix(path, "/v1.0/"), "/")
+	var p requestPath
 	switch len(parts) {
 	case 1:
-		// /v1.0/{entity}
-		entityName = parts[0]
+		p.entity = parts[0]
 	case 2: //nolint:mnd // path segment count
-		// /v1.0/{entity}/{id}
-		entityName = parts[0]
-		id, _ = strconv.ParseInt(parts[1], 10, 64)
-	case 3: //nolint:mnd // path segment count
-		// /v1.0/{parent}/{parentID}/{child}
-		parentID, _ = strconv.ParseInt(parts[1], 10, 64)
-		entityName = parts[2]
-		isChild = true
+		p.entity = parts[0]
+		p.id, _ = strconv.ParseInt(parts[1], 10, 64)
+	case 3, 4: //nolint:mnd // path segment count
+		p.child = true
+		p.parent = parts[0]
+		p.parentID, _ = strconv.ParseInt(parts[1], 10, 64)
+		p.entity = parts[2]
+		if len(parts) == 4 { //nolint:mnd // path segment count
+			p.id, _ = strconv.ParseInt(parts[3], 10, 64)
+		}
 	default:
-		entityName = parts[0]
+		p.entity = parts[0]
 	}
-	return
+	return p
+}
+
+// singularEntityName returns the singular form of an Autotask entity name, with
+// the same rules as the singular function of cmd/autotask-gen: two irregular
+// plurals, a trailing "ies" becomes "y", else a trailing "s" is dropped. The
+// mock relies on the naming convention that a child collection
+// /{Parent}/{id}/{Segment} holds the entities named singular(Parent)+Segment,
+// as in Tickets/Attachments and TicketAttachments. The convention is read off
+// the entity types in this module, it is not an Autotask guarantee.
+func singularEntityName(s string) string {
+	switch s {
+	case "Statuses":
+		return "Status"
+	case "Addresses":
+		return "Address"
+	}
+	if strings.HasSuffix(s, "ies") {
+		return s[:len(s)-3] + "y"
+	}
+	return strings.TrimSuffix(s, "s")
+}
+
+// resolveChildStore finds the store behind a child URL: the route registered by
+// WithChildEntity, else the store singular(parent)+segment, else the store
+// segment. When none exists it creates singular(parent)+segment if create is
+// set, and otherwise reports false. Lookup and creation share one lock hold, so
+// concurrent creates under a new child URL share one store.
+func (ts *TestServer) resolveChildStore(parent, segment string, create bool) (*entityStore, bool) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if name, ok := ts.childRoutes[parent+"/"+segment]; ok {
+		if store, ok := ts.entities[name]; ok {
+			return store, true
+		}
+	}
+	derived := singularEntityName(parent) + segment
+	if store, ok := ts.entities[derived]; ok {
+		return store, true
+	}
+	if store, ok := ts.entities[segment]; ok {
+		return store, true
+	}
+	if !create {
+		return nil, false
+	}
+	store := newEntityStore(derived)
+	ts.entities[derived] = store
+	return store, true
 }
 
 func (ts *TestServer) getStore(entityName string) (*entityStore, bool) {
@@ -45,40 +106,88 @@ func (ts *TestServer) getStore(entityName string) (*entityStore, bool) {
 	return store, ok
 }
 
+// storeFor returns the store a request path addresses, for a path that does
+// not create one.
+func (ts *TestServer) storeFor(p requestPath) (*entityStore, bool) {
+	if p.child {
+		return ts.resolveChildStore(p.parent, p.entity, false)
+	}
+	return ts.getStore(p.entity)
+}
+
+// writePage answers a list request with one page of items. A pageSize of 0 or
+// less puts every item on one page. The page comes from the ?page=N query
+// parameter, and a page past the last item answers an empty page.
+func (ts *TestServer) writePage(w http.ResponseWriter, r *http.Request, items []json.RawMessage) {
+	pageNum := 1
+	if p := r.URL.Query().Get("page"); p != "" {
+		if n, err := strconv.Atoi(p); err == nil && n > 0 {
+			pageNum = n
+		}
+	}
+	pageSize := ts.opts.pageSize
+	if pageSize <= 0 {
+		pageSize = max(len(items), 1)
+	}
+	// Compare before multiplying so a huge ?page=N cannot overflow the offset.
+	start := len(items)
+	if pageNum-1 <= len(items)/pageSize {
+		start = min((pageNum-1)*pageSize, len(items))
+	}
+	end := start + min(pageSize, len(items)-start)
+	page := items[start:end]
+
+	var nextPageURL any
+	if end < len(items) {
+		nextPageURL = fmt.Sprintf("%s%s?page=%d", ts.URL, r.URL.Path, pageNum+1)
+	}
+	var prevPageURL any
+	if pageNum > 1 {
+		prevPageURL = fmt.Sprintf("%s%s?page=%d", ts.URL, r.URL.Path, pageNum-1)
+	}
+	writeJSON(w, map[string]any{
+		"items": page,
+		"pageDetails": map[string]any{
+			"count":        len(page),
+			"requestCount": ts.opts.pageSize,
+			"prevPageUrl":  prevPageURL,
+			"nextPageUrl":  nextPageURL,
+		},
+	})
+}
+
 func (ts *TestServer) handleGet(w http.ResponseWriter, r *http.Request) {
-	entityName, id, isChild, _ := parseEntityAndID(r.URL.Path)
-	store, ok := ts.getStore(entityName)
+	p := parsePath(r.URL.Path)
+	store, ok := ts.storeFor(p)
+	if !ok && p.child && p.id == 0 {
+		// A child collection nothing was stored for is an empty list, as for a
+		// parent without children. The slice is non-nil so it encodes as [].
+		ts.writePage(w, r, []json.RawMessage{})
+		return
+	}
 	if !ok {
-		writeErrorResponse(w, http.StatusNotFound, []string{fmt.Sprintf("Entity %q not found", entityName)})
+		writeErrorResponse(w, http.StatusNotFound, []string{fmt.Sprintf("Entity %q not found", p.entity)})
 		return
 	}
 
-	if isChild || id == 0 {
-		// Child entity listing or bare entity GET — return all items.
-		items := store.all()
-		pageSize := ts.opts.pageSize
-		if pageSize <= 0 {
-			pageSize = len(items)
+	if p.id == 0 {
+		// Collection GET: a child list shows the items under its parent, a bare
+		// entity GET shows every item.
+		if p.child {
+			ts.writePage(w, r, store.forParent(p.parentID))
+		} else {
+			ts.writePage(w, r, store.all())
 		}
-		pageSize = min(pageSize, len(items))
-		page := items[:pageSize]
-		var nextPageURL string
-		if len(items) > pageSize {
-			nextPageURL = fmt.Sprintf("%s%s?page=2", ts.URL, r.URL.Path)
-		}
-		writeJSON(w, map[string]any{
-			"items": page,
-			"pageDetails": map[string]any{
-				"count":        len(page),
-				"requestCount": ts.opts.pageSize,
-				"prevPageUrl":  nil,
-				"nextPageUrl":  nextPageURL,
-			},
-		})
 		return
 	}
 
-	item, found := store.getByID(id)
+	var item json.RawMessage
+	var found bool
+	if p.child {
+		item, found = store.getByIDForParent(p.id, p.parentID)
+	} else {
+		item, found = store.getByID(p.id)
+	}
 	if !found {
 		// A missing id answers 200 with a null item, not 404, so tests exercise
 		// the same client path as the real API.
@@ -89,13 +198,14 @@ func (ts *TestServer) handleGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ts *TestServer) handleCreate(w http.ResponseWriter, r *http.Request) {
-	entityName, _, isChild, _ := parseEntityAndID(r.URL.Path)
-	store, ok := ts.getStore(entityName)
-	if !ok {
+	p := parsePath(r.URL.Path)
+	var store *entityStore
+	if p.child {
+		store, _ = ts.resolveChildStore(p.parent, p.entity, true)
+	} else {
 		// Auto-create store for unknown entities.
 		ts.mu.Lock()
-		store = newEntityStore(entityName)
-		ts.entities[entityName] = store
+		store = ts.ensureStore(p.entity)
 		ts.mu.Unlock()
 	}
 
@@ -105,8 +215,8 @@ func (ts *TestServer) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var m map[string]any
-	if err := json.Unmarshal(body, &m); err != nil {
+	m, err := decodeObject(body)
+	if err != nil {
 		writeErrorResponse(w, http.StatusBadRequest, []string{"Invalid JSON body"})
 		return
 	}
@@ -119,7 +229,7 @@ func (ts *TestServer) handleCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Assign ID and store.
+	// Assign ID and store, recording the parent of a child create.
 	newID := store.allocateID()
 	m["id"] = newID
 	data, err := json.Marshal(m)
@@ -127,17 +237,16 @@ func (ts *TestServer) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeErrorResponse(w, http.StatusInternalServerError, []string{"Failed to marshal entity"})
 		return
 	}
-	store.add(data)
+	store.add(data, p.parentID)
 
-	_ = isChild // child creates work the same way
 	writeJSON(w, map[string]any{"itemId": newID})
 }
 
 func (ts *TestServer) handleUpdate(w http.ResponseWriter, r *http.Request) {
-	entityName, _, _, _ := parseEntityAndID(r.URL.Path)
-	store, ok := ts.getStore(entityName)
+	p := parsePath(r.URL.Path)
+	store, ok := ts.storeFor(p)
 	if !ok {
-		writeErrorResponse(w, http.StatusNotFound, []string{fmt.Sprintf("Entity %q not found", entityName)})
+		writeErrorResponse(w, http.StatusNotFound, []string{fmt.Sprintf("Entity %q not found", p.entity)})
 		return
 	}
 
@@ -147,8 +256,8 @@ func (ts *TestServer) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var m map[string]any
-	if err := json.Unmarshal(body, &m); err != nil {
+	m, err := decodeObject(body)
+	if err != nil {
 		writeErrorResponse(w, http.StatusBadRequest, []string{"Invalid JSON body"})
 		return
 	}
@@ -159,14 +268,21 @@ func (ts *TestServer) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Replace the stored entity so follow-up GETs return updated data.
+	// Replace the stored entity so follow-up GETs return updated data. The item
+	// keeps the parent it was created under.
 	updated, err := json.Marshal(m)
 	if err != nil {
 		writeErrorResponse(w, http.StatusInternalServerError, []string{"Failed to marshal updated entity"})
 		return
 	}
-	if !store.updateByID(id, updated) {
-		writeErrorResponse(w, http.StatusNotFound, []string{fmt.Sprintf("%s with ID %d not found", entityName, id)})
+	var found bool
+	if p.child {
+		found = store.updateByIDForParent(id, p.parentID, updated)
+	} else {
+		found = store.updateByID(id, updated)
+	}
+	if !found {
+		writeErrorResponse(w, http.StatusNotFound, []string{fmt.Sprintf("%s with ID %d not found", store.name, id)})
 		return
 	}
 
@@ -175,24 +291,30 @@ func (ts *TestServer) handleUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ts *TestServer) handleDelete(w http.ResponseWriter, r *http.Request) {
-	entityName, id, _, _ := parseEntityAndID(r.URL.Path)
-	store, ok := ts.getStore(entityName)
+	p := parsePath(r.URL.Path)
+	store, ok := ts.storeFor(p)
 	if !ok {
-		writeErrorResponse(w, http.StatusNotFound, []string{fmt.Sprintf("Entity %q not found", entityName)})
+		writeErrorResponse(w, http.StatusNotFound, []string{fmt.Sprintf("Entity %q not found", p.entity)})
 		return
 	}
 
 	if !store.canDelete {
-		writeErrorResponse(w, http.StatusBadRequest, []string{fmt.Sprintf("Entity %q does not support deletion", entityName)})
+		writeErrorResponse(w, http.StatusBadRequest, []string{fmt.Sprintf("Entity %q does not support deletion", store.name)})
 		return
 	}
 
-	if !store.deleteByID(id) {
-		writeErrorResponse(w, http.StatusNotFound, []string{fmt.Sprintf("%s with ID %d not found", entityName, id)})
+	var found bool
+	if p.child {
+		found = store.deleteByIDForParent(p.id, p.parentID)
+	} else {
+		found = store.deleteByID(p.id)
+	}
+	if !found {
+		writeErrorResponse(w, http.StatusNotFound, []string{fmt.Sprintf("%s with ID %d not found", store.name, p.id)})
 		return
 	}
 
-	writeJSON(w, map[string]any{"itemId": id})
+	writeJSON(w, map[string]any{"itemId": p.id})
 }
 
 // Metadata handlers.
@@ -280,4 +402,24 @@ func (ts *TestServer) handleThresholdInfo(w http.ResponseWriter, r *http.Request
 		"currentTimeframeInternalCrossDomainRequestCount": thresholdInternalCurrentCount,
 		"internalCrossDomainRequestThreshold":             thresholdInternalLimit,
 	})
+}
+
+// decodeObject decodes a JSON object with numbers kept as json.Number, so an
+// id above 2^53 survives create, Get, Update and Delete by id exactly. Query
+// filters still compare numbers as float64. A null body or data after the
+// object is an error.
+func decodeObject(data []byte) (map[string]any, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var m map[string]any
+	if err := dec.Decode(&m); err != nil {
+		return nil, err
+	}
+	if m == nil {
+		return nil, errors.New("autotasktest: body is not a JSON object")
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, errors.New("autotasktest: data after the JSON object")
+	}
+	return m, nil
 }

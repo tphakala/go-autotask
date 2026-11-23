@@ -27,7 +27,7 @@ client, err := autotask.NewClient(ctx, autotask.AuthConfig{
 - **Optional fields**: three-state `Optional[T]` type (unset / null / value) for correct API semantics
 - **Middleware**: composable rate limiter, circuit breaker, concurrency limiter, and API threshold monitor
 - **Raw operations**: `GetRaw`, `ListRaw`, and friends for entities not defined in the library
-- **Child entities**: `ListChild` and `CreateChild` for parent-child relationships
+- **Child entities**: `ListChild`, `CreateChild`, `UpdateChild` and `DeleteChild` for parent-child relationships
 - **Metadata introspection**: query field definitions, picklists, UDFs, and entity capabilities at runtime
 - **Code generation**: `autotask-gen` generates entity structs from live API metadata
 - **Test support**: `autotasktest.NewMockClient` for in-memory testing with fixtures
@@ -277,7 +277,17 @@ note, err := autotask.CreateChild[entities.Ticket](ctx, client, ticketID, &entit
     Title:       autotask.Set("Update"),
     Description: autotask.Set("Fixed the issue."),
 })
+
+// Update a note through its ticket: PATCH /v1.0/Tickets/{ticketID}/Notes
+// The note's ID must be set; every set field is sent.
+note.Title = autotask.Set("Update (edited)")
+note, err = autotask.UpdateChild[entities.Ticket](ctx, client, ticketID, note)
+
+// Delete an attachment through its note: DELETE /v1.0/TicketNotes/{noteID}/Attachments/{id}
+err = autotask.DeleteChild[entities.TicketNote, entities.TicketNoteAttachment](ctx, client, noteID, attachmentID)
 ```
+
+Some entities are updated or deleted only through the parent's URL; `Update` sends `/v1.0/{Entity}` and `Delete` sends `/v1.0/{Entity}/{id}`, URLs the API does not offer for them. `UpdateChildRaw` and `DeleteChildRaw` do the same with entity names instead of types.
 
 ## Problem, incident and change request tickets
 
@@ -364,6 +374,8 @@ func TestMyCode(t *testing.T) {
     // use client in tests, server and client are cleaned up automatically
 }
 ```
+
+`autotasktest.NewServer` is a validating in-memory server that keeps what tests create. It stores child items per parent and per entity type: a child URL such as `/v1.0/Tickets/{id}/Attachments` reaches the store of the `TicketAttachments` entity (the singular parent name plus the segment), so the same items answer `Get`, `List` and `Count` for that type. A type whose entity name is not the singular parent name plus the segment (`Task` under `Projects`) needs `WithChildEntity` for that, or a `WithEntity` seed when its entity name is the segment. A child list shows the items created under that parent, child `GET` by id, `PATCH` and `DELETE` check the parent, and a list pages by `?page=N`. `WithChildEntity[Parent](parentID, items...)` seeds children under a parent, and is also how to route a child type whose entity name is neither of those names. Items seeded with `WithEntity` have no parent and appear under every parent whose child URL resolves to their store. `DELETE` needs `WithDeleteSupport` with the child's entity name, for example `WithDeleteSupport("TicketNoteAttachments")`.
 
 ## Zone discovery
 

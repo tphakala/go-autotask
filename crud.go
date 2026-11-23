@@ -97,7 +97,12 @@ func Update[T Entity](ctx context.Context, c *Client, entity *T) (*T, error) {
 	if entity == nil {
 		return nil, fmt.Errorf("autotask: entity must not be nil")
 	}
-	path := fmt.Sprintf("/v1.0/%s", (*entity).EntityName())
+	return patchEntity(ctx, c, fmt.Sprintf("/v1.0/%s", (*entity).EntityName()), entity)
+}
+
+// patchEntity sends entity as a PATCH to path and returns the updated entity
+// when the response carries an item, else entity itself. entity must not be nil.
+func patchEntity[T Entity](ctx context.Context, c *Client, path string, entity *T) (*T, error) {
 	var resp struct {
 		Item json.RawMessage `json:"item"`
 	}
