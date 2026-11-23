@@ -103,7 +103,9 @@ func WithFailurePredicate(fn func(resp *http.Response, err error) bool) CircuitB
 // each time its state changes (closed to open, open to half-open, half-open to
 // open, half-open to closed). The record has the attributes "from" and "to",
 // the state names, and nothing from the request. Requests rejected while the
-// breaker is open are not logged.
+// breaker is open are not logged. Records are written after the breaker
+// releases its lock, so the records of changes made by concurrent requests can
+// appear in a different order than the changes.
 func WithCircuitBreakerLogger(l *slog.Logger) CircuitBreakerOption {
 	return func(c *circuitBreakerConfig) {
 		if l != nil {
