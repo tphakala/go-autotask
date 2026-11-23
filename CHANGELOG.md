@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Typed child calls for `entities.QuoteItem` and `entities.ExpenseItem` addressed URLs the REST swagger does not list** (#52). `CreateChild`, `UpdateChild`, `DeleteChild`, `GetChild`, `ListChild` and `ListChildIter` now send `/v1.0/Quotes/{id}/Items` for `QuoteItem` (was `/v1.0/Quotes/{id}/QuoteItems`) and `/v1.0/Expenses/{id}/Items` for `ExpenseItem` (was `/v1.0/ExpenseReports/{id}/ExpenseItems`). This changes the URL for any caller of those calls with these two types. Root `Get`, `List`, `Count`, `Create`, `Update` and `Delete` are unchanged.
+- **Typed child calls for `entities.QuoteItem` and `entities.ExpenseItem` addressed URLs the REST swagger does not list** (#52). `CreateChild`, `UpdateChild`, `DeleteChild`, `GetChild`, `ListChild` and `ListChildIter` now use the collection `/v1.0/Quotes/{id}/Items` for `QuoteItem` (`DeleteChild` appends the item id) (was `/v1.0/Quotes/{id}/QuoteItems`) and `/v1.0/Expenses/{id}/Items` for `ExpenseItem` (was `/v1.0/ExpenseReports/{id}/ExpenseItems`). This changes the URL for any caller of those calls with these two types. Root `Get`, `List`, `Count`, `Create`, `Update` and `Delete` are unchanged.
 
 ## [1.9.0] - 2026-11-23
 
