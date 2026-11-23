@@ -159,7 +159,7 @@ for ticket, err := range autotask.ListIter[entities.Ticket](ctx, client, autotas
 }
 ```
 
-The untyped iterators take entity names as strings and yield `map[string]any`, which is handy for entities without a generated Go type:
+`ListRawIter` and `ListChildRawIter` take entity names as strings and yield `map[string]any`, which is handy for entities without a generated Go type:
 
 ```go
 for item, err := range autotask.ListRawIter(ctx, client, "Tickets", autotask.NewQuery()) {
