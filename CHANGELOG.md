@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`autotasktest.NewServer` child `DELETE` and child `GET` by id.** A child `DELETE` went to the parent's store, and a child `GET` by id returned the parent's list.
 - **Child lists in `autotasktest.NewServer` ignored `?page=N`**, so a list longer than `WithPageSize` repeated its first page.
+- **`autotasktest.NewServer` gave a created item the id of a seeded one.** Ids for creates started at 1 whatever ids `WithEntity` seeded, so a later read or update of that id could reach the seeded item. Seeding now moves the id sequence past each seeded id.
+- **A large `?page=N` in `autotasktest.NewServer` list and query responses could panic or return the wrong page**, because the page offset overflowed. A page past the last item now answers an empty page.
 
 ## [1.8.0] - 2026-11-23
 

@@ -3,6 +3,7 @@ package autotasktest
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"sync"
@@ -47,11 +48,19 @@ func newEntityStore(name string) *entityStore {
 	}
 }
 
-// add stores data under parentID (0 for no parent).
+// add stores data under parentID (0 for no parent). It moves the id allocator
+// past the item's id, so a create after a seeded item never reuses its id.
 func (s *entityStore) add(data json.RawMessage, parentID int64) {
+	var ref struct {
+		ID int64 `json:"id"`
+	}
+	_ = json.Unmarshal(data, &ref) // an item without a numeric id reserves nothing
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.items = append(s.items, storedItem{data: data, parentID: parentID})
+	if ref.ID >= s.nextID && ref.ID < math.MaxInt64 {
+		s.nextID = ref.ID + 1
+	}
 }
 
 // indexOf returns the position of the item with the given id for which match

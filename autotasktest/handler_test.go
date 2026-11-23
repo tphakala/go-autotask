@@ -1,11 +1,14 @@
 package autotasktest
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -523,6 +526,17 @@ func TestPageSizeZeroPutsEverythingOnOnePage(t *testing.T) {
 	_, client := NewServer(t, WithPageSize(0), WithChildEntity[entities.Ticket](1, mk("n1"), mk("n2")))
 	ctx := t.Context()
 
+	// An empty list must not divide by a zero page size.
+	var empty struct {
+		Items []json.RawMessage `json:"items"`
+	}
+	if err := client.Do(ctx, http.MethodGet, "/v1.0/Tickets/1/Attachments", nil, &empty); err != nil {
+		t.Fatalf("empty child list: %v", err)
+	}
+	if len(empty.Items) != 0 {
+		t.Errorf("empty child list: %d items, want 0", len(empty.Items))
+	}
+
 	for _, path := range []string{"/v1.0/Tickets/1/Notes", "/v1.0/TicketNotes/query"} {
 		method := http.MethodGet
 		var body any
@@ -578,5 +592,55 @@ func TestChildListOfUnknownTypeSendsEmptyItemsArray(t *testing.T) {
 	}
 	if got := string(resp.Items); got != "[]" {
 		t.Errorf("items = %s, want []", got)
+	}
+}
+
+// TestHugePageNumberAnswersEmptyPage pins that a ?page=N whose offset would
+// overflow int answers an empty page instead of panicking.
+func TestHugePageNumberAnswersEmptyPage(t *testing.T) {
+	mk := func(title string) entities.TicketNote {
+		return TicketNoteFixture(func(n *entities.TicketNote) { n.Title = autotask.Set(title) })
+	}
+	_, client := NewServer(t, WithPageSize(2), WithChildEntity[entities.Ticket](1, mk("n1"), mk("n2")))
+	var resp struct {
+		Items []json.RawMessage `json:"items"`
+	}
+	path := "/v1.0/Tickets/1/Notes?page=" + strconv.Itoa(math.MaxInt)
+	if err := client.Do(t.Context(), http.MethodGet, path, nil, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Items) != 0 {
+		t.Errorf("items = %d, want 0", len(resp.Items))
+	}
+}
+
+// TestCreateAfterSeedDoesNotReuseSeededID pins that a create never returns the
+// id of a seeded item: a root create after WithEntity and a child create after
+// WithChildEntity.
+func TestCreateAfterSeedDoesNotReuseSeededID(t *testing.T) {
+	seeded := TicketNoteFixture(func(n *entities.TicketNote) { n.ID = autotask.Set(int64(1)) })
+	create := map[string]func(context.Context, *autotask.Client) (*entities.TicketNote, error){
+		"root after WithEntity": func(ctx context.Context, c *autotask.Client) (*entities.TicketNote, error) {
+			return autotask.Create(ctx, c, &entities.TicketNote{Title: autotask.Set("new")})
+		},
+		"child after WithChildEntity": func(ctx context.Context, c *autotask.Client) (*entities.TicketNote, error) {
+			return autotask.CreateChild[entities.Ticket](ctx, c, 1, &entities.TicketNote{Title: autotask.Set("new")})
+		},
+	}
+	opts := map[string]ServerOption{
+		"root after WithEntity":       WithEntity(seeded),
+		"child after WithChildEntity": WithChildEntity[entities.Ticket](1, seeded),
+	}
+	for name, fn := range create {
+		t.Run(name, func(t *testing.T) {
+			_, client := NewServer(t, opts[name])
+			got, err := fn(t.Context(), client)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if id, _ := got.ID.Get(); id == 1 {
+				t.Errorf("create got id 1, the seeded item's id")
+			}
+		})
 	}
 }

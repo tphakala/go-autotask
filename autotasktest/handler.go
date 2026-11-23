@@ -115,7 +115,7 @@ func (ts *TestServer) storeFor(p requestPath) (*entityStore, bool) {
 
 // writePage answers a list request with one page of items. A pageSize of 0 or
 // less puts every item on one page. The page comes from the ?page=N query
-// parameter.
+// parameter, and a page past the last item answers an empty page.
 func (ts *TestServer) writePage(w http.ResponseWriter, r *http.Request, items []json.RawMessage) {
 	pageNum := 1
 	if p := r.URL.Query().Get("page"); p != "" {
@@ -125,10 +125,14 @@ func (ts *TestServer) writePage(w http.ResponseWriter, r *http.Request, items []
 	}
 	pageSize := ts.opts.pageSize
 	if pageSize <= 0 {
-		pageSize = len(items)
+		pageSize = max(len(items), 1)
 	}
-	start := min((pageNum-1)*pageSize, len(items))
-	end := min(start+pageSize, len(items))
+	// Compare before multiplying so a huge ?page=N cannot overflow the offset.
+	start := len(items)
+	if pageNum-1 <= len(items)/pageSize {
+		start = min((pageNum-1)*pageSize, len(items))
+	}
+	end := start + min(pageSize, len(items)-start)
 	page := items[start:end]
 
 	var nextPageURL any
