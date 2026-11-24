@@ -205,6 +205,16 @@ func (ts *TestServer) storeFor(p requestPath) (*entityStore, bool) {
 	return ts.getStore(p.entity)
 }
 
+// itemsAt returns the items the collection at path p shows: for a child path
+// the items visible under its parent (see forParent), for a root path every
+// item. The child list, query and count all read through it.
+func (s *entityStore) itemsAt(p requestPath) []json.RawMessage {
+	if p.child {
+		return s.forParent(p.owner())
+	}
+	return s.all()
+}
+
 // writePage answers a list request with one page of items. A pageSize of 0 or
 // less puts every item on one page. The page comes from the ?page=N query
 // parameter, and a page past the last item answers an empty page.
@@ -263,11 +273,7 @@ func (ts *TestServer) handleGet(w http.ResponseWriter, r *http.Request) {
 	if p.id == 0 {
 		// Collection GET: a child list shows the items under its parent, a bare
 		// entity GET shows every item.
-		if p.child {
-			ts.writePage(w, r, store.forParent(p.owner()))
-		} else {
-			ts.writePage(w, r, store.all())
-		}
+		ts.writePage(w, r, store.itemsAt(p))
 		return
 	}
 

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`autotasktest.NewServer` answered a query or count on a child URL as if it were the root URL of the segment** (#73). `POST /v1.0/Tickets/{id}/Notes/query` and its `/query/count` looked `Notes` up as an entity name and found nothing, though `GET /v1.0/Tickets/{id}/Notes` listed the notes, and `/v1.0/Companies/9/Contacts/query` returned contacts created under company 7. A query or count on a child URL now resolves its store as the child list does and sees the items that list shows; the filter, paging and count apply to those. A child URL that resolves to no store still answers an empty page and a count of 0, and query and count on root URLs are unchanged.
+
 ## [1.11.0] - 2026-11-24
 
 ### Added

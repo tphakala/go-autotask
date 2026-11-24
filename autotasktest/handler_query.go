@@ -11,7 +11,8 @@ import (
 )
 
 func (ts *TestServer) handleQuery(w http.ResponseWriter, r *http.Request) {
-	store, ok := ts.getStore(parsePath(strings.TrimSuffix(r.URL.Path, "/query")).entity)
+	p := parsePath(strings.TrimSuffix(r.URL.Path, "/query"))
+	store, ok := ts.storeFor(p)
 	if !ok {
 		writeJSON(w, map[string]any{
 			"items":       []any{},
@@ -34,10 +35,8 @@ func (ts *TestServer) handleQuery(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Get all matching items (for simplicity, return all items from store).
-	// In-memory filter evaluation applies basic matching.
-	allItems := store.all()
-	matched := filterItems(allItems, body)
+	// The items the collection at this path shows, filtered in memory.
+	matched := filterItems(store.itemsAt(p), body)
 
 	// Pagination is governed solely by pageSize. The query's MaxRecords is
 	// validated for range (see validate.go) but intentionally NOT applied to the
@@ -48,7 +47,8 @@ func (ts *TestServer) handleQuery(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ts *TestServer) handleCount(w http.ResponseWriter, r *http.Request) {
-	store, ok := ts.getStore(parsePath(strings.TrimSuffix(r.URL.Path, "/query/count")).entity)
+	p := parsePath(strings.TrimSuffix(r.URL.Path, "/query/count"))
+	store, ok := ts.storeFor(p)
 	if !ok {
 		writeJSON(w, map[string]any{"queryCount": 0})
 		return
@@ -67,7 +67,7 @@ func (ts *TestServer) handleCount(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	matched := filterItems(store.all(), body)
+	matched := filterItems(store.itemsAt(p), body)
 	writeJSON(w, map[string]any{"queryCount": len(matched)})
 }
 

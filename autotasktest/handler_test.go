@@ -629,6 +629,73 @@ func TestChildListPages(t *testing.T) {
 	}
 }
 
+// TestChildQueryAndCountSeeChildListItems pins that a query or count on a child
+// URL sees the items the child list at that URL shows (those under its parent
+// plus ownerless ones) and applies its filter to them, and that root URLs still
+// see every item. A child URL that resolves to no store answers an empty page
+// and a count of 0.
+func TestChildQueryAndCountSeeChildListItems(t *testing.T) {
+	seeded := TicketNoteFixture(func(n *entities.TicketNote) { n.Title = autotask.Set("seeded") })
+	note := TicketNoteFixture(func(n *entities.TicketNote) { n.Title = autotask.Set("ticket 1") })
+	contact := ContactFixture()
+	_, client := NewServer(t,
+		WithEntity(seeded),
+		WithChildEntity[entities.Ticket](1, note),
+		WithChildEntity[entities.Company](7, contact),
+	)
+	ctx := t.Context()
+	seededID, _ := seeded.ID.Get()
+	noteID, _ := note.ID.Get()
+	contactID, _ := contact.ID.Get()
+	all := `{"filter":[]}`
+
+	for _, tt := range []struct {
+		name string
+		path string
+		body string
+		want []int64
+	}{
+		{"child derived store", "/v1.0/Tickets/1/Notes", all, []int64{seededID, noteID}},
+		{"filter on the child set", "/v1.0/Tickets/1/Notes", fmt.Sprintf(`{"filter":[{"field":"id","op":"eq","value":%d}]}`, noteID), []int64{noteID}},
+		{"other parent", "/v1.0/Companies/9/Contacts", all, nil},
+		{"own parent", "/v1.0/Companies/7/Contacts", all, []int64{contactID}},
+		{"unknown segment", "/v1.0/Gadgets/1/Zzz", all, nil},
+		{"root keeps every item", "/v1.0/TicketNotes", all, []int64{seededID, noteID}},
+		{"root of a store holding only owned items", "/v1.0/Contacts", all, []int64{contactID}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var page struct {
+				Items []struct {
+					ID int64 `json:"id"`
+				} `json:"items"`
+			}
+			if err := client.Do(ctx, http.MethodPost, tt.path+"/query", json.RawMessage(tt.body), &page); err != nil {
+				t.Fatal(err)
+			}
+			if page.Items == nil {
+				t.Error("items is null, want an array")
+			}
+			got := make([]int64, 0, len(page.Items))
+			for _, it := range page.Items {
+				got = append(got, it.ID)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("query ids = %v, want %v", got, tt.want)
+			}
+
+			var count struct {
+				QueryCount int `json:"queryCount"`
+			}
+			if err := client.Do(ctx, http.MethodPost, tt.path+"/query/count", json.RawMessage(tt.body), &count); err != nil {
+				t.Fatal(err)
+			}
+			if count.QueryCount != len(tt.want) {
+				t.Errorf("queryCount = %d, want %d", count.QueryCount, len(tt.want))
+			}
+		})
+	}
+}
+
 // TestPageSizeZeroPutsEverythingOnOnePage pins that a page size of 0 or less
 // answers every item on one page, with no next link, for a child list and a query.
 func TestPageSizeZeroPutsEverythingOnOnePage(t *testing.T) {
