@@ -129,8 +129,11 @@ func needsUnderscore(b []byte, i int) bool {
 // generateEntity writes the struct for the entity name to OutputDir. It
 // returns a non-empty skipReason, and writes nothing, when the file it would
 // write exists without the generated header or when the Go name of the struct
-// is already declared in another Go source file of OutputDir. Test files and
-// names starting with "." or "_" are not read.
+// is already declared in another Go source file of OutputDir. Test files,
+// names starting with "." or "_", and entries that are neither regular files
+// nor symbolic links to one are not read. A formatting failure returns the
+// error and writes nothing; the file is replaced by rename, so it is never
+// left partly written.
 func (g *Generator) generateEntity(name string, fields []metadata.FieldInfo, udfs []metadata.UDFInfo) (skipReason string, err error) {
 	filename := toSnakeCase(name) + ".go"
 	path := filepath.Join(g.OutputDir, filename)
@@ -143,10 +146,60 @@ func (g *Generator) generateEntity(name string, fields []metadata.FieldInfo, udf
 	}
 	formatted, err := format.Source([]byte(buf.String()))
 	if err != nil {
-		_ = os.WriteFile(path, []byte(buf.String()), filePerm)
 		return "", fmt.Errorf("formatting generated code for %s: %w", name, err)
 	}
-	return "", os.WriteFile(path, formatted, filePerm)
+	return "", replaceFile(path, formatted)
+}
+
+// tempPattern is the os.CreateTemp pattern for the temporary file written
+// before name is replaced. The leading "." makes the go tool and declaringFile
+// ignore a leftover from a killed run.
+func tempPattern(name string) string { return "." + name + ".tmp*" }
+
+// replaceFile writes data to path through a temporary file in the same
+// directory and a rename, so path holds either its previous content or data.
+// A path that is a symbolic link is followed: the file it points to is
+// replaced and the link stays; a link to a missing file is an error.
+func replaceFile(path string, data []byte) error {
+	info, err := os.Lstat(path)
+	switch {
+	case err == nil && info.Mode()&fs.ModeSymlink != 0:
+		if path, err = filepath.EvalSymlinks(path); err != nil {
+			return err
+		}
+	case err != nil && !errors.Is(err, fs.ErrNotExist):
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), tempPattern(filepath.Base(path)))
+	if err != nil {
+		return err
+	}
+	if err := writeAndClose(tmp, data); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	return nil
+}
+
+// writeAndClose writes data to f, sets its mode to filePerm (os.CreateTemp
+// creates it with 0600) and syncs it, then closes it. It returns the first
+// error; f is closed either way.
+func writeAndClose(f *os.File, data []byte) error {
+	_, err := f.Write(data)
+	if err == nil {
+		err = f.Chmod(filePerm)
+	}
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
 }
 
 // checkTarget returns why filename must not be written, or "" when it may.
@@ -173,7 +226,8 @@ func (g *Generator) checkTarget(filename, typeName string) (string, error) {
 // declaringFile returns the name of a Go file in dir, other than skip, that
 // declares the package-level type typeName, or "" when there is none. Test
 // files and names starting with "." or "_" (which go/build skips, build.go:1451
-// at go1.27.4) are not read. A file excluded by a build constraint, or in
+// at go1.27.4) are not read, nor are entries that are neither regular files
+// nor symbolic links to one. A file excluded by a build constraint, or in
 // another package, is read: it can still declare the type for another
 // platform or layout.
 func declaringFile(dir, skip, typeName string) (string, error) {
@@ -184,7 +238,12 @@ func declaringFile(dir, skip, typeName string) (string, error) {
 	fset := token.NewFileSet()
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || name == skip || !isNonTestGoFile(name) {
+		if name == skip || !isNonTestGoFile(name) {
+			continue
+		}
+		if ok, err := isSourceEntry(dir, entry); err != nil {
+			return "", err
+		} else if !ok {
 			continue
 		}
 		// A file with a syntax error still yields the declarations before
@@ -199,6 +258,25 @@ func declaringFile(dir, skip, typeName string) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// isSourceEntry reports whether entry of dir is a regular file or a symbolic
+// link to one, the entries the go tool compiles. go/build skips directories
+// and symbolic links to directories (build.go:887-895 at go1.27.4). A dangling
+// symbolic link is skipped here because it declares nothing; a link that
+// cannot be resolved for another reason is returned as an error.
+func isSourceEntry(dir string, entry fs.DirEntry) (bool, error) {
+	if entry.Type()&fs.ModeSymlink == 0 {
+		return entry.Type().IsRegular(), nil
+	}
+	info, err := os.Stat(filepath.Join(dir, entry.Name()))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	return info.Mode().IsRegular(), nil
 }
 
 // isNonTestGoFile reports whether name is a non-test Go source file by name:
