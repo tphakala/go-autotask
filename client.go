@@ -28,6 +28,7 @@ type Client struct {
 	auth                 AuthConfig
 	zoneCache            *ZoneCache
 	middlewares          []Middleware
+	thresholdMonitor     bool
 	thresholdMonitorOpts []middleware.ThresholdMonitorOption
 	logger               *slog.Logger
 	userAgent            string
@@ -109,7 +110,7 @@ func NewClient(ctx context.Context, auth AuthConfig, opts ...ClientOption) (*Cli
 	// baseURL.
 	c.httpClient = redirect.Guard(c.httpClient, c.baseURL)
 	// Start threshold monitor if configured.
-	if len(c.thresholdMonitorOpts) > 0 {
+	if c.thresholdMonitor {
 		auth := middleware.AuthHeaders{
 			Username:        c.auth.Username,
 			Secret:          c.auth.Secret,

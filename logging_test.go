@@ -206,3 +206,53 @@ func TestWithLoggerNilKeepsEarlierLogger(t *testing.T) {
 		t.Errorf("got %d breaker records; want 1", got)
 	}
 }
+
+func TestThresholdMonitorWithoutOptionsRuns(t *testing.T) {
+	t.Parallel()
+	srv := newLoggingServer(t, http.StatusOK, "")
+	rec := logtest.New()
+	client, err := autotask.NewClient(t.Context(), autotask.AuthConfig{Username: "u", Secret: "s", IntegrationCode: "c"},
+		autotask.WithZoneBaseURL(srv.URL),
+		autotask.WithThresholdMonitor(),
+		autotask.WithLogger(rec.Logger()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	// The monitor checks once when it starts; the server reports 95% usage.
+	deadline := time.Now().Add(5 * time.Second)
+	for messages(rec)[msgCritical] == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("a monitor enabled with no options wrote no critical record")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestThresholdMonitorKeepsOptionsOfEveryCall(t *testing.T) {
+	t.Parallel()
+	srv := newLoggingServer(t, http.StatusOK, "")
+	own := logtest.New()
+	critical, waitCritical := signal(t)
+	client, err := autotask.NewClient(t.Context(), autotask.AuthConfig{Username: "u", Secret: "s", IntegrationCode: "c"},
+		autotask.WithZoneBaseURL(srv.URL),
+		autotask.WithThresholdMonitor(
+			middleware.WithCriticalCallback(func(middleware.ThresholdInfo) {}),
+			middleware.WithThresholdMonitorLogger(own.Logger()),
+		),
+		autotask.WithThresholdMonitor(critical),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	// The second call's callback replaces the first call's, so it fires only
+	// when the second call's options are applied after the first call's.
+	waitCritical()
+	// The logger comes only from the first call. The monitor logs the record
+	// before it calls the callback (ThresholdMonitor.notify).
+	if got := messages(own)[msgCritical]; got == 0 {
+		t.Error("the first call's logger got no critical record")
+	}
+}
