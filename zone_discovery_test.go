@@ -265,11 +265,13 @@ func TestZoneDiscoveryLogsAndRedactsUsername(t *testing.T) {
 		wantLevel slog.Level
 		wantMsg   string
 		wantErr   bool
+		errText   string // exact NewClient error; empty skips the comparison
 	}{
 		{name: "success", handler: zoneAt(""), wantLevel: slog.LevelInfo, wantMsg: "autotask: zone discovered"},
 		{
 			name: "zone URL with a query is rejected", handler: zoneAt("/?token=SECRET"),
 			wantLevel: slog.LevelWarn, wantMsg: "autotask: zone discovery failed", wantErr: true,
+			errText: "autotask: zone discovery: zone URL is not an absolute http or https URL with a host and no @, query or fragment",
 		},
 		{
 			name: "base URL with a query", handler: serverError, baseQuery: "?token=SECRET",
@@ -311,6 +313,9 @@ func TestZoneDiscoveryLogsAndRedactsUsername(t *testing.T) {
 			}
 			if client != nil {
 				t.Cleanup(func() { _ = client.Close() })
+			}
+			if tt.errText != "" && err.Error() != tt.errText {
+				t.Errorf("error = %q; want %q", err, tt.errText)
 			}
 			recs := rec.Records()
 			if len(recs) != 1 {

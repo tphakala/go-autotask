@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tphakala/go-autotask/internal/baseurl"
 	"github.com/tphakala/go-autotask/internal/redact"
 	"github.com/tphakala/go-autotask/internal/redirect"
 	"github.com/tphakala/go-autotask/internal/useragent"
@@ -69,7 +70,8 @@ func WithCriticalCallback(fn func(ThresholdInfo)) ThresholdMonitorOption {
 }
 
 // WithErrorCallback sets the function called when the threshold check fails.
-// The error's request URL has its query, user info and fragment removed.
+// The error's request URL has its query, user info and fragment removed. An
+// error for a base URL that fails the check has no URL.
 func WithErrorCallback(fn func(error)) ThresholdMonitorOption {
 	return func(c *thresholdMonitorConfig) { c.errorCallback = fn }
 }
@@ -117,6 +119,7 @@ type AuthHeaders struct {
 type ThresholdMonitor struct {
 	httpClient *http.Client
 	baseURL    string
+	baseURLErr error // from baseurl.Check; when set, check reports it and sends no request
 	auth       AuthHeaders
 	config     thresholdMonitorConfig
 	cancel     context.CancelFunc
@@ -132,6 +135,11 @@ type ThresholdMonitor struct {
 // httpClient.CheckRedirect if it is set. httpClient is not modified. The check
 // sends the User-Agent set with WithThresholdMonitorUserAgent, by default
 // go-autotask's.
+//
+// baseURL must be an absolute http or https URL with a host and no "@", query
+// or fragment, the rule autotask.ValidateBaseURL applies. When it is not, the
+// monitor sends no request, and every check reports that error, which leaves
+// the URL out, to the logger and the error callback.
 func NewThresholdMonitor(httpClient *http.Client, baseURL string, auth AuthHeaders, opts ...ThresholdMonitorOption) *ThresholdMonitor {
 	cfg := thresholdMonitorConfig{
 		checkInterval: defaultCheckInterval,
@@ -143,6 +151,7 @@ func NewThresholdMonitor(httpClient *http.Client, baseURL string, auth AuthHeade
 	}
 	return &ThresholdMonitor{
 		httpClient: redirect.Guard(httpClient, baseURL), baseURL: baseURL, auth: auth, config: cfg, done: make(chan struct{}),
+		baseURLErr: baseurl.Check("threshold monitor: base URL", baseURL),
 	}
 }
 
@@ -205,6 +214,10 @@ func (m *ThresholdMonitor) reportError(ctx context.Context, err error) {
 }
 
 func (m *ThresholdMonitor) check(ctx context.Context) {
+	if m.baseURLErr != nil {
+		m.reportError(ctx, m.baseURLErr)
+		return
+	}
 	checkURL := strings.TrimRight(m.baseURL, "/") + "/v1.0/ThresholdInformation"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checkURL, http.NoBody)
 	if err != nil {

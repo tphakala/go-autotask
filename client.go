@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tphakala/go-autotask/internal/baseurl"
 	"github.com/tphakala/go-autotask/internal/redact"
 	"github.com/tphakala/go-autotask/internal/redirect"
 	"github.com/tphakala/go-autotask/internal/useragent"
@@ -145,12 +146,12 @@ func (c *Client) useGivenBaseURL() error {
 		if c.baseURL == "" {
 			return nil
 		}
-		return validateBaseURL("WithBaseURL: base URL", c.baseURL)
+		return baseurl.Check("WithBaseURL: base URL", c.baseURL)
 	}
 	if c.baseURL != "" {
 		return fmt.Errorf("autotask: WithZoneInfo and WithBaseURL cannot be combined")
 	}
-	if err := validateBaseURL("WithZoneInfo: zone URL", c.zone.URL); err != nil {
+	if err := baseurl.Check("WithZoneInfo: zone URL", c.zone.URL); err != nil {
 		return err
 	}
 	c.baseURL = c.zone.URL
