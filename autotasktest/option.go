@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,18 +16,27 @@ import (
 // ServerOption configures a TestServer.
 type ServerOption func(*TestServer)
 
-// storedItem is one stored entity and the parent it was created under.
-type storedItem struct {
-	data json.RawMessage // raw JSON for flexible matching
-	// parentID is the id in the child create URL, or 0 for an item seeded with
-	// WithEntity or created through the root URL. Such an item is listed under
-	// every parent.
-	parentID int64
+// owner is the parent collection segment and parent id of the child URL an item
+// was created at, or of the route WithChildEntity registered. The zero owner
+// means no parent: an item seeded with WithEntity, created through the root URL,
+// or given parent id 0.
+type owner struct {
+	parent string
+	id     int64
 }
 
-// underParent reports whether the item is visible under the URL parent pid.
-func (it storedItem) underParent(pid int64) bool {
-	return it.parentID == 0 || it.parentID == pid
+// storedItem is one stored entity and the owner it was created under.
+type storedItem struct {
+	data json.RawMessage // raw JSON for flexible matching
+	// owner is the zero owner for an item with no parent. Such an item is
+	// visible under every parent.
+	owner owner
+}
+
+// underParent reports whether the item is visible under the URL parent o: it
+// has no owner, or its owner is o.
+func (it storedItem) underParent(o owner) bool {
+	return it.owner == (owner{}) || it.owner == o
 }
 
 // entityStore holds in-memory entities for a single entity type.
@@ -53,16 +63,20 @@ func newEntityStore(name string) *entityStore {
 	}
 }
 
-// add stores data under parentID (0 for no parent). It moves the id allocator
-// past the item's id, so a create after a seeded item never reuses its id.
-func (s *entityStore) add(data json.RawMessage, parentID int64) {
+// add stores data under its owner, the zero owner for no parent (an owner with
+// id 0 counts as no parent). It moves the id allocator past the item's id, so a
+// create after a seeded item never reuses its id.
+func (s *entityStore) add(data json.RawMessage, o owner) {
+	if o.id == 0 {
+		o = owner{}
+	}
 	var ref struct {
 		ID int64 `json:"id"`
 	}
 	_ = json.Unmarshal(data, &ref) // an item without a numeric id reserves nothing
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.items = append(s.items, storedItem{data: data, parentID: parentID})
+	s.items = append(s.items, storedItem{data: data, owner: o})
 	if ref.ID >= s.nextID && ref.ID < math.MaxInt64 {
 		s.nextID = ref.ID + 1
 	}
@@ -85,17 +99,17 @@ func (s *entityStore) indexOf(id int64, match func(storedItem) bool) int {
 
 func anyParent(storedItem) bool { return true }
 
-func parentMatcher(pid int64) func(storedItem) bool {
-	return func(it storedItem) bool { return it.underParent(pid) }
+func parentMatcher(o owner) func(storedItem) bool {
+	return func(it storedItem) bool { return it.underParent(o) }
 }
 
 func (s *entityStore) getByID(id int64) (json.RawMessage, bool) {
 	return s.getMatching(id, anyParent)
 }
 
-// getByIDForParent returns the item only when it is visible under parent pid.
-func (s *entityStore) getByIDForParent(id, pid int64) (json.RawMessage, bool) {
-	return s.getMatching(id, parentMatcher(pid))
+// getByIDForParent returns the item only when it is visible under the parent o.
+func (s *entityStore) getByIDForParent(id int64, o owner) (json.RawMessage, bool) {
+	return s.getMatching(id, parentMatcher(o))
 }
 
 func (s *entityStore) getMatching(id int64, match func(storedItem) bool) (json.RawMessage, bool) {
@@ -107,15 +121,15 @@ func (s *entityStore) getMatching(id int64, match func(storedItem) bool) (json.R
 	return nil, false
 }
 
-// updateByID replaces the item's data and keeps its stored parent id: a PATCH
-// body carries no parent.
+// updateByID replaces the item's data and keeps its stored owner: a PATCH body
+// carries no parent.
 func (s *entityStore) updateByID(id int64, data json.RawMessage) bool {
 	return s.updateMatching(id, data, anyParent)
 }
 
-// updateByIDForParent is updateByID limited to items visible under parent pid.
-func (s *entityStore) updateByIDForParent(id, pid int64, data json.RawMessage) bool {
-	return s.updateMatching(id, data, parentMatcher(pid))
+// updateByIDForParent is updateByID limited to items visible under the parent o.
+func (s *entityStore) updateByIDForParent(id int64, o owner, data json.RawMessage) bool {
+	return s.updateMatching(id, data, parentMatcher(o))
 }
 
 func (s *entityStore) updateMatching(id int64, data json.RawMessage, match func(storedItem) bool) bool {
@@ -133,9 +147,9 @@ func (s *entityStore) deleteByID(id int64) bool {
 	return s.deleteMatching(id, anyParent)
 }
 
-// deleteByIDForParent is deleteByID limited to items visible under parent pid.
-func (s *entityStore) deleteByIDForParent(id, pid int64) bool {
-	return s.deleteMatching(id, parentMatcher(pid))
+// deleteByIDForParent is deleteByID limited to items visible under the parent o.
+func (s *entityStore) deleteByIDForParent(id int64, o owner) bool {
+	return s.deleteMatching(id, parentMatcher(o))
 }
 
 func (s *entityStore) deleteMatching(id int64, match func(storedItem) bool) bool {
@@ -154,10 +168,10 @@ func (s *entityStore) all() []json.RawMessage {
 	return s.collect(anyParent)
 }
 
-// forParent returns the items visible under parent pid: those created under pid
+// forParent returns the items visible under the parent o: those created under o
 // and those with no parent. The slice is never nil, so it encodes as [].
-func (s *entityStore) forParent(pid int64) []json.RawMessage {
-	return s.collect(parentMatcher(pid))
+func (s *entityStore) forParent(o owner) []json.RawMessage {
+	return s.collect(parentMatcher(o))
 }
 
 func (s *entityStore) collect(match func(storedItem) bool) []json.RawMessage {
@@ -224,7 +238,7 @@ func WithEntity[T autotask.Entity](items ...T) ServerOption {
 			if err != nil {
 				ts.t.Fatalf("autotasktest: marshaling %s fixture: %v", name, err)
 			}
-			store.add(data, 0)
+			store.add(data, owner{})
 		}
 	}
 }
@@ -261,8 +275,10 @@ func (ts *TestServer) registerChildRoute(route, name string) bool {
 
 // WithChildEntity seeds child entities of type C under the parent entity of
 // type P with the given id. The items go into the store named C.EntityName(),
-// the same store Get, List and Count read, and a child list under parentID
-// includes them while a list under another parent does not.
+// the same store Get, List and Count read. A child list at the route's parent
+// collection and parentID includes them, and a list under another parent id, or
+// under another parent collection that resolves to the same store, does not.
+// A parentID of 0 means no parent: those items show under every parent.
 //
 // A child URL /v1.0/{Parent}/{id}/{Segment} resolves to a store in this order:
 // the route a WithChildEntity registered for that parent and segment, else the
@@ -291,12 +307,13 @@ func WithChildEntity[P autotask.Entity, C autotask.Entity](parentID int64, items
 			return
 		}
 		store := ts.ensureStore(name)
+		parent, _, _ := strings.Cut(route, "/")
 		for _, item := range items {
 			data, err := json.Marshal(item)
 			if err != nil {
 				ts.t.Fatalf("autotasktest: marshaling %s fixture: %v", name, err)
 			}
-			store.add(data, parentID)
+			store.add(data, owner{parent: parent, id: parentID})
 		}
 	}
 }
@@ -380,6 +397,12 @@ func WithServerLatency(d time.Duration) ServerOption {
 // WithEntityMetadata configures metadata responses for an entity. The info
 // replaces the default entityInformation answer, including the flags that
 // WithDeleteSupport, WithoutCreateSupport and WithoutUpdateSupport set.
+//
+// A metadata path under a child URL (/v1.0/{Parent}/{id}/{Segment}/entityInformation
+// and its /fields and /userDefinedFields) answers for the entity that child URL
+// resolves to, as described on WithChildEntity, so entityName is that entity's
+// name (for example TicketAdditionalConfigurationItems). Such a request creates
+// no store.
 func WithEntityMetadata(entityName string, info EntityInfoResponse, fields []FieldInfoResponse, udfs []UDFInfoResponse) ServerOption {
 	return func(ts *TestServer) {
 		ts.opts.metadata[entityName] = &entityMetadata{

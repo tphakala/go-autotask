@@ -1,10 +1,11 @@
 package autotasktest
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
+	"math/big"
 	"net/http"
 	"strings"
 )
@@ -73,7 +74,11 @@ func (ts *TestServer) handleCount(w http.ResponseWriter, r *http.Request) {
 // filterItems applies basic in-memory filter matching.
 // It evaluates top-level conditions for all standard Autotask operators
 // (eq, noteq, gt, gte, lt, lte, beginsWith, endsWith, contains, exist, notExist, in, notIn).
-// This is not a full Autotask query engine — group conditions (and/or) are not evaluated.
+// eq, noteq, in, notIn, gt, gte, lt and lte compare numbers by exact value. eq,
+// noteq, in and notIn compare other values as text, and gt, gte, lt and lte
+// match only numbers. contains, beginsWith and endsWith match on the text a
+// value formats to, which for a number is its JSON text. This is not a full
+// Autotask query engine: group conditions (and/or) are not evaluated.
 func filterItems(items []json.RawMessage, queryBody []byte) []json.RawMessage {
 	if len(queryBody) == 0 {
 		return items
@@ -93,8 +98,8 @@ func filterItems(items []json.RawMessage, queryBody []byte) []json.RawMessage {
 
 	result := []json.RawMessage{}
 	for _, item := range items {
-		var m map[string]any
-		if err := json.Unmarshal(item, &m); err != nil {
+		m, err := decodeObject(item)
+		if err != nil {
 			continue
 		}
 		if matchesAll(m, conditions) {
@@ -118,7 +123,9 @@ func parseConditions(raw []json.RawMessage) []filterCond {
 			Op    string `json:"op"`
 			Value any    `json:"value"`
 		}
-		if err := json.Unmarshal(r, &c); err != nil || c.Field == "" {
+		dec := json.NewDecoder(bytes.NewReader(r))
+		dec.UseNumber()
+		if err := dec.Decode(&c); err != nil || c.Field == "" {
 			continue // skip group conditions for now
 		}
 		result = append(result, filterCond{field: c.Field, op: c.Op, value: c.Value})
@@ -143,9 +150,9 @@ func matchesCond(m map[string]any, c filterCond) bool {
 	case "notExist":
 		return !exists || val == nil
 	case "eq":
-		return fmt.Sprintf("%v", val) == fmt.Sprintf("%v", c.value)
+		return valuesEqual(val, c.value)
 	case "noteq":
-		return fmt.Sprintf("%v", val) != fmt.Sprintf("%v", c.value)
+		return !valuesEqual(val, c.value)
 	case "in":
 		return inSlice(val, c.value)
 	case "notIn":
@@ -169,35 +176,57 @@ func matchesStringOp(val any, c filterCond) bool {
 	}
 }
 
-// matchesNumericOp handles numeric comparison operators.
+// matchesNumericOp handles numeric comparison operators. A value that is not a
+// number matches none of them.
 func matchesNumericOp(val any, c filterCond) bool {
+	cmp, ok := compareNumbers(val, c.value)
+	if !ok {
+		return false
+	}
 	switch c.op {
 	case "gt":
-		return toFloat(val) > toFloat(c.value)
+		return cmp > 0
 	case "gte":
-		return toFloat(val) >= toFloat(c.value)
+		return cmp >= 0
 	case "lt":
-		return toFloat(val) < toFloat(c.value)
+		return cmp < 0
 	case "lte":
-		return toFloat(val) <= toFloat(c.value)
+		return cmp <= 0
 	default:
 		return false
 	}
 }
 
-func toFloat(v any) float64 {
-	switch n := v.(type) {
-	case float64:
-		return n
-	case int:
-		return float64(n)
-	case int64:
-		return float64(n)
-	case json.Number:
-		f, _ := n.Float64()
-		return f
+// numberValue returns v as an exact rational when it is a JSON number.
+func numberValue(v any) (*big.Rat, bool) {
+	n, ok := v.(json.Number)
+	if !ok {
+		return nil, false
 	}
-	return math.NaN()
+	return new(big.Rat).SetString(n.String())
+}
+
+// compareNumbers orders two JSON numbers by exact value. It reports false when
+// either is not a number.
+func compareNumbers(a, b any) (int, bool) {
+	x, ok := numberValue(a)
+	if !ok {
+		return 0, false
+	}
+	y, ok := numberValue(b)
+	if !ok {
+		return 0, false
+	}
+	return x.Cmp(y), true
+}
+
+// valuesEqual compares two numbers by exact value, so 1 equals 1.0, and any
+// other pair as text.
+func valuesEqual(a, b any) bool {
+	if cmp, ok := compareNumbers(a, b); ok {
+		return cmp == 0
+	}
+	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
 }
 
 func inSlice(val, sliceVal any) bool {
@@ -205,9 +234,8 @@ func inSlice(val, sliceVal any) bool {
 	if !ok {
 		return false
 	}
-	s := fmt.Sprintf("%v", val)
 	for _, item := range arr {
-		if fmt.Sprintf("%v", item) == s {
+		if valuesEqual(val, item) {
 			return true
 		}
 	}
