@@ -8,9 +8,10 @@ import (
 )
 
 // ListIter returns an iterator over top-level entities with lazy pagination.
-// Every page is requested by POST with the same query, since Autotask paging
-// URLs need the original query. The query is encoded once per range, so changing
-// q while ranging does not change later pages.
+// Every page is requested by POST with the same query, encoded once per range,
+// so changing q while ranging does not change later pages. A nextPageUrl on
+// another origin than the client's base URL gets no query, as it gets no
+// credentials.
 func ListIter[T Entity](ctx context.Context, c *Client, q *Query) iter.Seq2[*T, error] {
 	return func(yield func(*T, error) bool) {
 		var zero T

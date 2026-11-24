@@ -697,9 +697,9 @@ func TestChildQueryAndCountSeeChildListItems(t *testing.T) {
 }
 
 // TestQueryLaterPageWithoutBodyAnswers400 pins that a query request for a page
-// after the first needs the query body, since the paging URLs of a query depend
-// on the original query, while a page 1 query without a body still answers
-// every item.
+// after the first needs the query body, since the mock filters each page by the
+// body of its request, while a page 1 query without a body still answers every
+// item.
 func TestQueryLaterPageWithoutBodyAnswers400(t *testing.T) {
 	_, client := NewServer(t,
 		WithPageSize(1),

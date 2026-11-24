@@ -28,8 +28,8 @@ func GetRaw(ctx context.Context, c *Client, entityName string, id int64) (map[st
 // pagination. Ranging stops fetching further pages as soon as the caller
 // breaks, so a caller that needs only the first few items does not pull every
 // page up to maxPages. It is the untyped counterpart of ListIter. Every page is
-// requested by POST with the same query, since Autotask paging URLs need the
-// original query.
+// requested by POST with the same query, except that a nextPageUrl on another
+// origin than the client's base URL gets no query.
 //
 // Like ListIter, ListRawIter does not enforce the query's MaxRecords cap
 // client-side; the caller should stop ranging when it has enough items. ListRaw
