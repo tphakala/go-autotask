@@ -220,6 +220,8 @@ func TestCircuitBreakerLateFailuresKeepOpenDeadline(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				const openTimeout = 10 * time.Second
 				release := make(chan struct{})
+				releaseHeld := sync.OnceFunc(func() { close(release) })
+				defer releaseHeld() // an early Fatalf must not leave requests blocked in the bubble
 				inner := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 					if req.Header.Get("X-Hold") != "" {
 						<-release
@@ -252,7 +254,7 @@ func TestCircuitBreakerLateFailuresKeepOpenDeadline(t *testing.T) {
 
 				// The held requests fail halfway through the open period.
 				synctest.Sleep(openTimeout / 2)
-				close(release)
+				releaseHeld()
 				held.Wait()
 
 				synctest.Sleep(openTimeout / 2)
