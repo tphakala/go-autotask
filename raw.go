@@ -27,7 +27,9 @@ func GetRaw(ctx context.Context, c *Client, entityName string, id int64) (map[st
 // ListRawIter returns an iterator over top-level entities (untyped) with lazy
 // pagination. Ranging stops fetching further pages as soon as the caller
 // breaks, so a caller that needs only the first few items does not pull every
-// page up to maxPages. It is the untyped counterpart of ListIter.
+// page up to maxPages. It is the untyped counterpart of ListIter. Every page is
+// requested by POST with the same query, since Autotask paging URLs need the
+// original query.
 //
 // Like ListIter, ListRawIter does not enforce the query's MaxRecords cap
 // client-side; the caller should stop ranging when it has enough items. ListRaw
@@ -35,7 +37,11 @@ func GetRaw(ctx context.Context, c *Client, entityName string, id int64) (map[st
 func ListRawIter(ctx context.Context, c *Client, entityName string, q *Query) iter.Seq2[map[string]any, error] {
 	return func(yield func(map[string]any, error) bool) {
 		path := fmt.Sprintf("/v1.0/%s/query", entityName)
-		var queryBody any = q
+		query, err := encodeQuery(q)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
 		pages := 0
 		for {
 			pages++
@@ -43,12 +49,11 @@ func ListRawIter(ctx context.Context, c *Client, entityName string, q *Query) it
 				yield(nil, &MaxPagesExceededError{EntityName: entityName, MaxPages: maxPages})
 				return
 			}
-			nextPath, shouldContinue := fetchAndYieldRawPage(ctx, c, http.MethodPost, path, queryBody, yield)
+			nextPath, shouldContinue := fetchAndYieldRawPage(ctx, c, http.MethodPost, path, c.queryPageBody(path, query), yield)
 			if !shouldContinue || nextPath == "" {
 				return
 			}
 			path = nextPath
-			queryBody = nil
 		}
 	}
 }

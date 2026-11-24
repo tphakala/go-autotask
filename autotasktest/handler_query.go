@@ -27,6 +27,16 @@ func (ts *TestServer) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The paging URLs of a query depend on the original query, so a page after
+	// the first has to send the query body again. Without it the filter is lost
+	// and every item would come back.
+	if page := requestedPage(r); len(body) == 0 && page > 1 {
+		writeErrorResponse(w, http.StatusBadRequest, []string{
+			fmt.Sprintf("query page %d has no body; send the original query body with nextPageUrl and prevPageUrl", page),
+		})
+		return
+	}
+
 	// Validate filter structure if body is present.
 	if len(body) > 0 {
 		if err := validateFilter(body); err != nil {

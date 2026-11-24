@@ -696,6 +696,37 @@ func TestChildQueryAndCountSeeChildListItems(t *testing.T) {
 	}
 }
 
+// TestQueryLaterPageWithoutBodyAnswers400 pins that a query request for a page
+// after the first needs the query body, since the paging URLs of a query depend
+// on the original query, while a page 1 query without a body still answers
+// every item.
+func TestQueryLaterPageWithoutBodyAnswers400(t *testing.T) {
+	_, client := NewServer(t,
+		WithPageSize(1),
+		WithEntity(TicketNoteFixture(), TicketNoteFixture()),
+	)
+	ctx := t.Context()
+
+	err := client.Do(ctx, http.MethodPost, "/v1.0/TicketNotes/query?page=2", nil, nil)
+	if apiErr, ok := errors.AsType[*autotask.Error](err); !ok || apiErr.StatusCode != http.StatusBadRequest {
+		t.Errorf("page 2 without a body: err = %v, want a 400 *autotask.Error", err)
+	}
+
+	var page struct {
+		Items []json.RawMessage `json:"items"`
+	}
+	if err := client.Do(ctx, http.MethodPost, "/v1.0/TicketNotes/query", nil, &page); err != nil {
+		t.Fatalf("page 1 without a body: %v", err)
+	}
+	if len(page.Items) != 1 {
+		t.Errorf("page 1 without a body: %d items, want 1 (the page size)", len(page.Items))
+	}
+
+	if err := client.Do(ctx, http.MethodPost, "/v1.0/TicketNotes/query?page=2", json.RawMessage(`{"filter":[]}`), &page); err != nil {
+		t.Errorf("page 2 with a body: %v", err)
+	}
+}
+
 // TestPageSizeZeroPutsEverythingOnOnePage pins that a page size of 0 or less
 // answers every item on one page, with no next link, for a child list and a query.
 func TestPageSizeZeroPutsEverythingOnOnePage(t *testing.T) {
