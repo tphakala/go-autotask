@@ -461,3 +461,78 @@ func TestCircuitBreakerHalfOpenFailureRestartsOpenTimeout(t *testing.T) {
 		}
 	})
 }
+
+func TestCircuitBreakerIgnoresProbeThatEndsAfterTheBreakerMoved(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		bStatus int
+		// wait is how long after the other probe ended the held probe fails.
+		wait      time.Duration
+		afterA    CircuitState
+		afterWait CircuitState
+	}{
+		// The other probe fails and reopens the breaker; the held probe fails
+		// while it is open, and the open deadline stays where it was.
+		{"fails while open", http.StatusServiceUnavailable, 5 * time.Second, StateOpen, StateHalfOpen},
+		// The other probe succeeds and closes the breaker; the held probe fails
+		// after that and is not counted against the closed breaker.
+		{"fails after the breaker closed", http.StatusOK, 0, StateClosed, StateClosed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				const openTimeout = 10 * time.Second
+				releaseA := make(chan struct{})
+				releaseB := make(chan struct{})
+				releaseProbeA := sync.OnceFunc(func() { close(releaseA) })
+				releaseProbeB := sync.OnceFunc(func() { close(releaseB) })
+				defer releaseProbeA() // an early Fatalf must not leave requests blocked in the bubble
+				defer releaseProbeB()
+				inner := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					status := http.StatusServiceUnavailable
+					switch req.Header.Get("X-Probe") {
+					case "a":
+						<-releaseA
+					case "b":
+						<-releaseB
+						status = tc.bStatus
+					}
+					return &http.Response{StatusCode: status, Body: http.NoBody}, nil
+				})
+				cb := NewCircuitBreaker(inner, WithFailureThreshold(1), WithOpenTimeout(openTimeout), WithSuccessThreshold(1))
+				want := func(step string, state CircuitState) {
+					t.Helper()
+					if got := cb.State(); got != state {
+						t.Fatalf("state %s = %s; want %s", step, got, state)
+					}
+				}
+
+				_ = send(t, cb) // the breaker opens
+				synctest.Sleep(openTimeout)
+				want("after the open period", StateHalfOpen)
+
+				var probes sync.WaitGroup
+				for _, name := range []string{"a", "b"} {
+					req := newReq(t)
+					req.Header.Set("X-Probe", name)
+					probes.Go(func() {
+						resp, _ := cb.RoundTrip(req)
+						if resp != nil {
+							_ = resp.Body.Close()
+						}
+					})
+				}
+				synctest.Wait()
+
+				releaseProbeB()
+				synctest.Wait()
+				synctest.Sleep(tc.wait)
+				releaseProbeA()
+				probes.Wait()
+				want("after the held probe failed", tc.afterA)
+
+				synctest.Sleep(openTimeout - tc.wait)
+				want("openTimeout after the other probe ended", tc.afterWait)
+			})
+		})
+	}
+}
