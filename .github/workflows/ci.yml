@@ -47,3 +47,6 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0
+          # golangci-lint's cache does not track rules/*.go, so a restored cache
+          # would skip loading changed ruleguard rules for unchanged packages.
+          skip-cache: true
