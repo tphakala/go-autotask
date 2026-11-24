@@ -2,6 +2,8 @@ package autotask
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -379,11 +381,18 @@ func TestNewClientValidatesBaseURLs(t *testing.T) {
 	}
 }
 
-// TestDiscoverZoneRequestFailureHidesQuery pins that a failed discovery request
-// returns an error without the username the zone request carries in its query.
-func TestDiscoverZoneRequestFailureHidesQuery(t *testing.T) {
+// TestDiscoverZoneZoneRequestFailureHidesUsername pins that a transport failure
+// on the zone request, whose URL carries the username in its query, returns an
+// error without the username that still unwraps to the transport error.
+func TestDiscoverZoneZoneRequestFailureHidesUsername(t *testing.T) {
 	t.Parallel()
-	failing := &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+	failing := &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		if !strings.HasSuffix(r.URL.Path, "/zoneInformation") {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"apiVersions":["V1.0"]}`)),
+			}, nil
+		}
 		return nil, http.ErrHandlerTimeout
 	})}
 	_, err := discoverZone(t.Context(), failing, "https://h.example", "svc-user@example.com", "test-agent", defaultMaxResponseBytes)
@@ -392,5 +401,8 @@ func TestDiscoverZoneRequestFailureHidesQuery(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "svc-user") {
 		t.Errorf("error %q repeats the username", err)
+	}
+	if !errors.Is(err, http.ErrHandlerTimeout) {
+		t.Errorf("error %q does not unwrap to the transport error", err)
 	}
 }
