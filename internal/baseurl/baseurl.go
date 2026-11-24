@@ -25,7 +25,7 @@ func Check(name, raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
 		// Not wrapped: *url.Error prints the whole URL (go1.27.4
-		// net/url/url.go:39), and its cause can quote part of the user info,
+		// net/url/url.go:40), and its cause can quote part of the user info,
 		// such as `invalid port ":pw" after host` (url.go:631).
 		return fmt.Errorf("autotask: %s does not parse", name)
 	}
