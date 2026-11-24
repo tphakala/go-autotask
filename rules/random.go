@@ -103,8 +103,9 @@ func RandV2Migration(m dsl.Matcher) {
 // every planted site. A full import path in the type string, as in
 // "*math/rand/v2.Rand", is not a fix: ruleguard cannot parse it ("parse type
 // expr: can't convert *math/rand/v2.Rand type expression"), so this file fails
-// to load, which failOn: all in .golangci.yaml makes a lint error (measured
-// with golangci-lint 2.15.0 on 2026-11-24).
+// to load, which failOn: all in .golangci.yaml makes a lint error, though not
+// on a local run with a warm lint cache (measured with golangci-lint 2.15.0 on
+// 2026-11-24; see the comment in .golangci.yaml).
 //
 // See: https://pkg.go.dev/math/rand/v2#Rand.N
 func RandMethodN(m dsl.Matcher) {

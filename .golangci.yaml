@@ -71,9 +71,10 @@ linters:
           rules: "rules/*.go"
           # A rules file that fails to load (a DSL error, a type string ruleguard
           # cannot parse, or a filter quasigo cannot compile) fails the run
-          # instead of being skipped with a log line. gocritic does not run on
-          # packages the lint cache already holds, and the cache does not track
-          # rules/*.go, so a local run shows such an error only after
+          # instead of being skipped silently (golangci-lint v2.15.0 discards
+          # linter log output, pkg/commands/run.go:327-329). gocritic does not
+          # run on packages the lint cache already holds, and the cache does not
+          # track rules/*.go, so a local run shows such an error only after
           # golangci-lint cache clean. CI lints without a cache.
           failOn: all
     gocyclo:

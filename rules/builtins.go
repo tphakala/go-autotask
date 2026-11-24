@@ -249,12 +249,17 @@ func NewWithExpression(m dsl.Matcher) {
 // that is shadowed or ambiguous in the outer struct cannot be keyed directly,
 // so this is a report rather than a rewrite.
 //
-// The pattern binds only the first element of the literal that has the shape
-// $emb: $embT{$k: $v, ...}, and the conditions are tested on that element
-// alone, so an embedded field keyed after such an element, as in
-// T{Opts: Options{A: 1}, Base: Base{Name: "x"}} or
-// T{Header: http.Header{"A": nil}, Base: Base{Name: "x"}}, is not reported
-// (measured with golangci-lint 2.15.0).
+// Each of the two patterns binds only the first element of the literal that
+// fits its own shape and tests the conditions on that element alone. The first
+// pattern's $embT also fits a package-qualified type, so a same-package
+// embedded field keyed after any element whose value is a keyed literal is not
+// reported, as in T{Opts: Options{A: 1}, Base: Base{Name: "x"}}. The second
+// pattern fits only an element whose type is written as pkg.Name, so an
+// embedded imported type is not reported after such an element, as in
+// T{Header: http.Header{"A": nil}, Client: http.Client{Jar: nil}}, but is after
+// one whose type is written otherwise, such as Options{A: 1},
+// map[string]string{...} or a same-package alias of http.Header (measured with
+// golangci-lint 2.15.0).
 //
 // See: https://go.dev/doc/go1.27#language
 func EmbeddedFieldLiteral(m dsl.Matcher) {
@@ -284,10 +289,11 @@ func isStructType(ctx *dsl.VarFilterContext) bool {
 // condition only: quasigo, which runs ruleguard filters, has no three-clause
 // for loop (go-ruleguard v0.4.5, ruleguard/quasigo/compile.go:226-228). A
 // filter it cannot compile fails the load of the whole file
-// (ruleguard/ir_loader.go:93). gocritic would log that and skip every rule in
-// the file (go-critic v0.15.0, checkers/ruleguard_checker.go:234-238), so
-// .golangci.yaml sets failOn: all to make it a lint error; see the comment
-// there about the lint cache.
+// (ruleguard/ir_loader.go:93). gocritic would skip every rule in the file
+// (go-critic v0.15.0, checkers/ruleguard_checker.go:234-238) with no message a
+// user sees, since golangci-lint v2.15.0 discards linter log output
+// (pkg/commands/run.go:327-329), so .golangci.yaml sets failOn: all to make it
+// a lint error; see the comment there about the lint cache.
 func embedsStruct(ctx *dsl.VarFilterContext) bool {
 	st := types.AsStruct(ctx.Type.Underlying())
 	if st == nil {
