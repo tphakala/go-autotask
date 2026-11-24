@@ -356,8 +356,9 @@ func (cb *CircuitBreaker) recordFailure(ctx context.Context, admitted CircuitSta
 // fail after another one opened the breaker. That failure is ignored: it is not
 // counted and it leaves the open deadline alone, so the breaker stays open for
 // openTimeout after the failure that opened it. A failure in half-open is
-// ignored the same way unless the request was admitted in half-open: only such
-// a request is a probe.
+// ignored the same way unless the request was admitted in half-open. The
+// admitted state does not tell one half-open period from the next, so a probe
+// that outlives its period is still treated as a probe of the later one.
 func (cb *CircuitBreaker) applyFailure(admitted CircuitState) (from, to CircuitState) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()

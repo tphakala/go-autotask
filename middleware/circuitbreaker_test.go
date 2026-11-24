@@ -267,6 +267,21 @@ func TestCircuitBreakerLateFailuresKeepOpenDeadline(t *testing.T) {
 }
 
 func TestCircuitBreakerLateFailureIsNotAHalfOpenProbe(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		transportErr bool
+	}{
+		{"response failure", false},
+		{"transport error", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testLateFailureIsNotAHalfOpenProbe(t, tc.transportErr)
+		})
+	}
+}
+
+func testLateFailureIsNotAHalfOpenProbe(t *testing.T, transportErr bool) {
+	t.Helper()
 	synctest.Test(t, func(t *testing.T) {
 		const openTimeout = 10 * time.Second
 		release := make(chan struct{})
@@ -275,6 +290,9 @@ func TestCircuitBreakerLateFailureIsNotAHalfOpenProbe(t *testing.T) {
 		inner := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			if req.Header.Get("X-Hold") != "" {
 				<-release
+				if transportErr {
+					return nil, errors.New("connection reset")
+				}
 			}
 			status := http.StatusOK
 			if req.Header.Get("X-Hold") != "" || req.Header.Get("X-Fail") != "" {
