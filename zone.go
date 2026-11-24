@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tphakala/go-autotask/internal/baseurl"
 	"github.com/tphakala/go-autotask/internal/redact"
 )
 
@@ -37,31 +38,21 @@ type ZoneInfo struct {
 	CI       int    `json:"ci"`
 }
 
-// validateBaseURL checks a URL the client appends API paths to, which is the
-// one given with WithBaseURL, WithZoneInfo or WithZoneBaseURL and the one zone
-// discovery returns. It must be an absolute http or https URL with a host and no
-// "@", query or fragment. joinURL appends API paths to it, which a query or
-// fragment would swallow. An "@" anywhere is rejected, not only in parsed user
-// info: net/url ends the authority at the first "/" (go1.27.4
-// net/url/url.go:489), so it reads "https://user:1234/x@host/" as host "user",
-// port 1234, no user info. name says which URL it is and starts the error
-// after "autotask: ". The errors leave the URL out, so a password in it is not
-// repeated.
-func validateBaseURL(name, raw string) error {
-	if raw == "" {
-		return fmt.Errorf("autotask: %s is empty", name)
-	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		// Not wrapped: *url.Error prints the whole URL (go1.27.4
-		// net/url/url.go:40), and its cause can quote part of the user info,
-		// such as `invalid port ":pw" after host` (url.go:631).
-		return fmt.Errorf("autotask: %s does not parse", name)
-	}
-	if (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || strings.ContainsAny(raw, "@?#") {
-		return fmt.Errorf("autotask: %s is not an absolute http or https URL with a host and no @, query or fragment", name)
-	}
-	return nil
+// ValidateBaseURL returns an error unless rawURL can be an API base URL: an
+// absolute http or https URL with a host and no "@", query or fragment. API
+// paths are appended to the base URL, which a query or fragment would swallow.
+//
+// NewClient applies this rule to a non-empty [WithBaseURL], to the URL of
+// [WithZoneInfo], to [WithZoneBaseURL] when zone discovery runs, and to the zone
+// URL that discovery returns. middleware.NewThresholdMonitor applies it to its
+// base URL. An empty rawURL is an error here, though WithBaseURL("") is accepted
+// and leaves zone discovery on, so a program whose empty setting means
+// "discover" should skip the call for it.
+//
+// The error leaves rawURL out, so a password in it is not repeated. NewClient's
+// own errors name the option that was given and so differ in text.
+func ValidateBaseURL(rawURL string) error {
+	return baseurl.Check("base URL", rawURL)
 }
 
 type ZoneCache struct {
@@ -106,7 +97,7 @@ func (c *ZoneCache) Set(username string, zone *ZoneInfo) {
 }
 
 func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, username, userAgent string, maxBodyBytes int64) (*ZoneInfo, error) {
-	if err := validateBaseURL("WithZoneBaseURL: zone base URL", baseURL); err != nil {
+	if err := baseurl.Check("WithZoneBaseURL: zone base URL", baseURL); err != nil {
 		return nil, err
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
@@ -162,7 +153,7 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 	if zone.URL == "" {
 		return nil, fmt.Errorf("autotask: zone discovery returned empty URL")
 	}
-	if err := validateBaseURL("zone discovery: zone URL", zone.URL); err != nil {
+	if err := baseurl.Check("zone discovery: zone URL", zone.URL); err != nil {
 		return nil, err
 	}
 	return &zone, nil

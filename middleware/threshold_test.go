@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tphakala/go-autotask/internal/baseurl"
 	"github.com/tphakala/go-autotask/internal/logtest"
 	"github.com/tphakala/go-autotask/internal/useragent"
 )
@@ -300,28 +301,71 @@ func TestNilLoggerOptionsKeepEarlierLogger(t *testing.T) {
 	})
 }
 
-// TestThresholdMonitorRequestCreationErrorHidesUserInfo pins the redaction on the
-// path where the request cannot be built: the base URL is a caller-supplied
-// string, and url.Parse quotes ":pw" of this one in its error.
-func TestThresholdMonitorRequestCreationErrorHidesUserInfo(t *testing.T) {
-	rec := logtest.New()
-	var cbErr atomic.Pointer[error]
-	m := NewThresholdMonitor(&http.Client{}, "http://user:pw/x@host", AuthHeaders{},
-		WithThresholdMonitorLogger(rec.Logger()), WithErrorCallback(func(err error) { cbErr.Store(&err) }))
-	m.check(t.Context())
+// TestNewThresholdMonitorRejectsBaseURL pins that a base URL the client's rule
+// refuses sends no request, and that every check reports the same error the
+// shared rule gives, without the URL in it.
+func TestNewThresholdMonitorRejectsBaseURL(t *testing.T) {
+	const secret = "s3cret-pw"
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{"query", "https://host.example/?x=1"},
+		{"fragment", "https://host.example/#f"},
+		{"user info", "https://apiuser:" + secret + "@host.example/"},
+		{"other scheme", "ftp://host.example"},
+		{"empty", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			noNetwork := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				t.Errorf("unexpected request %s %s", r.Method, r.URL)
+				return nil, http.ErrHandlerTimeout
+			})}
+			rec := logtest.New()
+			var mu sync.Mutex
+			var cbErrs []error
+			m := NewThresholdMonitor(noNetwork, tt.url, AuthHeaders{},
+				WithThresholdMonitorLogger(rec.Logger()),
+				WithErrorCallback(func(err error) {
+					mu.Lock()
+					defer mu.Unlock()
+					cbErrs = append(cbErrs, err)
+				}))
+			m.check(t.Context())
+			m.check(t.Context())
 
-	recs := rec.Records()
-	if len(recs) != 1 || recs[0].Message != failedMsg {
-		t.Fatalf("records = %v; want one %q", recs, failedMsg)
-	}
-	ce := cbErr.Load()
-	if ce == nil {
-		t.Fatal("the error callback must run")
-	}
-	for _, text := range []string{recs[0].Text, (*ce).Error()} {
-		if strings.Contains(text, "pw") || strings.Contains(text, "user") {
-			t.Errorf("user info reached %q", text)
-		}
+			want := baseurl.Check("threshold monitor: base URL", tt.url)
+			if want == nil {
+				t.Fatalf("baseurl.Check accepted %q; the row needs a URL it rejects", tt.url)
+			}
+			recs := rec.Records()
+			if len(recs) != 2 {
+				t.Fatalf("got %d records; want 2, one per check", len(recs))
+			}
+			for _, r := range recs {
+				if r.Message != failedMsg {
+					t.Errorf("record message = %q; want %q", r.Message, failedMsg)
+				}
+				if strings.Contains(r.Text, secret) {
+					t.Errorf("record %q repeats the password from the URL", r.Text)
+				}
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if len(cbErrs) != 2 {
+				t.Fatalf("got %d callback errors; want 2, one per check", len(cbErrs))
+			}
+			for _, err := range cbErrs {
+				if err.Error() != want.Error() {
+					t.Errorf("callback error = %q; want %q", err, want)
+				}
+				if strings.Contains(err.Error(), secret) {
+					t.Errorf("error %q repeats the password from the URL", err)
+				}
+			}
+		})
 	}
 }
 

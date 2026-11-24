@@ -71,8 +71,7 @@ func WithLogger(l *slog.Logger) ClientOption {
 // Client.Zone reports no zone. An empty url leaves discovery on. A non-empty
 // url cannot be combined with WithZoneInfo.
 //
-// NewClient returns an error when a non-empty url is not an absolute http or
-// https URL with a host and no "@", query or fragment.
+// NewClient returns an error when a non-empty url fails [ValidateBaseURL].
 func WithBaseURL(url string) ClientOption {
 	return func(c *Client) { c.baseURL = url }
 }
@@ -83,10 +82,9 @@ func WithBaseURL(url string) ClientOption {
 // request, and Client.Zone returns z unchanged. The client uses only z.URL;
 // the other fields are kept for the caller.
 //
-// NewClient returns an error when z.URL is empty or is not an absolute http or
-// https URL with a host and no "@", query or fragment, and when
-// WithZoneInfo is combined with a non-empty WithBaseURL. WithZoneBaseURL has
-// no effect together with WithZoneInfo.
+// NewClient returns an error when z.URL fails [ValidateBaseURL], which
+// rejects an empty URL, and when WithZoneInfo is combined with a non-empty
+// WithBaseURL. WithZoneBaseURL has no effect together with WithZoneInfo.
 //
 // The client sends the API credentials to z.URL, so load z only from storage
 // you trust as much as the credentials. Zone discovery is per username, so
@@ -172,9 +170,8 @@ func WithMaxConcurrency(n int) ClientOption {
 
 // WithZoneBaseURL overrides the base URL used for zone discovery.
 // This is primarily useful for testing. When zone discovery runs, NewClient
-// returns an error if url is not an absolute http or https URL with a host and
-// no "@", query or fragment. The option has no effect together with
-// WithZoneInfo or a non-empty WithBaseURL.
+// returns an error if url fails [ValidateBaseURL]. The option has no effect
+// together with WithZoneInfo or a non-empty WithBaseURL.
 func WithZoneBaseURL(url string) ClientOption {
 	return func(c *Client) { c.zoneBaseURL = url }
 }

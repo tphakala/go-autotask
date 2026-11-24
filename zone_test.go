@@ -269,6 +269,26 @@ func TestJoinURL(t *testing.T) {
 // error never repeats it.
 const zoneSecret = "s3cret-pw"
 
+// TestValidateBaseURL pins the rule ValidateBaseURL applies, one row per class
+// of URL it rejects, and that its error never repeats the URL.
+// TestValidateBaseURL pins that the exported check names its URL "base URL"
+// and keeps the password out of its error. The rule itself is tested in
+// internal/baseurl.
+func TestValidateBaseURL(t *testing.T) {
+	t.Parallel()
+	if err := ValidateBaseURL("https://webservices5.autotask.net/atservicesrest/"); err != nil {
+		t.Fatalf("ValidateBaseURL(valid URL) = %v; want nil", err)
+	}
+	err := ValidateBaseURL("https://apiuser:" + zoneSecret + "@webservices5.autotask.net/atservicesrest/")
+	if err == nil {
+		t.Fatal("ValidateBaseURL(URL with user info) = nil; want an error")
+	}
+	const want = "autotask: base URL is not an absolute http or https URL with a host and no @, query or fragment"
+	if err.Error() != want {
+		t.Errorf("ValidateBaseURL(URL with user info) = %q; want %q", err, want)
+	}
+}
+
 func TestWithZoneInfoValidation(t *testing.T) {
 	t.Parallel()
 	valid := ZoneInfo{ZoneName: "Zone 5", URL: "https://webservices5.autotask.net/atservicesrest/", WebURL: "https://ww5.autotask.net/", CI: 5}
@@ -281,20 +301,7 @@ func TestWithZoneInfoValidation(t *testing.T) {
 		want    ZoneInfo // the zone a success row passes in
 	}{
 		{"empty URL", []ClientOption{WithZoneInfo(withURL(""))}, true, ZoneInfo{}},
-		{"no scheme", []ClientOption{WithZoneInfo(withURL("webservices5.autotask.net/atservicesrest"))}, true, ZoneInfo{}},
-		{"other scheme", []ClientOption{WithZoneInfo(withURL("ftp://webservices5.autotask.net"))}, true, ZoneInfo{}},
-		{"no host", []ClientOption{WithZoneInfo(withURL("https://"))}, true, ZoneInfo{}},
-		{"port without host", []ClientOption{WithZoneInfo(withURL("http://:8080"))}, true, ZoneInfo{}},
-		{"trailing newline", []ClientOption{WithZoneInfo(withURL("https://webservices5.autotask.net\n"))}, true, ZoneInfo{}},
-		{"query", []ClientOption{WithZoneInfo(withURL("https://webservices5.autotask.net/atservicesrest?x=1"))}, true, ZoneInfo{}},
-		{"empty query", []ClientOption{WithZoneInfo(withURL("https://webservices5.autotask.net/atservicesrest?"))}, true, ZoneInfo{}},
-		{"fragment", []ClientOption{WithZoneInfo(withURL("https://webservices5.autotask.net/atservicesrest#x"))}, true, ZoneInfo{}},
 		{"user info", []ClientOption{WithZoneInfo(withURL("https://apiuser:" + zoneSecret + "@webservices5.autotask.net/atservicesrest/"))}, true, ZoneInfo{}},
-		{"user info, missing slash", []ClientOption{WithZoneInfo(withURL("https:/apiuser:" + zoneSecret + "@webservices5.autotask.net"))}, true, ZoneInfo{}},
-		{"user info, parse failure", []ClientOption{WithZoneInfo(withURL("https://apiuser:" + zoneSecret + "@webservices5.autotask.net:abc"))}, true, ZoneInfo{}},
-		{"password with slash", []ClientOption{WithZoneInfo(withURL("https://apiuser:" + zoneSecret + "/x@webservices5.autotask.net/"))}, true, ZoneInfo{}},
-		{"password with hash", []ClientOption{WithZoneInfo(withURL("https://apiuser:" + zoneSecret + "#x@webservices5.autotask.net/"))}, true, ZoneInfo{}},
-		{"digit password with slash", []ClientOption{WithZoneInfo(withURL("https://apiuser:1234/" + zoneSecret + "@webservices5.autotask.net/"))}, true, ZoneInfo{}},
 		{"zone then base URL", []ClientOption{WithZoneInfo(valid), WithBaseURL("https://other.example")}, true, ZoneInfo{}},
 		{"base URL then zone", []ClientOption{WithBaseURL("https://other.example"), WithZoneInfo(valid)}, true, ZoneInfo{}},
 		{"empty base URL then zone", []ClientOption{WithBaseURL(""), WithZoneInfo(valid)}, false, valid},
@@ -343,16 +350,19 @@ func TestWithZoneInfoValidation(t *testing.T) {
 func TestNewClientValidatesBaseURLs(t *testing.T) {
 	t.Parallel()
 	valid := ZoneInfo{ZoneName: "Zone 5", URL: "https://webservices5.autotask.net/atservicesrest/"}
+	const rule = " is not an absolute http or https URL with a host and no @, query or fragment"
 	tests := []struct {
 		name    string
 		opts    []ClientOption
 		wantErr bool
+		wantMsg string // exact error text; empty skips the comparison
 	}{
-		{"WithBaseURL query", []ClientOption{WithBaseURL("https://h.example/api?token=" + zoneSecret)}, true},
-		{"WithBaseURL user info", []ClientOption{WithBaseURL("http://user:" + zoneSecret + "/x@host")}, true},
-		{"WithZoneBaseURL query", []ClientOption{WithZoneBaseURL("https://h.example/?token=" + zoneSecret)}, true},
+		{"WithBaseURL query", []ClientOption{WithBaseURL("https://h.example/api?token=" + zoneSecret)}, true, "autotask: WithBaseURL: base URL" + rule},
+		{"WithBaseURL user info", []ClientOption{WithBaseURL("http://user:" + zoneSecret + "/x@host")}, true, ""},
+		{"WithZoneBaseURL query", []ClientOption{WithZoneBaseURL("https://h.example/?token=" + zoneSecret)}, true, "autotask: WithZoneBaseURL: zone base URL" + rule},
+		{"WithZoneInfo query", []ClientOption{WithZoneInfo(ZoneInfo{ZoneName: "Zone 5", URL: "https://h.example/?token=" + zoneSecret})}, true, "autotask: WithZoneInfo: zone URL" + rule},
 		// WithZoneBaseURL has no effect next to WithZoneInfo, so it is not checked.
-		{"unused WithZoneBaseURL", []ClientOption{WithZoneInfo(valid), WithZoneBaseURL("not a url")}, false},
+		{"unused WithZoneBaseURL", []ClientOption{WithZoneInfo(valid), WithZoneBaseURL("not a url")}, false, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -376,6 +386,9 @@ func TestNewClientValidatesBaseURLs(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), zoneSecret) {
 				t.Fatalf("error %q repeats the password from the URL", err)
+			}
+			if tt.wantMsg != "" && err.Error() != tt.wantMsg {
+				t.Fatalf("error = %q; want %q", err, tt.wantMsg)
 			}
 		})
 	}

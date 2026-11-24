@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`ValidateBaseURL`** (#75): returns an error unless a URL is one `NewClient` accepts as a base URL: an absolute `http` or `https` URL with a host and no `@`, query or fragment. It is the check `NewClient` applies to `WithBaseURL`, `WithZoneBaseURL`, `WithZoneInfo` and a discovered zone URL, so a program can check a configured URL when it loads it. An empty URL is an error, though `WithBaseURL("")` leaves zone discovery on. The error leaves the URL out. `NewClient` errors are unchanged.
+
 ### Fixed
 
+- **`middleware.NewThresholdMonitor` polled any base URL it was given** (#74). A base URL with a query or fragment put the check path inside it, and one with user info sent the user info as Basic auth. The monitor now checks its base URL with the rule `ValidateBaseURL` applies. When the URL fails, it sends no request, and each check passes the error to the error callback and, unless the monitor is stopping, logs it. A monitor started by `WithThresholdMonitor` gets the client's base URL, which `NewClient` has already checked, so it behaves as before.
 - **`autotasktest.NewServer` answered a query or count on a child URL as if it were the root URL of the segment** (#73). `POST /v1.0/Tickets/{id}/Notes/query` and its `/query/count` looked `Notes` up as an entity name and found nothing, though `GET /v1.0/Tickets/{id}/Notes` listed the notes, and `/v1.0/Companies/9/Contacts/query` returned contacts created under company 7. A query or count on a child URL now resolves its store as the child list does and sees the items that list shows; the filter, paging and count apply to those. A child URL that resolves to no store still answers an empty page and a count of 0, and query and count on root URLs are unchanged.
 
 ## [1.11.0] - 2026-11-24

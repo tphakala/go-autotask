@@ -22,6 +22,8 @@ Create a client with `autotask.NewClient(ctx, auth, opts...)`. Always call `clie
 | `WithThresholdMonitor(opts...)` | Enable API usage monitoring; with no options it runs with the defaults (see [Middleware](middleware.md#threshold-monitor)) |
 | `WithMaxResponseBytes(n)` | Largest API or zone discovery response body the client reads (default 128 MiB) |
 
+`autotask.ValidateBaseURL(url)` applies the rule `WithBaseURL`, `WithZoneBaseURL`, and `WithZoneInfo` check, so a program can check a configured URL when it loads it rather than when `NewClient` fails. It rejects an empty URL, which `WithBaseURL` accepts as "use zone discovery". Its error leaves the URL out.
+
 ## Zone discovery
 
 `NewClient` finds the API endpoint for the account with two requests (the API version list, then the zone information for the username) before it returns. `Client.Zone` returns what it found:
