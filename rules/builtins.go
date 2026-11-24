@@ -2,7 +2,10 @@
 
 package gorules
 
-import "github.com/quasilyte/go-ruleguard/dsl"
+import (
+	"github.com/quasilyte/go-ruleguard/dsl"
+	"github.com/quasilyte/go-ruleguard/dsl/types"
+)
 
 // MinMaxBuiltin detects manual min/max implementations using if statements
 // or ternary-like patterns and suggests using the built-in min/max functions.
@@ -238,23 +241,47 @@ func NewWithExpression(m dsl.Matcher) {
 // path is a pointer. This mirrors the embedlit modernizer in go fix.
 //
 // The rule only fires when the key and the nested literal's type share the same
-// name, which is what an embedded value field looks like in a literal. A regular
-// field that happens to be named after its type (Base Base) also matches, and a
-// promoted name that is shadowed or ambiguous in the outer struct cannot be
-// keyed directly, so this is a report rather than a rewrite.
+// name, which is what an embedded value field looks like in a literal, and the
+// outer struct has an embedded field. A regular field named after its type
+// (Header http.Header in http.Response) then does not match, unless the outer
+// struct also embeds some other field: the filter sees the struct type, not
+// which field the key names. A promoted name that is shadowed or ambiguous in
+// the outer struct cannot be keyed directly either, so this is a report rather
+// than a rewrite.
 //
 // See: https://go.dev/doc/go1.27#language
 func EmbeddedFieldLiteral(m dsl.Matcher) {
 	m.Match(
 		`$T{$*_, $emb: $embT{$k: $v, $*_}, $*_}`,
 	).
-		Where(m["emb"].Text == m["embT"].Text).
+		Where(m["emb"].Text == m["embT"].Text && m["T"].Filter(hasEmbeddedField)).
 		Report("initialize the promoted field directly: $T{$k: $v, ...} instead of $emb: $embT{$k: $v, ...} (Go 1.27+); not applicable if $k is shadowed or ambiguous in $T, or if $emb is a regular field named after its type")
 
 	// Embedded type from another package: field name is the bare type name.
 	m.Match(
 		`$T{$*_, $emb: $pkg.$embT{$k: $v, $*_}, $*_}`,
 	).
-		Where(m["emb"].Text == m["embT"].Text).
+		Where(m["emb"].Text == m["embT"].Text && m["T"].Filter(hasEmbeddedField)).
 		Report("initialize the promoted field directly: $T{$k: $v, ...} instead of $emb: $pkg.$embT{$k: $v, ...} (Go 1.27+); not applicable if $k is shadowed or ambiguous in $T, or if $emb is a regular field named after its type")
+}
+
+// hasEmbeddedField reports whether the struct type of a composite literal has
+// an embedded field. The loop has a condition only: quasigo, which runs
+// ruleguard filters, refuses a three-clause for loop (go-ruleguard v0.4.5,
+// ruleguard/quasigo/compile.go:226-228), and a rule whose filter does not
+// compile never fires.
+func hasEmbeddedField(ctx *dsl.VarFilterContext) bool {
+	st := types.AsStruct(ctx.Type.Underlying())
+	if st == nil {
+		return false
+	}
+	n := st.NumFields()
+	i := 0
+	for i < n {
+		if st.Field(i).Embedded() {
+			return true
+		}
+		i++
+	}
+	return false
 }
