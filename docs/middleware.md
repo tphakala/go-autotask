@@ -61,7 +61,7 @@ client, err := autotask.NewClient(ctx, auth,
 
 Polls the Autotask `ThresholdInformation` endpoint in the background (starting with an immediate check) and invokes callbacks on each check when usage is at or above 75% (warning) or 90% (critical); critical usage without a critical callback falls through to the warning callback. It also logs each check at or above those levels and each failed check to the client's logger (see [Logging](#logging)). Call `client.Close()` when shutting down to stop the polling loop. The check sends the client's `User-Agent`; `middleware.WithThresholdMonitorUserAgent` overrides it.
 
-A monitor built directly with `middleware.NewThresholdMonitor` checks its base URL with the rule `autotask.ValidateBaseURL` applies. If the URL fails, the monitor sends no request, and every check logs and reports that error to the error callback. `WithThresholdMonitor` passes the client's base URL, which `NewClient` has already checked.
+A monitor built directly with `middleware.NewThresholdMonitor` checks its base URL with the rule `autotask.ValidateBaseURL` applies. If the URL fails, the monitor sends no request, and each check reports that error to the error callback and, unless the monitor is stopping, logs it. `WithThresholdMonitor` passes the client's base URL, which `NewClient` has already checked.
 
 ## Logging
 

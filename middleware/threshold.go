@@ -138,8 +138,9 @@ type ThresholdMonitor struct {
 //
 // baseURL must be an absolute http or https URL with a host and no "@", query
 // or fragment, the rule autotask.ValidateBaseURL applies. When it is not, the
-// monitor sends no request, and every check reports that error, which leaves
-// the URL out, to the logger and the error callback.
+// monitor sends no request, and each check passes that error, which leaves the
+// URL out, to the error callback and, unless the monitor is stopping, to the
+// logger.
 func NewThresholdMonitor(httpClient *http.Client, baseURL string, auth AuthHeaders, opts ...ThresholdMonitorOption) *ThresholdMonitor {
 	cfg := thresholdMonitorConfig{
 		checkInterval: defaultCheckInterval,
