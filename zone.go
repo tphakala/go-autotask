@@ -37,26 +37,29 @@ type ZoneInfo struct {
 	CI       int    `json:"ci"`
 }
 
-// validateZoneURL checks the URL of a zone given with WithZoneInfo: it must be
-// an absolute http or https URL with a host and no "@", query or fragment.
-// joinURL appends API paths to it, which a query or fragment would swallow. An
-// "@" anywhere is rejected, not only in parsed user info: net/url ends the
-// authority at the first "/" (go1.27.4 net/url/url.go:489), so it reads
-// "https://user:1234/x@host/" as host "user", port 1234, no user info.
-// The errors leave the URL out, so a password in it is not repeated.
-func validateZoneURL(raw string) error {
+// validateBaseURL checks a URL the client appends API paths to, which is the
+// one given with WithBaseURL, WithZoneInfo or WithZoneBaseURL and the one zone
+// discovery returns. It must be an absolute http or https URL with a host and no
+// "@", query or fragment. joinURL appends API paths to it, which a query or
+// fragment would swallow. An "@" anywhere is rejected, not only in parsed user
+// info: net/url ends the authority at the first "/" (go1.27.4
+// net/url/url.go:489), so it reads "https://user:1234/x@host/" as host "user",
+// port 1234, no user info. name says which URL it is and starts the error
+// after "autotask: ". The errors leave the URL out, so a password in it is not
+// repeated.
+func validateBaseURL(name, raw string) error {
 	if raw == "" {
-		return fmt.Errorf("autotask: WithZoneInfo: zone URL is empty")
+		return fmt.Errorf("autotask: %s is empty", name)
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
 		// Not wrapped: *url.Error prints the whole URL (go1.27.4
 		// net/url/url.go:40), and its cause can quote part of the user info,
 		// such as `invalid port ":pw" after host` (url.go:631).
-		return fmt.Errorf("autotask: WithZoneInfo: zone URL does not parse")
+		return fmt.Errorf("autotask: %s does not parse", name)
 	}
 	if (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || strings.ContainsAny(raw, "@?#") {
-		return fmt.Errorf("autotask: WithZoneInfo: zone URL is not an absolute http or https URL with a host and no @, query or fragment")
+		return fmt.Errorf("autotask: %s is not an absolute http or https URL with a host and no @, query or fragment", name)
 	}
 	return nil
 }
@@ -102,16 +105,15 @@ func (c *ZoneCache) Set(username string, zone *ZoneInfo) {
 	}
 }
 
-func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, username string, maxBodyBytes int64) (*ZoneInfo, error) {
+func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, username, userAgent string, maxBodyBytes int64) (*ZoneInfo, error) {
+	if err := validateBaseURL("WithZoneBaseURL: zone base URL", baseURL); err != nil {
+		return nil, err
+	}
 	baseURL = strings.TrimRight(baseURL, "/")
 	versionsURL := baseURL + "/atservicesrest/versioninformation"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, versionsURL, http.NoBody)
+	versionResp, err := discoveryGet(ctx, httpClient, versionsURL, userAgent, "creating version request", "zone discovery version request")
 	if err != nil {
-		return nil, requestError("creating version request", err)
-	}
-	versionResp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, requestError("zone discovery version request", err)
+		return nil, err
 	}
 	defer versionResp.Body.Close() //nolint:errcheck // error ignored in defer
 	if versionResp.StatusCode != http.StatusOK {
@@ -145,13 +147,9 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 		return nil, fmt.Errorf("autotask: server does not advertise supported API version %q (available: %v)", supportedAPIVersion, versions.Versions)
 	}
 	zoneURL := fmt.Sprintf("%s/atservicesrest/%s/zoneInformation?user=%s", baseURL, apiVersion, url.QueryEscape(username))
-	req, err = http.NewRequestWithContext(ctx, http.MethodGet, zoneURL, http.NoBody)
+	zoneResp, err := discoveryGet(ctx, httpClient, zoneURL, userAgent, "creating zone request", "zone discovery request")
 	if err != nil {
-		return nil, requestError("creating zone request", err)
-	}
-	zoneResp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, requestError("zone discovery request", err)
+		return nil, err
 	}
 	defer zoneResp.Body.Close() //nolint:errcheck // error ignored in defer
 	if zoneResp.StatusCode != http.StatusOK {
@@ -164,7 +162,26 @@ func discoverZone(ctx context.Context, httpClient *http.Client, baseURL, usernam
 	if zone.URL == "" {
 		return nil, fmt.Errorf("autotask: zone discovery returned empty URL")
 	}
+	if err := validateBaseURL("zone discovery: zone URL", zone.URL); err != nil {
+		return nil, err
+	}
 	return &zone, nil
+}
+
+// discoveryGet sends a GET for a zone discovery step with the client's
+// User-Agent. createWhat and doWhat name the step in the error when the request
+// cannot be built or sent.
+func discoveryGet(ctx context.Context, httpClient *http.Client, rawURL, userAgent, createWhat, doWhat string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, http.NoBody)
+	if err != nil {
+		return nil, requestError(createWhat, err)
+	}
+	req.Header.Set("User-Agent", userAgent)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, requestError(doWhat, err)
+	}
+	return resp, nil
 }
 
 // requestError wraps err, which can carry a *url.Error, for a failed zone

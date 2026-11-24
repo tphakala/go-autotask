@@ -2,12 +2,15 @@ package autotask
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
+	"github.com/tphakala/go-autotask/internal/useragent"
 	"github.com/tphakala/go-autotask/middleware"
 )
 
@@ -55,8 +58,8 @@ func TestClientAuthHeaders(t *testing.T) {
 	if gotHeaders.Get("ApiIntegrationcode") != "INT123" {
 		t.Fatalf("ApiIntegrationcode header = %q", gotHeaders.Get("ApiIntegrationcode"))
 	}
-	if got := gotHeaders.Get("User-Agent"); got != defaultUserAgent() {
-		t.Fatalf("User-Agent header = %q; want %q", got, defaultUserAgent())
+	if got := gotHeaders.Get("User-Agent"); got != useragent.Default() {
+		t.Fatalf("User-Agent header = %q; want %q", got, useragent.Default())
 	}
 }
 
@@ -173,4 +176,37 @@ type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
+}
+
+// TestDoErrorsOmitURLQueryAndUserInfo pins that the error of a request that
+// cannot be built or fails omits the URL's query and user info, and that it
+// still unwraps to a *url.Error.
+func TestDoErrorsOmitURLQueryAndUserInfo(t *testing.T) {
+	t.Parallel()
+	const secret = "s3cretvalue"
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	client, err := NewClient(t.Context(), AuthConfig{Username: "user"}, WithBaseURL(srv.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	srv.Close() // requests to the base URL now fail with a connection error
+	for _, tt := range []struct{ name, path string }{
+		{"request failed", "/v1.0/Tickets/query?search=" + secret},
+		{"creating request", "http://user:" + secret + "/x@host/v1.0/Tickets/1"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := client.do(t.Context(), http.MethodGet, tt.path, nil, nil)
+			if err == nil {
+				t.Fatal("do succeeded; want an error")
+			}
+			if strings.Contains(err.Error(), secret) {
+				t.Errorf("error %q repeats part of the request URL", err)
+			}
+			if _, ok := errors.AsType[*url.Error](err); !ok {
+				t.Errorf("error %T does not unwrap to *url.Error", err)
+			}
+		})
+	}
 }

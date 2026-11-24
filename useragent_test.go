@@ -1,92 +1,115 @@
-package autotask
+package autotask_test
 
 import (
 	"net/http"
 	"net/http/httptest"
-	"runtime/debug"
 	"sync"
 	"testing"
+
+	"github.com/tphakala/go-autotask"
+	"github.com/tphakala/go-autotask/internal/useragent"
+	"github.com/tphakala/go-autotask/middleware"
 )
 
-func TestUserAgentFor(t *testing.T) {
-	t.Parallel()
-	dep := func(version string, replace *debug.Module) *debug.BuildInfo {
-		return &debug.BuildInfo{
-			Main: debug.Module{Path: "example.com/app", Version: "v9.9.9"},
-			Deps: []*debug.Module{
-				{Path: "golang.org/x/time", Version: "v0.1.0"},
-				{Path: modulePath, Version: version, Replace: replace},
-			},
-		}
-	}
-	main := func(version string) *debug.BuildInfo {
-		return &debug.BuildInfo{Main: debug.Module{Path: modulePath, Version: version}}
-	}
-	for _, tt := range []struct {
-		name string
-		info *debug.BuildInfo
-		want string
-	}{
-		{"nil info", nil, "go-autotask"},
-		{"dependency version, not the consumer's", dep("v1.5.1", nil), "go-autotask/1.5.1"},
-		{"local replace has no version", dep("v1.5.1", &debug.Module{Path: "../go-autotask", Version: "(devel)"}), "go-autotask"},
-		{"replace version decides", dep("v1.5.1", &debug.Module{Path: "example.com/fork", Version: "v1.7.0"}), "go-autotask/1.7.0"},
-		{"workspace checkout", dep("(devel)", nil), "go-autotask"},
-		{"other main module, no dependency entry", &debug.BuildInfo{Main: debug.Module{Path: "example.com/app", Version: "v1.0.0"}}, "go-autotask"},
-		{"main module in a test binary", main("(devel)"), "go-autotask"},
-		{"main module pseudo-version", main("v1.5.2-0.20261118121938-dc337645bbfd+dirty"), "go-autotask/1.5.2-0.20261118121938-dc337645bbfd+dirty"},
-		{"main module with no version", main(""), "go-autotask"},
-		{"version with characters outside a module version", dep("v1.5.1 (devel)", nil), "go-autotask"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			if got := userAgentFor(tt.info); got != tt.want {
-				t.Errorf("userAgentFor = %q; want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-// TestNewClientUserAgent pins that a default client sends defaultUserAgent() on
-// an API request and that WithUserAgent replaces it. TestUserAgentFor pins how
-// userAgentFor picks the version; that defaultUserAgent passes it the real
-// build info is not pinned, because a test binary carries no module version.
+// TestNewClientUserAgent pins that the client sends one User-Agent on the
+// version lookup, the zone lookup, an API request and the threshold check, and
+// that middleware.WithThresholdMonitorUserAgent replaces it for the threshold
+// check only. internal/useragent's TestFor pins how the version is chosen; that
+// useragent.Default reads the real build info is not pinned, because a test
+// binary carries no module version.
 func TestNewClientUserAgent(t *testing.T) {
 	t.Parallel()
+	const (
+		versionPath   = "/atservicesrest/versioninformation"
+		zonePath      = "/atservicesrest/V1.0/zoneInformation"
+		thresholdPath = "/v1.0/ThresholdInformation"
+		apiPath       = "/v1.0/Tickets/1"
+	)
 	for _, tt := range []struct {
 		name string
-		opts []ClientOption
-		want string
+		opts []autotask.ClientOption
+		mon  []middleware.ThresholdMonitorOption
+		want map[string]string // User-Agent per request path
 	}{
-		{"default", nil, defaultUserAgent()},
-		{"override", []ClientOption{WithUserAgent("custom/1")}, "custom/1"},
+		{
+			name: "default",
+			want: map[string]string{
+				versionPath: useragent.Default(), zonePath: useragent.Default(),
+				thresholdPath: useragent.Default(), apiPath: useragent.Default(),
+			},
+		},
+		{
+			name: "WithUserAgent reaches every request",
+			opts: []autotask.ClientOption{autotask.WithUserAgent("custom/1")},
+			want: map[string]string{
+				versionPath: "custom/1", zonePath: "custom/1", thresholdPath: "custom/1", apiPath: "custom/1",
+			},
+		},
+		{
+			name: "monitor option wins for the threshold check",
+			opts: []autotask.ClientOption{autotask.WithUserAgent("custom/1")},
+			mon:  []middleware.ThresholdMonitorOption{middleware.WithThresholdMonitorUserAgent("monitor/1")},
+			want: map[string]string{
+				versionPath: "custom/1", zonePath: "custom/1", thresholdPath: "monitor/1", apiPath: "custom/1",
+			},
+		},
+		{
+			name: "empty WithUserAgent sends none",
+			opts: []autotask.ClientOption{autotask.WithUserAgent("")},
+			want: map[string]string{versionPath: "", zonePath: "", thresholdPath: "", apiPath: ""},
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var (
 				mu  sync.Mutex
-				got string
+				got = map[string]string{}
 			)
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				mu.Lock()
-				got = r.Header.Get("User-Agent")
-				mu.Unlock()
-				_, _ = w.Write([]byte(`{}`))
-			}))
+			var srv *httptest.Server
+			mux := http.NewServeMux()
+			// serve records the request's User-Agent under its path and answers body().
+			serve := func(path string, body func() string) {
+				mux.HandleFunc("GET "+path, func(w http.ResponseWriter, r *http.Request) {
+					mu.Lock()
+					got[r.URL.Path] = r.Header.Get("User-Agent")
+					mu.Unlock()
+					_, _ = w.Write([]byte(body()))
+				})
+			}
+			serve(versionPath, func() string { return `{"apiVersions":["V1.0"]}` })
+			serve(zonePath, func() string { return `{"zoneName":"Test Zone","url":"` + srv.URL + `"}` })
+			serve(thresholdPath, func() string {
+				return `{"currentTimeframeRequestCount":95,"externalRequestThreshold":100}`
+			})
+			serve(apiPath, func() string { return `{}` })
+			srv = httptest.NewServer(mux)
 			t.Cleanup(srv.Close)
-			opts := append([]ClientOption{WithBaseURL(srv.URL)}, tt.opts...)
-			c, err := NewClient(t.Context(), AuthConfig{Username: "u", Secret: "s", IntegrationCode: "i"}, opts...)
+
+			critical, waitCritical := signal(t)
+			opts := append([]autotask.ClientOption{
+				autotask.WithZoneBaseURL(srv.URL),
+				autotask.WithThresholdMonitor(append([]middleware.ThresholdMonitorOption{critical}, tt.mon...)...),
+			}, tt.opts...)
+			c, err := autotask.NewClient(t.Context(), autotask.AuthConfig{Username: "u", Secret: "s", IntegrationCode: "i"}, opts...)
 			if err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = c.Close() })
-			if err := c.do(t.Context(), http.MethodGet, "/v1.0/Tickets/1", nil, nil); err != nil {
+			if err := c.Do(t.Context(), http.MethodGet, apiPath, nil, nil); err != nil {
 				t.Fatal(err)
 			}
+			waitCritical()
 			mu.Lock()
 			defer mu.Unlock()
-			if got != tt.want {
-				t.Errorf("User-Agent = %q; want %q", got, tt.want)
+			for path, want := range tt.want {
+				seen, ok := got[path]
+				if !ok {
+					t.Errorf("no request reached %s", path)
+					continue
+				}
+				if seen != want {
+					t.Errorf("User-Agent on %s = %q; want %q", path, seen, want)
+				}
 			}
 		})
 	}

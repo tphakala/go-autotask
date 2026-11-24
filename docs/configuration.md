@@ -8,18 +8,18 @@ Create a client with `autotask.NewClient(ctx, auth, opts...)`. Always call `clie
 
 | Option | Description |
 |---|---|
-| `WithBaseURL(url)` | Override automatic zone discovery with a fixed API base URL; with a non-empty URL, `Client.Zone` reports no zone |
+| `WithBaseURL(url)` | Override automatic zone discovery with a fixed API base URL; with a non-empty URL, `Client.Zone` reports no zone; must be an absolute `http` or `https` URL with a host and no `@`, query, or fragment |
 | `WithZoneInfo(z)` | Use a zone saved from `Client.Zone` on an earlier run; no zone discovery request is made (see [Zone discovery](#zone-discovery)) |
-| `WithZoneBaseURL(url)` | Override the base URL used for zone discovery (mainly for testing) |
+| `WithZoneBaseURL(url)` | Override the base URL used for zone discovery (mainly for testing); checked when zone discovery runs, and must be an absolute `http` or `https` URL with a host and no `@`, query, or fragment |
 | `WithHTTPClient(hc)` | Use a custom `*http.Client`; a nil `hc` keeps the default client |
 | `WithLogger(l)` | Log circuit breaker, rate limiter, zone discovery, TLS fallback, and threshold monitor events to `l` (see [Logging](middleware.md#logging)); nil is ignored |
-| `WithUserAgent(ua)` | Custom `User-Agent` header |
+| `WithUserAgent(ua)` | Custom `User-Agent` header for API, zone discovery, and threshold monitor requests |
 | `WithImpersonation(id)` | Perform API calls as another resource |
 | `WithMiddleware(m)` | Add custom `http.RoundTripper` middleware |
 | `WithRateLimiter(opts...)` | Enable rate limiting (see [Middleware](middleware.md#rate-limiter)) |
 | `WithCircuitBreaker(opts...)` | Enable circuit breaker (see [Middleware](middleware.md#circuit-breaker)) |
 | `WithMaxConcurrency(n)` | Cap the number of concurrent in-flight requests (see [Middleware](middleware.md#concurrency-limiter)) |
-| `WithThresholdMonitor(opts...)` | Enable API usage monitoring; pass at least one option to start the background monitor (see [Middleware](middleware.md#threshold-monitor)) |
+| `WithThresholdMonitor(opts...)` | Enable API usage monitoring; with no options it runs with the defaults (see [Middleware](middleware.md#threshold-monitor)) |
 | `WithMaxResponseBytes(n)` | Largest API or zone discovery response body the client reads (default 128 MiB) |
 
 ## Zone discovery
@@ -68,6 +68,6 @@ if !loaded {
 }
 ```
 
-With `WithZoneInfo`, `NewClient` sends no zone discovery request, uses `zone.URL` as the base URL, and `client.Zone()` returns the same value, `WebURL` included. `NewClient` returns an error when `zone.URL` is not an absolute `http` or `https` URL with a host and no `@`, query, or fragment, or when a non-empty `WithBaseURL` is also set.
+With `WithZoneInfo`, `NewClient` sends no zone discovery request, uses `zone.URL` as the base URL, and `client.Zone()` returns the same value, `WebURL` included. `NewClient` returns an error when `zone.URL` is not an absolute `http` or `https` URL with a host and no `@`, query, or fragment, or when a non-empty `WithBaseURL` is also set. Zone discovery checks the zone URL it receives the same way, so a zone `Client.Zone` returns is one `WithZoneInfo` accepts.
 
 The client sends the API credentials to `zone.URL`, so protect the saved file like the credentials and keep one per API username. A saved zone does not expire: if calls start to fail in a way that points at the endpoint, delete it and let `NewClient` discover the zone again.

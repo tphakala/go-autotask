@@ -1,4 +1,7 @@
-package autotask
+// Package useragent builds the default User-Agent from the build info. The
+// client and the middleware package share it, so every request sends the same
+// default.
+package useragent
 
 import (
 	"runtime/debug"
@@ -12,18 +15,21 @@ const (
 	userAgentProduct = "go-autotask"
 )
 
-// defaultUserAgent returns the User-Agent a Client sends unless WithUserAgent
-// overrides it. It reads the build info once per process.
-var defaultUserAgent = sync.OnceValue(func() string {
+// defaultValue reads the build info once per process.
+var defaultValue = sync.OnceValue(func() string {
 	info, _ := debug.ReadBuildInfo()
-	return userAgentFor(info)
+	return For(info)
 })
 
-// userAgentFor returns "go-autotask/<version>" when info gives this module a
+// Default returns the User-Agent go-autotask sends unless the caller sets
+// another, such as with autotask.WithUserAgent.
+func Default() string { return defaultValue() }
+
+// For returns "go-autotask/<version>" when info gives this module a
 // version, and "go-autotask" when it does not. A local replace directive, a
 // workspace checkout and the module's own tests leave the version as "(devel)",
 // and then no version is claimed.
-func userAgentFor(info *debug.BuildInfo) string {
+func For(info *debug.BuildInfo) string {
 	if v := moduleVersion(info); v != "" {
 		return userAgentProduct + "/" + v
 	}

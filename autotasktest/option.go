@@ -390,7 +390,9 @@ func WithEntityMetadata(entityName string, info EntityInfoResponse, fields []Fie
 	}
 }
 
-// WithZoneInfo configures the zone discovery response.
+// WithZoneInfo configures the zone discovery response. A client that discovers
+// against the server rejects a url that is not an absolute http or https URL
+// with a host and no "@", query or fragment.
 func WithZoneInfo(name, url string) ServerOption {
 	return func(ts *TestServer) {
 		ts.opts.zoneInfo = &zoneConfig{name: name, url: url}
