@@ -311,8 +311,8 @@ func TestChildMetadataAnswersForChildEntity(t *testing.T) {
 	}{
 		{name: "default answer names the child entity and creates no store", path: childPath, wantName: entityName, noStore: entityName},
 		{
-			name: "segment store answers with its delete flag", opts: []ServerOption{WithDeleteSupport("Contacts")},
-			path: "/v1.0/Companies/9/Contacts/entityInformation", wantName: "Contacts", wantDelete: true,
+			name: "segment store answers with its delete flag", opts: []ServerOption{WithDeleteSupport("Gadgets")},
+			path: "/v1.0/Widgets/42/Gadgets/entityInformation", wantName: "Gadgets", wantDelete: true,
 		},
 		{
 			name: "a WithChildEntity route names its store", opts: []ServerOption{WithChildEntity[widgetReport](42, gadget{ID: autotask.Set(int64(5))})},
