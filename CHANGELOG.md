@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-11-24
+
 ### Added
 
 - **`middleware.WithThresholdMonitorUserAgent`** (#42): sets the `User-Agent` header of the threshold check. A monitor from `NewThresholdMonitor` sends `go-autotask/<version>` (or `go-autotask`) by default, the client's default; one started by `WithThresholdMonitor` sends the client's `User-Agent`, and this option passed to `WithThresholdMonitor` replaces it.
@@ -271,7 +273,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Entity types: Company, Contact, Ticket, Resource, Contract, Project, Task, ConfigurationItem, TicketNote, TimeEntry
 - GitHub Actions: CI (test and lint), CodeQL, govulncheck, Dependabot, automated releases, stale issue cleanup
 
-[Unreleased]: https://github.com/tphakala/go-autotask/compare/v1.10.0...HEAD
+[Unreleased]: https://github.com/tphakala/go-autotask/compare/v1.11.0...HEAD
+[1.11.0]: https://github.com/tphakala/go-autotask/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/tphakala/go-autotask/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/tphakala/go-autotask/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/tphakala/go-autotask/compare/v1.7.0...v1.8.0
