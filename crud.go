@@ -75,7 +75,7 @@ func Count[T Entity](ctx context.Context, c *Client, q *Query) (int64, error) {
 // itemId, or the id cannot be stored in the entity, Create returns a nil
 // error with ID unset: check ID before relying on it, and do not repeat the
 // create because it is unset. A failed call may still have created the
-// record; see the retry notes in the README.
+// record; see IsTransient and docs/errors.md for retry notes.
 func Create[T Entity](ctx context.Context, c *Client, entity *T) (*T, error) {
 	if entity == nil {
 		return nil, fmt.Errorf("autotask: entity must not be nil")
