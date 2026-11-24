@@ -173,7 +173,7 @@ func TestDiscoverZone(t *testing.T) {
 	// the supported V1.0 (not the last element) must drive discovery.
 	srv := zoneServer(t, []string{"V1.0", "V2.0"}, "V1.0")
 
-	zone, err := discoverZone(t.Context(), srv.Client(), srv.URL, "test@example.com", defaultMaxResponseBytes)
+	zone, err := discoverZone(t.Context(), srv.Client(), srv.URL, "test@example.com", "test-agent", defaultMaxResponseBytes)
 	if err != nil {
 		t.Fatalf("discoverZone: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestDiscoverZoneVersionInMiddle(t *testing.T) {
 	// neither a first-element nor a last-element selection would land on it.
 	srv := zoneServer(t, []string{"V2.0", "V1.0", "V3.0"}, "V1.0")
 
-	zone, err := discoverZone(t.Context(), srv.Client(), srv.URL, "test@example.com", defaultMaxResponseBytes)
+	zone, err := discoverZone(t.Context(), srv.Client(), srv.URL, "test@example.com", "test-agent", defaultMaxResponseBytes)
 	if err != nil {
 		t.Fatalf("discoverZone: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestDiscoverZoneNoSupportedVersion(t *testing.T) {
 	// The server advertises only versions this client does not implement.
 	srv := zoneServer(t, []string{"V2.0", "V3.0"}, "")
 
-	_, err := discoverZone(t.Context(), srv.Client(), srv.URL, "test@example.com", defaultMaxResponseBytes)
+	_, err := discoverZone(t.Context(), srv.Client(), srv.URL, "test@example.com", "test-agent", defaultMaxResponseBytes)
 	if err == nil {
 		t.Fatal("expected error when no supported version is advertised, got nil")
 	}
@@ -226,7 +226,7 @@ func TestDiscoverZoneVersionFormTolerance(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			srv := zoneServer(t, []string{tc.advertised}, tc.served)
-			zone, err := discoverZone(t.Context(), srv.Client(), srv.URL, "test@example.com", defaultMaxResponseBytes)
+			zone, err := discoverZone(t.Context(), srv.Client(), srv.URL, "test@example.com", "test-agent", defaultMaxResponseBytes)
 			if err != nil {
 				t.Fatalf("discoverZone(%q): %v", tc.advertised, err)
 			}
@@ -332,5 +332,65 @@ func TestWithZoneInfoValidation(t *testing.T) {
 				t.Fatalf("baseURL = %q; want the given zone URL %q verbatim", client.baseURL, tt.want.URL)
 			}
 		})
+	}
+}
+
+// TestNewClientValidatesBaseURLs pins that WithBaseURL and WithZoneBaseURL apply
+// the rule WithZoneInfo applies, without repeating the URL in the error and
+// without sending a request.
+func TestNewClientValidatesBaseURLs(t *testing.T) {
+	t.Parallel()
+	valid := ZoneInfo{ZoneName: "Zone 5", URL: "https://webservices5.autotask.net/atservicesrest/"}
+	tests := []struct {
+		name    string
+		opts    []ClientOption
+		wantErr bool
+	}{
+		{"WithBaseURL query", []ClientOption{WithBaseURL("https://h.example/api?token=" + zoneSecret)}, true},
+		{"WithBaseURL user info", []ClientOption{WithBaseURL("http://user:" + zoneSecret + "/x@host")}, true},
+		{"WithZoneBaseURL query", []ClientOption{WithZoneBaseURL("https://h.example/?token=" + zoneSecret)}, true},
+		// WithZoneBaseURL has no effect next to WithZoneInfo, so it is not checked.
+		{"unused WithZoneBaseURL", []ClientOption{WithZoneInfo(valid), WithZoneBaseURL("not a url")}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			noNetwork := &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+				t.Errorf("unexpected request %s %s", r.Method, r.URL)
+				return nil, http.ErrHandlerTimeout
+			})}
+			opts := append([]ClientOption{WithHTTPClient(noNetwork)}, tt.opts...)
+			client, err := NewClient(t.Context(), AuthConfig{Username: "user"}, opts...)
+			if !tt.wantErr {
+				if err != nil {
+					t.Fatalf("NewClient: %v", err)
+				}
+				_ = client.Close()
+				return
+			}
+			if err == nil {
+				_ = client.Close()
+				t.Fatal("NewClient succeeded; want an error")
+			}
+			if strings.Contains(err.Error(), zoneSecret) {
+				t.Fatalf("error %q repeats the password from the URL", err)
+			}
+		})
+	}
+}
+
+// TestDiscoverZoneRequestFailureHidesQuery pins that a failed discovery request
+// returns an error without the username the zone request carries in its query.
+func TestDiscoverZoneRequestFailureHidesQuery(t *testing.T) {
+	t.Parallel()
+	failing := &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return nil, http.ErrHandlerTimeout
+	})}
+	_, err := discoverZone(t.Context(), failing, "https://h.example", "svc-user@example.com", "test-agent", defaultMaxResponseBytes)
+	if err == nil {
+		t.Fatal("discoverZone succeeded; want an error")
+	}
+	if strings.Contains(err.Error(), "svc-user") {
+		t.Errorf("error %q repeats the username", err)
 	}
 }

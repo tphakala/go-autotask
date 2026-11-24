@@ -15,6 +15,7 @@ import (
 
 	"github.com/tphakala/go-autotask/internal/redact"
 	"github.com/tphakala/go-autotask/internal/redirect"
+	"github.com/tphakala/go-autotask/internal/useragent"
 	"github.com/tphakala/go-autotask/middleware"
 )
 
@@ -69,7 +70,7 @@ func NewClient(ctx context.Context, auth AuthConfig, opts ...ClientOption) (*Cli
 		auth:      auth,
 		zoneCache: newZoneCache(defaultZoneCacheTTL),
 		logger:    slog.New(slog.DiscardHandler),
-		userAgent: defaultUserAgent(),
+		userAgent: useragent.Default(),
 
 		maxResponseBytes: defaultMaxResponseBytes,
 	}
@@ -80,7 +81,7 @@ func NewClient(ctx context.Context, auth AuthConfig, opts ...ClientOption) (*Cli
 	if c.httpClient == nil {
 		c.httpClient = newDefaultHTTPClient(c.logger)
 	}
-	if err := c.useGivenZone(); err != nil {
+	if err := c.useGivenBaseURL(); err != nil {
 		return nil, err
 	}
 	// Apply middlewares to the HTTP transport. Clone the http.Client
@@ -117,6 +118,8 @@ func NewClient(ctx context.Context, auth AuthConfig, opts ...ClientOption) (*Cli
 			IntegrationCode: c.auth.IntegrationCode,
 		}
 		monitorOpts := withLogger(c.logger, middleware.WithThresholdMonitorLogger, c.thresholdMonitorOpts)
+		// The client's User-Agent goes first, so one the caller passed wins.
+		monitorOpts = append([]middleware.ThresholdMonitorOption{middleware.WithThresholdMonitorUserAgent(c.userAgent)}, monitorOpts...)
 		monitor := middleware.NewThresholdMonitor(c.httpClient, c.baseURL, auth, monitorOpts...)
 		monitor.Start(ctx)
 		c.closers = append(c.closers, monitor.Stop)
@@ -134,16 +137,20 @@ func (c *Client) Close() error {
 	return errors.Join(errs...)
 }
 
-// useGivenZone applies a zone set with WithZoneInfo. It runs straight after
-// the options, where hasZone can only have been set by that option.
-func (c *Client) useGivenZone() error {
+// useGivenBaseURL checks a non-empty WithBaseURL and applies a zone set with
+// WithZoneInfo. It runs straight after the options, where hasZone can only
+// have been set by that option.
+func (c *Client) useGivenBaseURL() error {
 	if !c.hasZone {
-		return nil
+		if c.baseURL == "" {
+			return nil
+		}
+		return validateBaseURL("WithBaseURL: base URL", c.baseURL)
 	}
 	if c.baseURL != "" {
 		return fmt.Errorf("autotask: WithZoneInfo and WithBaseURL cannot be combined")
 	}
-	if err := validateZoneURL(c.zone.URL); err != nil {
+	if err := validateBaseURL("WithZoneInfo: zone URL", c.zone.URL); err != nil {
 		return err
 	}
 	c.baseURL = c.zone.URL
@@ -166,7 +173,7 @@ func (c *Client) resolveZone(ctx context.Context) (*ZoneInfo, error) {
 	if base == "" {
 		base = defaultZoneBaseURL
 	}
-	zone, err := discoverZone(ctx, c.httpClient, base, c.auth.Username, c.maxResponseBytes)
+	zone, err := discoverZone(ctx, c.httpClient, base, c.auth.Username, c.userAgent, c.maxResponseBytes)
 	if err != nil {
 		c.logger.LogAttrs(ctx, slog.LevelWarn, "autotask: zone discovery failed",
 			slog.String("zone_base_url", redact.URL(base)), slog.Any("error", err))
@@ -180,7 +187,9 @@ func (c *Client) resolveZone(ctx context.Context) (*ZoneInfo, error) {
 
 // do executes an HTTP request. path is joined onto baseURL unless it is an
 // absolute URL (a pagination nextPageUrl starting with http:// or https://), in
-// which case it is used unchanged. See joinURL.
+// which case it is used unchanged. See joinURL. An error from building or
+// sending the request has the query, user info and fragment of the request URL
+// removed (see redact.URL).
 func (c *Client) do(ctx context.Context, method, path string, body, result any) error {
 	var bodyReader *bytes.Buffer
 	if body != nil {
@@ -199,7 +208,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, result any) 
 		req, err = http.NewRequestWithContext(ctx, method, requestURL, http.NoBody)
 	}
 	if err != nil {
-		return fmt.Errorf("autotask: creating request: %w", err)
+		return fmt.Errorf("autotask: creating request: %w", redact.URLError(err))
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", c.userAgent)
@@ -216,7 +225,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, result any) 
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("autotask: request failed: %w", err)
+		return fmt.Errorf("autotask: request failed: %w", redact.URLError(err))
 	}
 	defer resp.Body.Close() //nolint:errcheck // error ignored in defer, nothing useful to do with it
 	return parseResponse(resp, result, c.maxResponseBytes)

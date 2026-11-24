@@ -267,7 +267,10 @@ func TestZoneDiscoveryLogsAndRedactsUsername(t *testing.T) {
 		wantErr   bool
 	}{
 		{name: "success", handler: zoneAt(""), wantLevel: slog.LevelInfo, wantMsg: "autotask: zone discovered"},
-		{name: "zone URL with a query", handler: zoneAt("/?token=SECRET"), wantLevel: slog.LevelInfo, wantMsg: "autotask: zone discovered"},
+		{
+			name: "zone URL with a query is rejected", handler: zoneAt("/?token=SECRET"),
+			wantLevel: slog.LevelWarn, wantMsg: "autotask: zone discovery failed", wantErr: true,
+		},
 		{
 			name: "base URL with a query", handler: serverError, baseQuery: "?token=SECRET",
 			wantLevel: slog.LevelWarn, wantMsg: "autotask: zone discovery failed", wantErr: true,
@@ -339,14 +342,16 @@ func assertNoLeak(t *testing.T, recordText string, err error) {
 	}
 }
 
-func TestZoneDiscoveryParseErrorHidesUserInfo(t *testing.T) {
+// TestZoneBaseURLWithUserInfoIsNotRepeated pins that the rejection of a zone
+// base URL with user info leaves the user info out of the error and the log.
+// url.Parse reads "user:pw" as the host of this URL and would quote ":pw".
+func TestZoneBaseURLWithUserInfoIsNotRepeated(t *testing.T) {
 	t.Parallel()
 	rec := logtest.New()
-	// url.Parse reads "user:pw" as the host of this base URL and quotes ":pw".
 	_, err := autotask.NewClient(t.Context(), autotask.AuthConfig{Username: "svc-secret@example.com"},
 		autotask.WithZoneBaseURL("http://user:pw/x@host"), autotask.WithLogger(rec.Logger()))
 	if err == nil {
-		t.Fatal("want a zone discovery error for the unparsable base URL")
+		t.Fatal("want an error for the zone base URL with user info")
 	}
 	recs := rec.Records()
 	if len(recs) != 1 {

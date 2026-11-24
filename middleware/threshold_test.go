@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/tphakala/go-autotask/internal/logtest"
+	"github.com/tphakala/go-autotask/internal/useragent"
 )
 
 func testThresholdMonitor(t *testing.T, requestCount int, opts ...ThresholdMonitorOption) {
@@ -359,5 +360,39 @@ func TestThresholdMonitorStoppingCheckIsNotLogged(t *testing.T) {
 	}
 	if cbErr.Load() == nil {
 		t.Error("the error callback must still run")
+	}
+}
+
+// TestThresholdMonitorSendsUserAgent pins the User-Agent of the threshold
+// check: the client's default without options, the value of
+// WithThresholdMonitorUserAgent otherwise, and none for an empty value.
+func TestThresholdMonitorSendsUserAgent(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		opts []ThresholdMonitorOption
+		want string
+	}{
+		{"default", nil, useragent.Default()},
+		{"option", []ThresholdMonitorOption{WithThresholdMonitorUserAgent("monitor/1")}, "monitor/1"},
+		{"empty option sends none", []ThresholdMonitorOption{WithThresholdMonitorUserAgent("")}, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var got atomic.Pointer[string]
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				ua := r.Header.Get("User-Agent")
+				got.Store(&ua)
+				_ = json.NewEncoder(w).Encode(map[string]any{"currentTimeframeRequestCount": 1, "externalRequestThreshold": 100})
+			}))
+			defer srv.Close()
+			m := NewThresholdMonitor(srv.Client(), srv.URL, AuthHeaders{}, tt.opts...)
+			m.check(t.Context())
+			ua := got.Load()
+			if ua == nil {
+				t.Fatal("the monitor sent no request")
+			}
+			if *ua != tt.want {
+				t.Errorf("User-Agent = %q; want %q", *ua, tt.want)
+			}
+		})
 	}
 }

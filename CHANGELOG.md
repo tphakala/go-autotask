@@ -7,8 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`middleware.WithThresholdMonitorUserAgent`** (#42): sets the `User-Agent` header of the threshold check. A monitor from `NewThresholdMonitor` sends `go-autotask/<version>` (or `go-autotask`) by default, the client's default; one started by `WithThresholdMonitor` sends the client's `User-Agent`, and this option passed to `WithThresholdMonitor` replaces it.
+
+### Changed
+
+- **`NewClient` returns an error for a `WithBaseURL` or `WithZoneBaseURL` URL that is not an absolute `http` or `https` URL with a host and no `@`, query or fragment** (#44), the rule `WithZoneInfo` already applies. API paths are appended to the base URL, so such a URL produced request URLs with the path inside the query or fragment. `WithBaseURL("")` still leaves zone discovery on, and `WithZoneBaseURL` is checked only when zone discovery runs. A zone URL that zone discovery returns is checked the same way, so a zone from `Client.Zone` is one `WithZoneInfo` accepts.
+- **The error an API call returns when its request cannot be built or fails no longer includes the request URL's query or user info** (#44), as for zone discovery and the threshold monitor in 1.10.0. Error types are unchanged; a caller that matches the full error text sees the shorter URL, and the cause of a parse error of a URL with user info is replaced by `invalid URL`.
+
 ### Fixed
 
+- **Zone discovery and the threshold monitor sent Go's default `User-Agent`** (#42). The version and zone information requests now send the client's `User-Agent`, including a `WithUserAgent` value, and the threshold check sends it too (see `middleware.WithThresholdMonitorUserAgent`).
 - **`WithThresholdMonitor()` with no options started no monitor** (#63). It now starts one with the default check interval, reporting through the client's logger. Repeated `WithThresholdMonitor` calls now start one monitor with the options of every call, in order; before, each call replaced the options of the one before it.
 
 ## [1.10.0] - 2026-11-24

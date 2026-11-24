@@ -70,6 +70,9 @@ func WithLogger(l *slog.Logger) ClientOption {
 // WithBaseURL sets a fixed API base URL and skips zone discovery, so
 // Client.Zone reports no zone. An empty url leaves discovery on. A non-empty
 // url cannot be combined with WithZoneInfo.
+//
+// NewClient returns an error when a non-empty url is not an absolute http or
+// https URL with a host and no "@", query or fragment.
 func WithBaseURL(url string) ClientOption {
 	return func(c *Client) { c.baseURL = url }
 }
@@ -95,7 +98,9 @@ func WithZoneInfo(z ZoneInfo) ClientOption {
 // WithUserAgent sets the User-Agent header. The default is go-autotask/<module
 // version>, taken from the build info, or plain go-autotask when the build info
 // has no version for this module (a local replace directive, a workspace, the
-// module's own tests).
+// module's own tests). Zone discovery sends it too, and so does the threshold
+// monitor WithThresholdMonitor starts, unless
+// middleware.WithThresholdMonitorUserAgent is among that call's options.
 func WithUserAgent(ua string) ClientOption {
 	return func(c *Client) { c.userAgent = ua }
 }
@@ -166,7 +171,10 @@ func WithMaxConcurrency(n int) ClientOption {
 }
 
 // WithZoneBaseURL overrides the base URL used for zone discovery.
-// This is primarily useful for testing.
+// This is primarily useful for testing. When zone discovery runs, NewClient
+// returns an error if url is not an absolute http or https URL with a host and
+// no "@", query or fragment. The option has no effect together with
+// WithZoneInfo or a non-empty WithBaseURL.
 func WithZoneBaseURL(url string) ClientOption {
 	return func(c *Client) { c.zoneBaseURL = url }
 }

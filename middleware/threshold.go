@@ -13,6 +13,7 @@ import (
 
 	"github.com/tphakala/go-autotask/internal/redact"
 	"github.com/tphakala/go-autotask/internal/redirect"
+	"github.com/tphakala/go-autotask/internal/useragent"
 )
 
 const (
@@ -44,6 +45,7 @@ type thresholdMonitorConfig struct {
 	criticalCallback func(ThresholdInfo)
 	errorCallback    func(error)
 	logger           *slog.Logger
+	userAgent        string
 }
 
 // WithCheckInterval sets how often the monitor polls the threshold endpoint.
@@ -92,6 +94,15 @@ func WithThresholdMonitorLogger(l *slog.Logger) ThresholdMonitorOption {
 	}
 }
 
+// WithThresholdMonitorUserAgent sets the User-Agent header of the threshold
+// check. The default is the one the client sends: go-autotask/<module version>,
+// or go-autotask when the build info has no version for the module.
+// autotask.WithThresholdMonitor passes the client's User-Agent, and this option
+// among its options replaces it. An empty ua sends no User-Agent header.
+func WithThresholdMonitorUserAgent(ua string) ThresholdMonitorOption {
+	return func(c *thresholdMonitorConfig) { c.userAgent = ua }
+}
+
 // AuthHeaders holds the Autotask API credentials needed for authenticated requests.
 type AuthHeaders struct {
 	Username        string
@@ -118,9 +129,15 @@ type ThresholdMonitor struct {
 // NewThresholdMonitor creates a new ThresholdMonitor. Call Start to begin polling.
 // The monitor uses a copy of httpClient whose CheckRedirect removes the
 // credential headers from any redirect to another scheme or host, then calls
-// httpClient.CheckRedirect if it is set. httpClient is not modified.
+// httpClient.CheckRedirect if it is set. httpClient is not modified. The check
+// sends the User-Agent set with WithThresholdMonitorUserAgent, by default
+// go-autotask's.
 func NewThresholdMonitor(httpClient *http.Client, baseURL string, auth AuthHeaders, opts ...ThresholdMonitorOption) *ThresholdMonitor {
-	cfg := thresholdMonitorConfig{checkInterval: defaultCheckInterval, logger: slog.New(slog.DiscardHandler)}
+	cfg := thresholdMonitorConfig{
+		checkInterval: defaultCheckInterval,
+		logger:        slog.New(slog.DiscardHandler),
+		userAgent:     useragent.Default(),
+	}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
@@ -194,8 +211,9 @@ func (m *ThresholdMonitor) check(ctx context.Context) {
 		m.reportError(ctx, fmt.Errorf("threshold monitor: creating request: %w", redact.URLError(err)))
 		return
 	}
-	// Inject auth headers — threshold endpoint requires authentication.
+	// Inject auth headers; the threshold endpoint requires authentication.
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", m.config.userAgent)
 	req.Header.Set("UserName", m.auth.Username)
 	req.Header.Set("Secret", m.auth.Secret)
 	req.Header.Set("ApiIntegrationCode", m.auth.IntegrationCode)

@@ -228,9 +228,8 @@ func (ts *TestServer) handler() http.Handler {
 
 		w.Header().Set("Content-Type", "application/json")
 
-		// The client sends no credentials for zone discovery (discoverZone,
-		// zone.go:103), so the two discovery GETs are answered before the
-		// auth check.
+		// The client sends no credentials for zone discovery (discoverZone), so
+		// the two discovery GETs are answered before the auth check.
 		if r.Method == http.MethodGet {
 			switch {
 			case isZoneInfoPath(r.URL.Path):
