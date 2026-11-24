@@ -89,6 +89,13 @@ type HdrBase struct {
 	Base
 }
 
+// KeyedClient embeds Base by value and has a regular http.Client field whose
+// name differs from its type.
+type KeyedClient struct {
+	Base
+	Conn http.Client
+}
+
 type HdrClient struct {
 	Header http.Header
 	http.Client
@@ -119,4 +126,5 @@ var (
 	_ = OptsFirst{Opts: Options{A: 1}, Base: Base{Name: "x"}}
 	_ = HdrBase{Header: http.Header{"A": nil}, Base: Base{Name: "x"}}
 	_ = HdrClient{Header: http.Header{"A": nil}, Client: http.Client{Jar: nil}}
+	_ = KeyedClient{Conn: http.Client{Jar: nil}}
 )
