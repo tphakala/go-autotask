@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	autotask "github.com/tphakala/go-autotask"
+	"github.com/tphakala/go-autotask/internal/jsonmember"
 )
 
 type FieldInfo struct {
@@ -51,41 +52,70 @@ type EntityInfo struct {
 	HasUserDefinedFields bool   `json:"hasUserDefinedFields"`
 }
 
+// missingMember is the error for a successful response whose JSON body lacks
+// the member that holds the result.
+func missingMember(member string) *autotask.MissingMemberError {
+	return &autotask.MissingMemberError{
+		Err:    autotask.Error{StatusCode: http.StatusOK, Message: "response has no " + member + " member"},
+		Member: member,
+	}
+}
+
+// GetFields returns the fields of entityName. It returns
+// *autotask.MissingMemberError when the response has no fields member, such as
+// {}; "fields": [] and "fields": null are an empty list.
 func GetFields(ctx context.Context, c *autotask.Client, entityName string) ([]FieldInfo, error) {
 	path := fmt.Sprintf("/v1.0/%s/entityInformation/fields", entityName)
 	var resp struct {
-		Fields []FieldInfo `json:"fields"`
+		Fields jsonmember.Member[[]FieldInfo] `json:"fields"`
 	}
 	if err := c.Do(ctx, http.MethodGet, path, nil, &resp); err != nil {
 		return nil, err
 	}
-	return resp.Fields, nil
+	if !resp.Fields.Present {
+		return nil, missingMember("fields")
+	}
+	return resp.Fields.Value, nil
 }
 
+// GetUDFs returns the user-defined fields of entityName. It returns
+// *autotask.MissingMemberError when the response has no fields member, such as
+// {}; "fields": [] and "fields": null are an empty list.
 func GetUDFs(ctx context.Context, c *autotask.Client, entityName string) ([]UDFInfo, error) {
 	path := fmt.Sprintf("/v1.0/%s/entityInformation/userDefinedFields", entityName)
 	var resp struct {
-		Fields []UDFInfo `json:"fields"`
+		Fields jsonmember.Member[[]UDFInfo] `json:"fields"`
 	}
 	if err := c.Do(ctx, http.MethodGet, path, nil, &resp); err != nil {
 		return nil, err
 	}
-	return resp.Fields, nil
+	if !resp.Fields.Present {
+		return nil, missingMember("fields")
+	}
+	return resp.Fields.Value, nil
 }
 
+// GetEntityInfo returns what Autotask reports about entityName. It returns
+// *autotask.MissingMemberError when the response has no info member, such as
+// {}, or has "info": null; "info": {} is a valid EntityInfo with every
+// capability false.
 func GetEntityInfo(ctx context.Context, c *autotask.Client, entityName string) (*EntityInfo, error) {
 	path := fmt.Sprintf("/v1.0/%s/entityInformation", entityName)
 	var resp struct {
-		Info EntityInfo `json:"info"`
+		Info *EntityInfo `json:"info"`
 	}
 	if err := c.Do(ctx, http.MethodGet, path, nil, &resp); err != nil {
 		return nil, err
 	}
-	return &resp.Info, nil
+	if resp.Info == nil {
+		return nil, missingMember("info")
+	}
+	return resp.Info, nil
 }
 
 // GetPickList returns the picklist values for a specific field on an entity.
-// Returns an error if the field is not found or is not a picklist field.
+// Returns an error if the field is not found or is not a picklist field. An
+// error from GetFields is returned as is.
 func GetPickList(ctx context.Context, c *autotask.Client, entityName, fieldName string) ([]PickListValue, error) {
 	fields, err := GetFields(ctx, c, entityName)
 	if err != nil {

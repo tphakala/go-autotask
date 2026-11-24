@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/tphakala/go-autotask/internal/jsonmember"
 )
 
 // maxPages is the safety limit on pagination loops to prevent infinite loops
@@ -24,27 +26,10 @@ func (e *MaxPagesExceededError) Error() string {
 // json.RawMessage for the typed listers, which unmarshal each item into a
 // concrete entity, and map[string]any for the untyped raw listers.
 type pageResponse[I any] struct {
-	Items       pageItems[I] `json:"items"`
+	Items       jsonmember.Member[[]I] `json:"items"`
 	PageDetails struct {
 		NextPageURL string `json:"nextPageUrl"`
 	} `json:"pageDetails"`
-}
-
-// pageItems decodes the items member of a page and records that the member was
-// present. encoding/json calls UnmarshalJSON only when the member exists, null
-// included, and not when it is absent or when the whole body is null (measured
-// with go1.27.4). TestListPageWithoutItemsIsMissingItemsError pins the absent
-// member and the null body, TestListPageWithEmptyOrNullItemsIsEmpty pins
-// "items": null. That tells an absent member from an empty page, which a plain
-// slice cannot.
-type pageItems[I any] struct {
-	present bool
-	list    []I
-}
-
-func (p *pageItems[I]) UnmarshalJSON(data []byte) error {
-	p.present = true
-	return json.Unmarshal(data, &p.list)
 }
 
 // fetchPage sends one list request and decodes the page. It returns
@@ -56,10 +41,10 @@ func fetchPage[I any](ctx context.Context, c *Client, method, path string, body 
 	if err := c.do(ctx, method, path, body, &resp); err != nil {
 		return nil, "", err
 	}
-	if !resp.Items.present {
+	if !resp.Items.Present {
 		return nil, "", newMissingItemsError()
 	}
-	return resp.Items.list, resp.PageDetails.NextPageURL, nil
+	return resp.Items.Value, resp.PageDetails.NextPageURL, nil
 }
 
 // fetchAndYieldTypedPage fetches one page from path, decodes it, unmarshals each

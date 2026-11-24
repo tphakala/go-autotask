@@ -141,6 +141,21 @@ type MissingItemsError struct{ Err Error }
 func (e *MissingItemsError) Error() string { return e.Err.Error() }
 func (e *MissingItemsError) Unwrap() error { return &e.Err }
 
+// MissingMemberError reports a successful response whose JSON body has no
+// member holding the result, such as {} from metadata.GetFields or Count.
+// Member names the missing member, such as "fields", "info" or "queryCount". It
+// says nothing about what the result is, so do not read it as an empty result
+// or a count of zero. A present empty array, or "fields": null, is an empty
+// result, and "queryCount": 0 is a count of zero, not this error.
+// Err.StatusCode is 200.
+type MissingMemberError struct {
+	Err    Error
+	Member string
+}
+
+func (e *MissingMemberError) Error() string { return e.Err.Error() }
+func (e *MissingMemberError) Unwrap() error { return &e.Err }
+
 // ResponseTooLargeError reports a response body longer than the client's
 // limit (see WithMaxResponseBytes). The client stops reading at the limit.
 // For a 2xx response it is returned as is; for an API response with any
@@ -167,6 +182,13 @@ func newEmptyResponseError(statusCode int) *EmptyResponseError {
 
 func newMissingItemsError() *MissingItemsError {
 	return &MissingItemsError{Err: Error{StatusCode: http.StatusOK, Message: "response has no items member"}}
+}
+
+func newMissingMemberError(member string) *MissingMemberError {
+	return &MissingMemberError{
+		Err:    Error{StatusCode: http.StatusOK, Message: "response has no " + member + " member"},
+		Member: member,
+	}
 }
 
 // readLimited reads r up to limit bytes. tooLarge reports that r had more.

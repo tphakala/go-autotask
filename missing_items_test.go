@@ -112,3 +112,45 @@ func TestListPageWithEmptyOrNullItemsIsEmpty(t *testing.T) {
 		}
 	}
 }
+
+func TestCountWithoutQueryCountIsMissingMemberError(t *testing.T) {
+	t.Parallel()
+	for _, body := range []string{`{}`, `null`, `{"queryCount":null}`} {
+		t.Run(body, func(t *testing.T) {
+			t.Parallel()
+			c := newStaticClient(t, http.StatusOK, body)
+			n, err := Count[testEntity](t.Context(), c, &Query{})
+			mm, ok := errors.AsType[*MissingMemberError](err)
+			if !ok {
+				t.Fatalf("err = %T %v; want *MissingMemberError", err, err)
+			}
+			if mm.Member != "queryCount" {
+				t.Errorf("Member = %q; want queryCount", mm.Member)
+			}
+			if mm.Err.StatusCode != http.StatusOK {
+				t.Errorf("Err.StatusCode = %d; want 200", mm.Err.StatusCode)
+			}
+			if !strings.Contains(err.Error(), "queryCount") {
+				t.Errorf("message %q does not name the missing queryCount member", err.Error())
+			}
+			if !IsTransient(err) {
+				t.Errorf("IsTransient(%v) = false; want true", err)
+			}
+			if n != 0 {
+				t.Errorf("count = %d beside the error; want 0", n)
+			}
+		})
+	}
+}
+
+func TestCountWithPresentZeroIsAResult(t *testing.T) {
+	t.Parallel()
+	c := newStaticClient(t, http.StatusOK, `{"queryCount":0}`)
+	n, err := Count[testEntity](t.Context(), c, &Query{})
+	if err != nil {
+		t.Fatalf("err = %v; want nil", err)
+	}
+	if n != 0 {
+		t.Errorf("count = %d; want 0", n)
+	}
+}

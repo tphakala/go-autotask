@@ -57,16 +57,22 @@ func List[T Entity](ctx context.Context, c *Client, q *Query) ([]*T, error) {
 	return allItems, nil
 }
 
+// Count returns the number of entities that match q. It returns
+// *MissingMemberError when a 2xx response has no queryCount member, or has
+// "queryCount": null; a present 0 is a count of zero.
 func Count[T Entity](ctx context.Context, c *Client, q *Query) (int64, error) {
 	var zero T
 	path := fmt.Sprintf("/v1.0/%s/query/count", zero.EntityName())
 	var resp struct {
-		QueryCount int64 `json:"queryCount"`
+		QueryCount *int64 `json:"queryCount"`
 	}
 	if err := c.do(ctx, http.MethodPost, path, q, &resp); err != nil {
 		return 0, err
 	}
-	return resp.QueryCount, nil
+	if resp.QueryCount == nil {
+		return 0, newMissingMemberError("queryCount")
+	}
+	return *resp.QueryCount, nil
 }
 
 // Create creates entity and, when the response carries an itemId, sets the
