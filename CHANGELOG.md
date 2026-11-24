@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`WithThresholdMonitor()` with no options started no monitor** (#63). It now starts one with the default check interval, reporting through the client's logger. Repeated `WithThresholdMonitor` calls now start one monitor with the options of every call, in order; before, each call replaced the options of the one before it.
+
 ## [1.10.0] - 2026-11-24
 
 ### Added

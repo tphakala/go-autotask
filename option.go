@@ -128,10 +128,14 @@ func WithCircuitBreaker(opts ...middleware.CircuitBreakerOption) ClientOption {
 	}
 }
 
-// WithThresholdMonitor enables background API usage monitoring.
+// WithThresholdMonitor enables background API usage monitoring. With no
+// options the monitor runs with its defaults and reports through the client's
+// logger. Repeated calls start one monitor with the options of every call, in
+// order.
 func WithThresholdMonitor(opts ...middleware.ThresholdMonitorOption) ClientOption {
 	return func(c *Client) {
-		c.thresholdMonitorOpts = opts
+		c.thresholdMonitor = true
+		c.thresholdMonitorOpts = append(c.thresholdMonitorOpts, opts...)
 	}
 }
 
