@@ -145,8 +145,9 @@ func (e *MissingItemsError) Unwrap() error { return &e.Err }
 // member holding the result, such as {} from metadata.GetFields or Count.
 // Member names the missing member, such as "fields", "info" or "queryCount". It
 // says nothing about what the result is, so do not read it as an empty result
-// or a count of zero. A present empty array, or "fields": null, is an empty
-// result, and "queryCount": 0 is a count of zero, not this error.
+// or a count of zero. "info": null and "queryCount": null are reported as
+// missing too. A present empty array, or "fields": null, is an empty result,
+// and "queryCount": 0 is a count of zero, not this error.
 // Err.StatusCode is 200.
 type MissingMemberError struct {
 	Err    Error

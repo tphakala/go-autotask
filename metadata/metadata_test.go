@@ -204,6 +204,9 @@ func TestMetadataResponseWithoutResultIsMissingMemberError(t *testing.T) {
 		{"GetPickList", getPickList, `{}`, "fields"},
 		{"GetEntityInfo", getEntityInfo, `{}`, "info"},
 		{"GetEntityInfo null info", getEntityInfo, `{"info":null}`, "info"},
+		{"GetFields", getFields, `null`, "fields"},
+		{"GetUDFs", getUDFs, `null`, "fields"},
+		{"GetEntityInfo", getEntityInfo, `null`, "info"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name+"/"+tt.body, func(t *testing.T) {
