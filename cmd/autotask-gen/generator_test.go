@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -464,6 +466,47 @@ func TestGenerateEntityReplacesTheTargetByRename(t *testing.T) {
 			t.Fatalf("link target directory has %d entries; want only real.go", len(entries))
 		}
 	})
+}
+
+// A target that is a symbolic link to a file that does not exist stops the
+// entity and creates nothing.
+func TestGenerateEntityStopsOnASymlinkedTargetToAMissingFile(t *testing.T) {
+	dir, linkDir := t.TempDir(), t.TempDir()
+	missing := filepath.Join(linkDir, "missing.go")
+	if err := os.Symlink(missing, filepath.Join(dir, "widgets.go")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	_, err := (&Generator{OutputDir: dir}).generateEntity("Widgets", []metadata.FieldInfo{{Name: "second", Type: "string"}}, nil)
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("generateEntity() error = %v; want one wrapping fs.ErrNotExist", err)
+	}
+	requireNoFile(t, linkDir, "missing.go")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("directory has %d entries; want only the link", len(entries))
+	}
+}
+
+// A failed replacement removes its temporary file: the rename onto a
+// directory fails after the temporary file was written.
+func TestReplaceFileRemovesItsTempFileWhenTheRenameFails(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "widgets.go"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := replaceFile(filepath.Join(dir, "widgets.go"), []byte("data")); err == nil {
+		t.Fatal("replaceFile() onto a directory succeeded; want an error")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("directory has %d entries; want only the directory widgets.go", len(entries))
+	}
 }
 
 // A path the generator cannot inspect must stop the entity, not fall through
