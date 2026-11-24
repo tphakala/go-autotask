@@ -241,37 +241,45 @@ func NewWithExpression(m dsl.Matcher) {
 // path is a pointer. This mirrors the embedlit modernizer in go fix.
 //
 // The rule fires when the key and the nested literal's type share a name,
-// which is how an embedded value field looks in a literal, and the outer struct
-// embeds at least one field. A regular field named after its type, such as
-// Header in http.Response, does not match, except in a struct that also embeds
-// some other field: the filter sees the struct type, not which field the key
-// names. A promoted name that is shadowed or ambiguous in the outer struct
-// cannot be keyed directly, so this is a report rather than a rewrite.
+// which is how an embedded value field looks in a literal, the nested literal's
+// type is a struct, and the outer struct embeds a struct by value. A regular
+// field named after its type, such as Header in http.Response, does not match,
+// except when its type is a struct and the outer struct also embeds a struct by
+// value: the filters see types, not which field the key names. A promoted name
+// that is shadowed or ambiguous in the outer struct cannot be keyed directly,
+// so this is a report rather than a rewrite.
 //
 // See: https://go.dev/doc/go1.27#language
 func EmbeddedFieldLiteral(m dsl.Matcher) {
 	m.Match(
 		`$T{$*_, $emb: $embT{$k: $v, $*_}, $*_}`,
 	).
-		Where(m["emb"].Text == m["embT"].Text && m["T"].Filter(hasEmbeddedField)).
+		Where(m["emb"].Text == m["embT"].Text && m["embT"].Filter(isStructType) && m["T"].Filter(embedsStruct)).
 		Report("initialize the promoted field directly: $T{$k: $v, ...} instead of $emb: $embT{$k: $v, ...} (Go 1.27+); not applicable if $k is shadowed or ambiguous in $T, or if $emb is a regular field named after its type")
 
 	// Embedded type from another package: field name is the bare type name.
 	m.Match(
 		`$T{$*_, $emb: $pkg.$embT{$k: $v, $*_}, $*_}`,
 	).
-		Where(m["emb"].Text == m["embT"].Text && m["T"].Filter(hasEmbeddedField)).
+		Where(m["emb"].Text == m["embT"].Text && m["embT"].Filter(isStructType) && m["T"].Filter(embedsStruct)).
 		Report("initialize the promoted field directly: $T{$k: $v, ...} instead of $emb: $pkg.$embT{$k: $v, ...} (Go 1.27+); not applicable if $k is shadowed or ambiguous in $T, or if $emb is a regular field named after its type")
 }
 
-// hasEmbeddedField reports whether the struct type of a composite literal has
-// an embedded field. The loop has a condition only: quasigo, which runs
-// ruleguard filters, has no three-clause for loop (go-ruleguard v0.4.5,
-// ruleguard/quasigo/compile.go:226-228). A filter it cannot compile fails the
-// load of the whole file (ruleguard/ir_loader.go:93), and gocritic then logs
-// the error and skips every rule in it (go-critic v0.15.0,
-// checkers/ruleguard_checker.go:234-238).
-func hasEmbeddedField(ctx *dsl.VarFilterContext) bool {
+// isStructType reports whether a type is a struct type. The nested literal
+// that initializes an embedded field through a promoted key is a struct.
+func isStructType(ctx *dsl.VarFilterContext) bool {
+	return types.AsStruct(ctx.Type.Underlying()) != nil
+}
+
+// embedsStruct reports whether the struct type of a composite literal embeds a
+// struct by value. An embedded pointer cannot be keyed through, and an embedded
+// interface or other non-struct type has no fields to promote. The loop has a
+// condition only: quasigo, which runs ruleguard filters, has no three-clause
+// for loop (go-ruleguard v0.4.5, ruleguard/quasigo/compile.go:226-228). A
+// filter it cannot compile fails the load of the whole file
+// (ruleguard/ir_loader.go:93), and gocritic then logs the error and skips
+// every rule in it (go-critic v0.15.0, checkers/ruleguard_checker.go:234-238).
+func embedsStruct(ctx *dsl.VarFilterContext) bool {
 	st := types.AsStruct(ctx.Type.Underlying())
 	if st == nil {
 		return false
@@ -279,7 +287,8 @@ func hasEmbeddedField(ctx *dsl.VarFilterContext) bool {
 	n := st.NumFields()
 	i := 0
 	for i < n {
-		if st.Field(i).Embedded() {
+		f := st.Field(i)
+		if f.Embedded() && types.AsStruct(f.Type().Underlying()) != nil {
 			return true
 		}
 		i++
