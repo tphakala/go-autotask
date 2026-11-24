@@ -318,6 +318,8 @@ func TestGenerateEntityIgnoresFilesTheGoToolIgnores(t *testing.T) {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 	writeFile(t, dir, "_old_ticket.go", handWrittenTicket)
+	// What a run killed between creating the temp file and renaming it leaves.
+	writeFile(t, dir, strings.Replace(tempPattern("tickets.go"), "*", "123456", 1), handWrittenTicket)
 	skip, err := (&Generator{OutputDir: dir}).generateEntity("Tickets", nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -338,11 +340,15 @@ func TestGenerateEntityScansOnlyGoSourceFiles(t *testing.T) {
 		name  string
 		files map[string]string // content by file name
 		dirs  []string
-		want  string // file that must be named in the skip reason, "" for no skip
+		links map[string]string // link name to target, relative to the directory
+		want  string            // file that must be named in the skip reason, "" for no skip
 	}{
 		{name: "non-Go file", files: map[string]string{"ticket.go.bak": declaresTicket}},
 		{name: "test file", files: map[string]string{"ticket_test.go": declaresTicket}},
 		{name: "directory named like a Go file", dirs: []string{"ticket.go"}},
+		{name: "symlink to a directory named like a Go file", dirs: []string{"sub"}, links: map[string]string{"ticket.go": "sub"}},
+		{name: "dangling symlink named like a Go file", links: map[string]string{"ticket.go": "missing"}},
+		{name: "symlink to a file that declares the type", files: map[string]string{"ticket.txt": declaresTicket}, links: map[string]string{"ticket.go": "ticket.txt"}, want: "ticket.go"},
 		{name: "syntax error after the declaration", files: map[string]string{"broken.go": declaresTicket + "\nfunc (\n"}, want: "broken.go"},
 		{name: "syntax error and no declaration", files: map[string]string{"broken.go": "package entities\n\nfunc (\n"}},
 	}
@@ -357,6 +363,11 @@ func TestGenerateEntityScansOnlyGoSourceFiles(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			for name, target := range tt.links {
+				if err := os.Symlink(target, filepath.Join(dir, name)); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			}
 			skip, err := (&Generator{OutputDir: dir}).generateEntity("Tickets", nil, nil)
 			if err != nil {
 				t.Fatal(err)
@@ -369,6 +380,90 @@ func TestGenerateEntityScansOnlyGoSourceFiles(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A field name that does not format must not leave anything behind: the
+// earlier generated file stays as it was and no temporary file remains.
+func TestGenerateEntityWritesNothingWhenFormattingFails(t *testing.T) {
+	dir := t.TempDir()
+	const earlier = generatedHeader + "\npackage entities\n\ntype Widget struct{}\n"
+	writeFile(t, dir, "widgets.go", earlier)
+
+	_, err := (&Generator{OutputDir: dir}).generateEntity("Widgets", []metadata.FieldInfo{{Name: "a b", Type: "string"}}, nil)
+	if err == nil || !strings.Contains(err.Error(), "formatting generated code") {
+		t.Fatalf("generateEntity() error = %v; want a formatting error", err)
+	}
+	if got := readFile(t, dir, "widgets.go"); got != earlier {
+		t.Fatalf("widgets.go changed:\n%s", got)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("directory has %d entries; want only widgets.go", len(entries))
+	}
+}
+
+// A regeneration replaces the file instead of rewriting it in place, so an
+// interrupted run cannot leave a truncated file that later runs skip as
+// hand-written.
+func TestGenerateEntityReplacesTheTargetByRename(t *testing.T) {
+	generate := func(t *testing.T, g *Generator, field string) {
+		t.Helper()
+		skip, err := g.generateEntity("Widgets", []metadata.FieldInfo{{Name: field, Type: "string"}}, nil)
+		if err != nil || skip != "" {
+			t.Fatalf("skip = %q, err = %v", skip, err)
+		}
+	}
+	t.Run("earlier file is not rewritten in place", func(t *testing.T) {
+		dir := t.TempDir()
+		g := &Generator{OutputDir: dir}
+		generate(t, g, "first")
+		linkDir := t.TempDir()
+		if err := os.Link(filepath.Join(dir, "widgets.go"), filepath.Join(linkDir, "earlier.go")); err != nil {
+			t.Skipf("hard links unavailable: %v", err)
+		}
+		generate(t, g, "second")
+
+		earlier := readFile(t, linkDir, "earlier.go")
+		if !strings.HasPrefix(earlier, generatedHeader) || !strings.Contains(earlier, "First ") || strings.Contains(earlier, "Second ") {
+			t.Fatalf("the earlier file was rewritten in place:\n%s", earlier)
+		}
+		info, err := os.Stat(filepath.Join(dir, "widgets.go"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != filePerm {
+			t.Fatalf("widgets.go mode = %v; want %v", got, os.FileMode(filePerm))
+		}
+	})
+	t.Run("symlinked target stays a link", func(t *testing.T) {
+		dir, linkDir := t.TempDir(), t.TempDir()
+		writeFile(t, linkDir, "real.go", generatedHeader+"\n")
+		if err := os.Symlink(filepath.Join(linkDir, "real.go"), filepath.Join(dir, "widgets.go")); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		generate(t, &Generator{OutputDir: dir}, "second")
+
+		info, err := os.Lstat(filepath.Join(dir, "widgets.go"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			t.Fatal("widgets.go is no longer a symbolic link")
+		}
+		if got := readFile(t, linkDir, "real.go"); !strings.Contains(got, "Second ") {
+			t.Fatalf("the linked file was not updated:\n%s", got)
+		}
+		entries, err := os.ReadDir(linkDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 1 {
+			t.Fatalf("link target directory has %d entries; want only real.go", len(entries))
+		}
+	})
 }
 
 // A path the generator cannot inspect must stop the entity, not fall through
