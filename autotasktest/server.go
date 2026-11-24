@@ -39,7 +39,6 @@ type TestServer struct {
 	requests          []RecordedRequest
 	opts              serverOptions
 	t                 testing.TB
-	nextID            int64
 }
 
 type authConfig struct {
@@ -135,8 +134,7 @@ func NewServer(tb testing.TB, opts ...ServerOption) (*TestServer, *autotask.Clie
 			pageSize: defaultPageSize,
 			metadata: make(map[string]*entityMetadata),
 		},
-		t:      tb,
-		nextID: 1,
+		t: tb,
 	}
 	for _, opt := range opts {
 		opt(ts)
@@ -195,14 +193,6 @@ func (ts *TestServer) recordRequest(r *http.Request) {
 		Headers: r.Header.Clone(),
 		Body:    body,
 	})
-}
-
-func (ts *TestServer) allocateID() int64 {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	id := ts.nextID
-	ts.nextID++
-	return id
 }
 
 func (ts *TestServer) handler() http.Handler {
@@ -295,15 +285,15 @@ func (ts *TestServer) route(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Entity metadata.
-	if strings.HasSuffix(path, "/entityInformation/fields") {
+	if strings.HasSuffix(path, entityFieldsSuffix) {
 		ts.handleEntityFields(w, r)
 		return
 	}
-	if strings.HasSuffix(path, "/entityInformation/userDefinedFields") {
+	if strings.HasSuffix(path, entityUDFsSuffix) {
 		ts.handleEntityUDFs(w, r)
 		return
 	}
-	if strings.HasSuffix(path, "/entityInformation") {
+	if strings.HasSuffix(path, entityInfoSuffix) {
 		ts.handleEntityInfo(w, r)
 		return
 	}

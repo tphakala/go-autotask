@@ -371,6 +371,89 @@ func TestChildDeleteChecksParent(t *testing.T) {
 	}
 }
 
+// contactNames returns the first names of the contacts, sorted.
+func contactNames(items []*entities.Contact) []string {
+	return titlesOf(items, func(c *entities.Contact) autotask.Optional[string] { return c.FirstName })
+}
+
+// TestChildItemsBelongToParentCollection pins that a child item belongs to the
+// parent collection and id of the URL it was created at, or of the route
+// WithChildEntity registered. Companies/9/Contacts and Opportunities/9/Contacts
+// reach one Contacts store, so the parent id alone cannot tell them apart.
+func TestChildItemsBelongToParentCollection(t *testing.T) {
+	t.Run("created through child URLs", func(t *testing.T) {
+		_, client := NewServer(t, WithDeleteSupport("Contacts"))
+		ctx := t.Context()
+		company := entities.Contact{FirstName: autotask.Set("company")}
+		if _, err := autotask.CreateChild[entities.Company](ctx, client, 9, &company); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := autotask.CreateChild[entities.Opportunity](ctx, client, 9, &entities.Contact{FirstName: autotask.Set("opportunity")}); err != nil {
+			t.Fatal(err)
+		}
+		listCompany := func() []string {
+			t.Helper()
+			list, err := autotask.ListChild[entities.Company, entities.Contact](ctx, client, 9)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return contactNames(list)
+		}
+		listOpportunity := func() []string {
+			t.Helper()
+			list, err := autotask.ListChild[entities.Opportunity, entities.Contact](ctx, client, 9)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return contactNames(list)
+		}
+		assertTitles(t, "Companies/9/Contacts", listCompany(), []string{"company"})
+		assertTitles(t, "Opportunities/9/Contacts", listOpportunity(), []string{"opportunity"})
+
+		id, _ := company.ID.Get()
+		var resp struct {
+			Item json.RawMessage `json:"item"`
+		}
+		if err := client.Do(ctx, http.MethodGet, fmt.Sprintf("/v1.0/Opportunities/9/Contacts/%d", id), nil, &resp); err != nil {
+			t.Fatal(err)
+		}
+		if string(resp.Item) != "null" {
+			t.Errorf("GET of a Companies contact under Opportunities = %s, want null", resp.Item)
+		}
+		_, err := autotask.UpdateChild[entities.Opportunity](ctx, client, 9, &entities.Contact{ID: autotask.Set(id), FirstName: autotask.Set("hijack")})
+		if _, ok := errors.AsType[*autotask.NotFoundError](err); !ok {
+			t.Errorf("UpdateChild under the wrong parent collection err = %v, want *NotFoundError", err)
+		}
+		err = autotask.DeleteChild[entities.Opportunity, entities.Contact](ctx, client, 9, id)
+		if _, ok := errors.AsType[*autotask.NotFoundError](err); !ok {
+			t.Errorf("DeleteChild under the wrong parent collection err = %v, want *NotFoundError", err)
+		}
+		assertTitles(t, "Companies/9/Contacts after the refused writes", listCompany(), []string{"company"})
+	})
+
+	t.Run("seeded through two routes", func(t *testing.T) {
+		contact := func(id int64, name string) entities.Contact {
+			return entities.Contact{ID: autotask.Set(id), FirstName: autotask.Set(name)}
+		}
+		_, client := NewServer(t,
+			WithChildEntity[entities.Company](9, contact(1, "company")),
+			WithChildEntity[entities.Project](9, contact(2, "project")),
+			WithEntity(contact(3, "seeded")),
+		)
+		ctx := t.Context()
+		companies, err := autotask.ListChild[entities.Company, entities.Contact](ctx, client, 9)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertTitles(t, "Companies/9/Contacts", contactNames(companies), []string{"company", "seeded"})
+		projects, err := autotask.ListChild[entities.Project, entities.Contact](ctx, client, 9)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertTitles(t, "Projects/9/Contacts", contactNames(projects), []string{"project", "seeded"})
+	})
+}
+
 // TestChildDeleteNeedsDeleteSupport pins that a child DELETE honors the store's
 // WithDeleteSupport gate like a root DELETE does.
 func TestChildDeleteNeedsDeleteSupport(t *testing.T) {
@@ -898,6 +981,60 @@ func TestIDsAbove2To53StayExact(t *testing.T) {
 		if title, _ := got.Title.Get(); title != want {
 			t.Errorf("get %d title = %q, want %q", id, title, want)
 		}
+	}
+}
+
+// TestQueryFiltersCompareNumbersExactly pins that the numeric operators compare
+// by exact value: the two seeded ids differ only above 2^53, where a float64
+// comparison or a formatted text comparison cannot tell them apart. The last
+// rows pin that text values still compare as text and that an ordering operator
+// matches nothing when either side is not a number.
+func TestQueryFiltersCompareNumbersExactly(t *testing.T) {
+	const low = int64(1) << 53
+	const high = low + 1
+	_, client := NewServer(t, WithEntity(
+		TicketNoteFixture(func(n *entities.TicketNote) { n.ID = autotask.Set(low); n.Title = autotask.Set("low") }),
+		TicketNoteFixture(func(n *entities.TicketNote) { n.ID = autotask.Set(high); n.Title = autotask.Set("high") }),
+	))
+	ctx := t.Context()
+
+	for _, tt := range []struct {
+		name   string
+		filter string
+		want   []int64
+	}{
+		{"eq", `{"field":"id","op":"eq","value":9007199254740993}`, []int64{high}},
+		{"eq written with a fraction", `{"field":"id","op":"eq","value":9007199254740993.0}`, []int64{high}},
+		{"noteq", `{"field":"id","op":"noteq","value":9007199254740993}`, []int64{low}},
+		{"in", `{"field":"id","op":"in","value":[9007199254740993]}`, []int64{high}},
+		{"notIn", `{"field":"id","op":"notIn","value":[9007199254740993]}`, []int64{low}},
+		{"gt", `{"field":"id","op":"gt","value":9007199254740992}`, []int64{high}},
+		{"gte", `{"field":"id","op":"gte","value":9007199254740993}`, []int64{high}},
+		{"lt", `{"field":"id","op":"lt","value":9007199254740993}`, []int64{low}},
+		{"lte", `{"field":"id","op":"lte","value":9007199254740992}`, []int64{low}},
+		{"eq on text", `{"field":"title","op":"eq","value":"high"}`, []int64{high}},
+		{"in on text", `{"field":"title","op":"in","value":["low"]}`, []int64{low}},
+		{"gt on a text field", `{"field":"title","op":"gt","value":1}`, nil},
+		{"gt against a text value", `{"field":"id","op":"gt","value":"1"}`, nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			body := json.RawMessage(`{"filter":[` + tt.filter + `]}`)
+			var resp struct {
+				Items []struct {
+					ID int64 `json:"id"`
+				} `json:"items"`
+			}
+			if err := client.Do(ctx, http.MethodPost, "/v1.0/TicketNotes/query", body, &resp); err != nil {
+				t.Fatal(err)
+			}
+			got := make([]int64, 0, len(resp.Items))
+			for _, it := range resp.Items {
+				got = append(got, it.ID)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("ids = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

@@ -293,3 +293,65 @@ func TestWriteSupportGatesAndEntityInfo(t *testing.T) {
 		})
 	}
 }
+
+// TestChildMetadataAnswersForChildEntity pins that the metadata paths under a
+// child URL answer for the entity that URL resolves to, and that a metadata
+// read creates no store.
+func TestChildMetadataAnswersForChildEntity(t *testing.T) {
+	const childPath = "/v1.0/Tickets/5/AdditionalConfigurationItems/entityInformation"
+	const entityName = "TicketAdditionalConfigurationItems"
+
+	t.Run("default answer names the child entity and creates no store", func(t *testing.T) {
+		ts, client := NewServer(t)
+		ctx := t.Context()
+		var resp struct {
+			Info struct {
+				Name string `json:"name"`
+			} `json:"info"`
+		}
+		if err := client.Do(ctx, http.MethodGet, childPath, nil, &resp); err != nil {
+			t.Fatal(err)
+		}
+		if resp.Info.Name != entityName {
+			t.Errorf("entityInformation name = %q, want %q", resp.Info.Name, entityName)
+		}
+		noStore(t, ts, entityName)
+	})
+
+	t.Run("explicit metadata applies to all three paths", func(t *testing.T) {
+		_, client := NewServer(t, WithEntityMetadata(entityName,
+			EntityInfoResponse{Name: entityName, CanDelete: true},
+			[]FieldInfoResponse{{Name: "ticketID"}},
+			[]UDFInfoResponse{{Name: "udf"}},
+		))
+		ctx := t.Context()
+		var info struct {
+			Info struct {
+				CanDelete bool `json:"canDelete"`
+			} `json:"info"`
+		}
+		if err := client.Do(ctx, http.MethodGet, childPath, nil, &info); err != nil {
+			t.Fatal(err)
+		}
+		if !info.Info.CanDelete {
+			t.Error("child entityInformation canDelete = false, want true from WithEntityMetadata")
+		}
+		var fields, udfs struct {
+			Fields []struct {
+				Name string `json:"name"`
+			} `json:"fields"`
+		}
+		if err := client.Do(ctx, http.MethodGet, childPath+"/fields", nil, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if len(fields.Fields) != 1 || fields.Fields[0].Name != "ticketID" {
+			t.Errorf("child fields = %+v, want only ticketID", fields.Fields)
+		}
+		if err := client.Do(ctx, http.MethodGet, childPath+"/userDefinedFields", nil, &udfs); err != nil {
+			t.Fatal(err)
+		}
+		if len(udfs.Fields) != 1 || udfs.Fields[0].Name != "udf" {
+			t.Errorf("child userDefinedFields = %+v, want only udf", udfs.Fields)
+		}
+	})
+}

@@ -22,6 +22,10 @@ type requestPath struct {
 	parentID int64  // parent id, for a child path
 }
 
+// owner returns the owner an item created at, or visible under, this path has.
+// A root path has no parent, so its owner is the zero owner.
+func (p requestPath) owner() owner { return owner{parent: p.parent, id: p.parentID} }
+
 // parsePath splits a request path. Paths:
 //
 //	/v1.0/{entity}
@@ -99,24 +103,36 @@ func singularEntityName(s string) string {
 func (ts *TestServer) resolveChildStore(parent, segment string, create bool) (*entityStore, bool) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
-	if name, ok := ts.childRoutes[parent+"/"+segment]; ok {
-		if store, ok := ts.entities[name]; ok {
-			return store, true
-		}
-	}
-	derived := singularEntityName(parent) + segment
-	if store, ok := ts.entities[derived]; ok {
-		return store, true
-	}
-	if !knownEntityNames[derived] {
-		if store, ok := ts.entities[segment]; ok {
-			return store, true
-		}
+	name, found := ts.childStoreNameLocked(parent, segment)
+	if found {
+		return ts.entities[name], true
 	}
 	if !create {
 		return nil, false
 	}
-	return ts.ensureStore(createdChildName(derived, segment)), true
+	return ts.ensureStore(name), true
+}
+
+// childStoreNameLocked applies the resolution order of resolveChildStore and
+// returns the store name it picks. found is true when that store exists; when it
+// is false, name is the store a create makes (step 5). It creates nothing. The
+// caller holds ts.mu.
+func (ts *TestServer) childStoreNameLocked(parent, segment string) (name string, found bool) {
+	if name, ok := ts.childRoutes[parent+"/"+segment]; ok {
+		if _, ok := ts.entities[name]; ok {
+			return name, true
+		}
+	}
+	derived := singularEntityName(parent) + segment
+	if _, ok := ts.entities[derived]; ok {
+		return derived, true
+	}
+	if !knownEntityNames[derived] {
+		if _, ok := ts.entities[segment]; ok {
+			return segment, true
+		}
+	}
+	return createdChildName(derived, segment), false
 }
 
 // createdChildName returns the name of the store a create makes for a child URL
@@ -248,7 +264,7 @@ func (ts *TestServer) handleGet(w http.ResponseWriter, r *http.Request) {
 		// Collection GET: a child list shows the items under its parent, a bare
 		// entity GET shows every item.
 		if p.child {
-			ts.writePage(w, r, store.forParent(p.parentID))
+			ts.writePage(w, r, store.forParent(p.owner()))
 		} else {
 			ts.writePage(w, r, store.all())
 		}
@@ -258,7 +274,7 @@ func (ts *TestServer) handleGet(w http.ResponseWriter, r *http.Request) {
 	var item json.RawMessage
 	var found bool
 	if p.child {
-		item, found = store.getByIDForParent(p.id, p.parentID)
+		item, found = store.getByIDForParent(p.id, p.owner())
 	} else {
 		item, found = store.getByID(p.id)
 	}
@@ -331,7 +347,7 @@ func (ts *TestServer) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeErrorResponse(w, http.StatusInternalServerError, []string{"Failed to marshal entity"})
 		return
 	}
-	store.add(data, p.parentID)
+	store.add(data, p.owner())
 
 	writeJSON(w, map[string]any{"itemId": newID})
 }
@@ -375,7 +391,7 @@ func (ts *TestServer) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	var found bool
 	if p.child {
-		found = store.updateByIDForParent(id, p.parentID, updated)
+		found = store.updateByIDForParent(id, p.owner(), updated)
 	} else {
 		found = store.updateByID(id, updated)
 	}
@@ -403,7 +419,7 @@ func (ts *TestServer) handleDelete(w http.ResponseWriter, r *http.Request) {
 
 	var found bool
 	if p.child {
-		found = store.deleteByIDForParent(p.id, p.parentID)
+		found = store.deleteByIDForParent(p.id, p.owner())
 	} else {
 		found = store.deleteByID(p.id)
 	}
@@ -417,11 +433,31 @@ func (ts *TestServer) handleDelete(w http.ResponseWriter, r *http.Request) {
 
 // Metadata handlers.
 
+// Suffixes of the metadata request paths. route dispatches on them and
+// metadataEntity strips them.
+const (
+	entityInfoSuffix   = "/entityInformation"
+	entityFieldsSuffix = "/entityInformation/fields"
+	entityUDFsSuffix   = "/entityInformation/userDefinedFields"
+)
+
+// metadataEntity returns the entity name a metadata request path asks about.
+// A root path /v1.0/{entity}{suffix} names the entity itself. A child path
+// /v1.0/{parent}/{id}/{segment}{suffix} names the entity whose store that child
+// URL resolves to, whether or not the store exists yet, and creates none.
+func (ts *TestServer) metadataEntity(path, suffix string) string {
+	p := parsePath(strings.TrimSuffix(path, suffix))
+	if !p.child {
+		return p.entity
+	}
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	name, _ := ts.childStoreNameLocked(p.parent, p.entity)
+	return name
+}
+
 func (ts *TestServer) handleEntityInfo(w http.ResponseWriter, r *http.Request) {
-	// Extract entity name from path like /v1.0/Companies/entityInformation
-	trimmed := strings.TrimPrefix(r.URL.Path, "/v1.0/")
-	parts := strings.SplitN(trimmed, "/", 2) //nolint:mnd // split into at most 2 parts
-	entityName := parts[0]
+	entityName := ts.metadataEntity(r.URL.Path, entityInfoSuffix)
 
 	md, ok := ts.opts.metadata[entityName]
 	if !ok || md.info == nil {
@@ -438,9 +474,7 @@ func (ts *TestServer) handleEntityInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ts *TestServer) handleEntityFields(w http.ResponseWriter, r *http.Request) {
-	trimmed := strings.TrimPrefix(r.URL.Path, "/v1.0/")
-	parts := strings.SplitN(trimmed, "/", 2) //nolint:mnd // split into at most 2 parts
-	entityName := parts[0]
+	entityName := ts.metadataEntity(r.URL.Path, entityFieldsSuffix)
 
 	md, ok := ts.opts.metadata[entityName]
 	if !ok || md.fields == nil {
@@ -451,9 +485,7 @@ func (ts *TestServer) handleEntityFields(w http.ResponseWriter, r *http.Request)
 }
 
 func (ts *TestServer) handleEntityUDFs(w http.ResponseWriter, r *http.Request) {
-	trimmed := strings.TrimPrefix(r.URL.Path, "/v1.0/")
-	parts := strings.SplitN(trimmed, "/", 2) //nolint:mnd // split into at most 2 parts
-	entityName := parts[0]
+	entityName := ts.metadataEntity(r.URL.Path, entityUDFsSuffix)
 
 	md, ok := ts.opts.metadata[entityName]
 	if !ok || md.udfs == nil {
@@ -509,9 +541,9 @@ func (ts *TestServer) handleThresholdInfo(w http.ResponseWriter, r *http.Request
 }
 
 // decodeObject decodes a JSON object with numbers kept as json.Number, so an
-// id above 2^53 survives create, Get, Update and Delete by id exactly. Query
-// filters still compare numbers as float64. A null body or data after the
-// object is an error.
+// id above 2^53 survives create, Get, Update and Delete by id exactly, and query
+// filters decode with it too so they compare numbers by value. A null body or data after the object
+// is an error.
 func decodeObject(data []byte) (map[string]any, error) {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
