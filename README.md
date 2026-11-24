@@ -249,7 +249,35 @@ client, err := autotask.NewClient(ctx, auth,
 )
 ```
 
-Polls the Autotask ThresholdInformation endpoint in the background and invokes callbacks when usage crosses 75% (warning) or 90% (critical).
+Polls the Autotask ThresholdInformation endpoint in the background and invokes callbacks when usage crosses 75% (warning) or 90% (critical). It also logs each crossing and each failed check to the client's logger (see [Logging](#logging)).
+
+### Logging
+
+```go
+client, err := autotask.NewClient(ctx, auth,
+    autotask.WithLogger(slog.Default()),
+    autotask.WithCircuitBreaker(),
+    autotask.WithRateLimiter(),
+)
+```
+
+`WithLogger` hands its logger to the rate limiter, circuit breaker and threshold monitor the client builds, wherever it is listed among the options. The client writes these records, each message starting with `autotask: `:
+
+| Event | Level |
+|-------|-------|
+| Circuit breaker state change | Warn |
+| 429 with a `Retry-After` header | Warn |
+| Request starts waiting for the `Retry-After` period | Info |
+| Request waited for a rate limit token, or starts the adaptive delay | Debug |
+| API usage at or above 75% or 90%, on every check | Warn |
+| Threshold check failed | Warn |
+| Zone discovered | Info |
+| Zone discovery failed | Warn |
+| Host refused TLS 1.3 and is pinned to TLS 1.2 | Warn |
+
+`middleware.WithRateLimitLogger`, `middleware.WithCircuitBreakerLogger` and `middleware.WithThresholdMonitorLogger` set the logger for middleware built directly with `middleware.NewRateLimiter` and the like. Passed to `WithRateLimiter`, `WithCircuitBreaker` or `WithThresholdMonitor`, they replace the client's logger for that component. Middleware added with `WithMiddleware` or `WithMaxConcurrency` does not log, and the TLS record needs the default HTTP client rather than one set with `WithHTTPClient`.
+
+Records carry method, URL path, host, counts, durations, state names and errors. They never carry credentials, and the records the client writes itself carry no request or response bodies or URL query strings. An error value is logged as returned to the caller, so it can still quote part of a redirect `Location` header or the API versions a zone discovery response advertised (see the `WithLogger` doc). The error `NewClient` returns for a failed zone discovery request, and the error a threshold monitor passes to its error callback for a failed request, have the request URL's query and user info removed.
 
 ## Raw operations
 
@@ -527,8 +555,8 @@ With `WithZoneInfo`, `NewClient` sends no zone discovery request, uses `zone.URL
 | `WithBaseURL(url)` | Override automatic zone discovery with a fixed API base URL; with a non-empty URL, `Client.Zone` reports no zone |
 | `WithZoneInfo(z)` | Use a zone saved from `Client.Zone` on an earlier run; no zone discovery request is made (see [Zone discovery](#zone-discovery)) |
 | `WithZoneBaseURL(url)` | Override the base URL used for zone discovery (mainly for testing) |
-| `WithHTTPClient(hc)` | Use a custom `*http.Client` |
-| `WithLogger(l)` | Structured logging via `*slog.Logger` |
+| `WithHTTPClient(hc)` | Use a custom `*http.Client`; a nil `hc` keeps the default client |
+| `WithLogger(l)` | Log circuit breaker, rate limiter, zone discovery, TLS fallback and threshold monitor events to `l` (see [Logging](#logging)); nil is ignored |
 | `WithUserAgent(ua)` | Custom User-Agent header |
 | `WithImpersonation(id)` | Perform API calls as another resource |
 | `WithMiddleware(m)` | Add custom `http.RoundTripper` middleware |
