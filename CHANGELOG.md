@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **`WithThresholdMonitor()` with no options started no monitor** (#63). It now starts one with the default check interval, reporting through the client's logger. Repeated `WithThresholdMonitor` calls now start one monitor with the options of every call, in order; before, each call replaced the options of the one before it.
-- **An open circuit breaker restarted its open timeout when a request that was in flight at opening failed** (#64). A failure that arrives while the breaker is open is now ignored: it is not counted and it no longer moves the open deadline, so the breaker goes half-open `WithOpenTimeout` after the failure that opened it. Before, enough late failures to reach `WithFailureThreshold` (every one with a threshold of 1) opened the breaker again and restarted the timeout. Failures in the closed and half-open states are counted as before.
+- **An open circuit breaker restarted its open timeout when a request that was in flight at opening failed** (#64). A failure that arrives while the breaker is open is now ignored: it is not counted and it no longer moves the open deadline, so the breaker goes half-open `WithOpenTimeout` after the failure that opened it. Before, enough late failures to reach `WithFailureThreshold` (every one with a threshold of 1) opened the breaker again and restarted the timeout. Failures in the closed state are counted as before. A request admitted while the breaker was closed no longer reopens it when it fails after the breaker went half-open, since it is not a probe; a request admitted while half-open still does.
 
 ## [1.10.0] - 2026-11-24
 

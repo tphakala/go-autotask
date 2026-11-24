@@ -265,3 +265,65 @@ func TestCircuitBreakerLateFailuresKeepOpenDeadline(t *testing.T) {
 		})
 	}
 }
+
+func TestCircuitBreakerLateFailureIsNotAHalfOpenProbe(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		const openTimeout = 10 * time.Second
+		release := make(chan struct{})
+		releaseHeld := sync.OnceFunc(func() { close(release) })
+		defer releaseHeld() // an early Fatalf must not leave requests blocked in the bubble
+		inner := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if req.Header.Get("X-Hold") != "" {
+				<-release
+			}
+			status := http.StatusOK
+			if req.Header.Get("X-Hold") != "" || req.Header.Get("X-Fail") != "" {
+				status = http.StatusServiceUnavailable
+			}
+			return &http.Response{StatusCode: status, Body: http.NoBody}, nil
+		})
+		cb := NewCircuitBreaker(inner, WithFailureThreshold(1), WithOpenTimeout(openTimeout), WithSuccessThreshold(1))
+
+		// A request admitted while the breaker is closed stays in flight.
+		held := newReq(t)
+		held.Header.Set("X-Hold", "1")
+		var done sync.WaitGroup
+		done.Go(func() {
+			resp, _ := cb.RoundTrip(held)
+			if resp != nil {
+				_ = resp.Body.Close()
+			}
+		})
+		synctest.Wait()
+
+		failing := newReq(t)
+		failing.Header.Set("X-Fail", "1")
+		resp, err := cb.RoundTrip(failing)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if got := cb.State(); got != StateOpen {
+			t.Fatalf("state after the opening failure = %s; want open", got)
+		}
+		synctest.Sleep(openTimeout)
+		if got := cb.State(); got != StateHalfOpen {
+			t.Fatalf("state after openTimeout = %s; want half-open", got)
+		}
+
+		// It fails now, in half-open. It was not admitted as a probe.
+		releaseHeld()
+		done.Wait()
+		if got := cb.State(); got != StateHalfOpen {
+			t.Errorf("state after a failure of a request admitted while closed = %s; want half-open", got)
+		}
+
+		// A probe still decides the half-open state.
+		if err := send(t, cb); err != nil {
+			t.Fatal(err)
+		}
+		if got := cb.State(); got != StateClosed {
+			t.Errorf("state after a successful probe = %s; want closed", got)
+		}
+	})
+}

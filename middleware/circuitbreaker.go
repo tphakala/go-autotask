@@ -279,12 +279,12 @@ func (cb *CircuitBreaker) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp, err := cb.next.RoundTrip(req)
 	if err != nil {
 		if cb.config.isFailure(nil, err) {
-			cb.recordFailure(ctx)
+			cb.recordFailure(ctx, state)
 		}
 		return nil, err
 	}
 	if cb.responseFailed(resp) {
-		cb.recordFailure(ctx)
+		cb.recordFailure(ctx, state)
 	} else if state == StateHalfOpen {
 		cb.recordHalfOpenSuccess(ctx)
 	}
@@ -346,20 +346,23 @@ func (b *replayBody) Read(p []byte) (int, error) {
 
 func (b *replayBody) Close() error { return b.body.Close() }
 
-func (cb *CircuitBreaker) recordFailure(ctx context.Context) {
-	from, to := cb.applyFailure()
+func (cb *CircuitBreaker) recordFailure(ctx context.Context, admitted CircuitState) {
+	from, to := cb.applyFailure(admitted)
 	cb.logTransition(ctx, from, to)
 }
 
-// applyFailure records a failure and returns the state before and after it.
-// An in-flight request can fail after another one opened the breaker. That
-// failure is ignored: it is not counted and it leaves the open deadline alone,
-// so the breaker stays open for openTimeout after the failure that opened it.
-func (cb *CircuitBreaker) applyFailure() (from, to CircuitState) {
+// applyFailure records a failure of a request that was admitted in state
+// admitted, and returns the state before and after it. An in-flight request can
+// fail after another one opened the breaker. That failure is ignored: it is not
+// counted and it leaves the open deadline alone, so the breaker stays open for
+// openTimeout after the failure that opened it. A failure in half-open is
+// ignored the same way unless the request was admitted in half-open: only such
+// a request is a probe.
+func (cb *CircuitBreaker) applyFailure(admitted CircuitState) (from, to CircuitState) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 	from = cb.state
-	if from == StateOpen {
+	if from == StateOpen || (from == StateHalfOpen && admitted != StateHalfOpen) {
 		return from, from
 	}
 	now := time.Now()
