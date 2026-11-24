@@ -345,3 +345,119 @@ func testLateFailureIsNotAHalfOpenProbe(t *testing.T, transportErr bool) {
 		}
 	})
 }
+
+func TestCircuitBreakerIgnoresProbeFromEarlierHalfOpenPeriod(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		lateStatus int
+	}{
+		{"late failure does not reopen", http.StatusServiceUnavailable},
+		{"late success does not count", http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				const openTimeout = 10 * time.Second
+				releaseA := make(chan struct{})
+				releaseB := make(chan struct{})
+				releaseProbeA := sync.OnceFunc(func() { close(releaseA) })
+				releaseProbeB := sync.OnceFunc(func() { close(releaseB) })
+				defer releaseProbeA() // an early Fatalf must not leave requests blocked in the bubble
+				defer releaseProbeB()
+				inner := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					status := http.StatusOK
+					switch req.Header.Get("X-Probe") {
+					case "a":
+						<-releaseA
+						status = tc.lateStatus
+					case "b":
+						<-releaseB
+						status = http.StatusServiceUnavailable
+					}
+					if req.Header.Get("X-Fail") != "" {
+						status = http.StatusServiceUnavailable
+					}
+					return &http.Response{StatusCode: status, Body: http.NoBody}, nil
+				})
+				cb := NewCircuitBreaker(inner, WithFailureThreshold(1), WithOpenTimeout(openTimeout), WithSuccessThreshold(2))
+				want := func(step string, state CircuitState) {
+					t.Helper()
+					if got := cb.State(); got != state {
+						t.Fatalf("state %s = %s; want %s", step, got, state)
+					}
+				}
+
+				failing := newReq(t)
+				failing.Header.Set("X-Fail", "1")
+				resp, err := cb.RoundTrip(failing)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_ = resp.Body.Close()
+				synctest.Sleep(openTimeout)
+				want("after the first open period", StateHalfOpen)
+
+				// Two probes are in flight in the first half-open period.
+				var probes sync.WaitGroup
+				for _, name := range []string{"a", "b"} {
+					req := newReq(t)
+					req.Header.Set("X-Probe", name)
+					probes.Go(func() {
+						resp, _ := cb.RoundTrip(req)
+						if resp != nil {
+							_ = resp.Body.Close()
+						}
+					})
+				}
+				synctest.Wait()
+
+				// One fails and reopens the breaker; the next half-open period starts.
+				releaseProbeB()
+				synctest.Wait()
+				want("after a probe failed", StateOpen)
+				synctest.Sleep(openTimeout)
+				want("after the second open period", StateHalfOpen)
+
+				// The other probe ends in the new period and must not count in it.
+				releaseProbeA()
+				probes.Wait()
+				want("after the stale probe ended", StateHalfOpen)
+
+				// Two successes of the new period are still needed to close.
+				if err := send(t, cb); err != nil {
+					t.Fatal(err)
+				}
+				want("after one success of the new period", StateHalfOpen)
+				if err := send(t, cb); err != nil {
+					t.Fatal(err)
+				}
+				want("after two successes of the new period", StateClosed)
+			})
+		})
+	}
+}
+
+func TestCircuitBreakerHalfOpenFailureRestartsOpenTimeout(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		const openTimeout = 10 * time.Second
+		inner := roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: http.NoBody}, nil
+		})
+		cb := NewCircuitBreaker(inner, WithFailureThreshold(1), WithOpenTimeout(openTimeout))
+		_ = send(t, cb)
+		synctest.Sleep(openTimeout)
+		if got := cb.State(); got != StateHalfOpen {
+			t.Fatalf("state after the first open period = %s; want half-open", got)
+		}
+
+		synctest.Sleep(openTimeout / 2)
+		_ = send(t, cb) // the probe fails
+		synctest.Sleep(openTimeout / 2)
+		if got := cb.State(); got != StateOpen {
+			t.Fatalf("state openTimeout/2 after the probe failed = %s; want open", got)
+		}
+		synctest.Sleep(openTimeout / 2)
+		if got := cb.State(); got != StateHalfOpen {
+			t.Errorf("state openTimeout after the probe failed = %s; want half-open", got)
+		}
+	})
+}
