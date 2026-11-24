@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -567,4 +568,36 @@ func captureStderr(t *testing.T, fn func()) string {
 		t.Fatal(err)
 	}
 	return string(out)
+}
+
+// A fields answer without its fields member skips the entity, so its generated
+// file is not rewritten as a struct with no fields. A user-defined fields answer
+// without the member only warns, and the entity is still generated.
+func TestGenerateHandlesMetadataAnswersWithoutTheFieldsMember(t *testing.T) {
+	_, client := autotasktest.NewServer(t,
+		autotasktest.WithResponseOn(http.MethodGet, "/Tickets/entityInformation/fields", http.StatusOK, "application/json", `{}`),
+		autotasktest.WithResponseOn(http.MethodGet, "/Widgets/entityInformation/userDefinedFields", http.StatusOK, "application/json", `{}`),
+	)
+	dir := t.TempDir()
+	previous := generatedHeader + "\n\npackage entities\n\n// previous run\n"
+	writeFile(t, dir, "tickets.go", previous)
+
+	g := &Generator{Client: client, OutputDir: dir, Entities: []string{"Tickets", "Widgets"}}
+	var genErr error
+	stderr := captureStderr(t, func() { genErr = g.Generate(t.Context()) })
+	if genErr != nil {
+		t.Fatalf("Widgets was generated, so Generate must succeed: %v", genErr)
+	}
+	if got := readFile(t, dir, "tickets.go"); got != previous {
+		t.Fatalf("tickets.go was rewritten:\n%s", got)
+	}
+	if want := "warning: skipping Tickets: autotask: 200 response has no fields member"; !strings.Contains(stderr, want) {
+		t.Errorf("stderr = %q; want it to contain %q", stderr, want)
+	}
+	if want := "warning: Widgets: could not fetch UDFs: autotask: 200 response has no fields member"; !strings.Contains(stderr, want) {
+		t.Errorf("stderr = %q; want it to contain %q", stderr, want)
+	}
+	if got := readFile(t, dir, "widgets.go"); !strings.HasPrefix(got, generatedHeader) {
+		t.Fatalf("widgets.go does not start with the generated header:\n%s", got)
+	}
 }

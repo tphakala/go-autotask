@@ -137,7 +137,8 @@ func TestMetadataGetUDFs(t *testing.T) {
 
 func TestMetadataDefaultResponse(t *testing.T) {
 	t.Parallel()
-	// No metadata configured — the mock server should return a default response.
+	// With no metadata configured, the mock server answers every metadata call
+	// with its result member present.
 	_, client := autotasktest.NewServer(t)
 
 	info, err := metadata.GetEntityInfo(t.Context(), client, "Tickets")
@@ -161,6 +162,21 @@ func TestMetadataDefaultResponse(t *testing.T) {
 	}
 	if info.HasUserDefinedFields {
 		t.Fatal("expected default HasUserDefinedFields = false")
+	}
+
+	fields, err := metadata.GetFields(t.Context(), client, "Tickets")
+	if err != nil {
+		t.Fatalf("GetFields: %v", err)
+	}
+	if len(fields) != 0 {
+		t.Fatalf("default fields = %d; want 0", len(fields))
+	}
+	udfs, err := metadata.GetUDFs(t.Context(), client, "Tickets")
+	if err != nil {
+		t.Fatalf("GetUDFs: %v", err)
+	}
+	if len(udfs) != 0 {
+		t.Fatalf("default udfs = %d; want 0", len(udfs))
 	}
 }
 

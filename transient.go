@@ -16,8 +16,9 @@ import (
 // Transient: rate limiting (429), server errors (5xx) other than a validation
 // 500 (see ServerError.IsValidation), a 2xx response with a blank body or with
 // a body that is not JSON (the maintenance page), a 2xx list page with no
-// items member, an open circuit breaker, timeouts, refused, reset or dropped
-// connections and truncated bodies. A zone discovery answer with status 429 or
+// items member, a 2xx metadata or count response without its result member, an
+// open circuit breaker, timeouts, refused, reset or dropped connections and
+// truncated bodies. A zone discovery answer with status 429 or
 // 5xx is classified by its status like any other response.
 //
 // Permanent: 400, 401, 403, 404 (including a null item), 409 and 422,
@@ -55,6 +56,9 @@ func IsTransient(err error) bool {
 		return true
 	}
 	if _, ok := errors.AsType[*MissingItemsError](err); ok {
+		return true
+	}
+	if _, ok := errors.AsType[*MissingMemberError](err); ok {
 		return true
 	}
 	if _, ok := errors.AsType[*middleware.CircuitBreakerOpenError](err); ok {
