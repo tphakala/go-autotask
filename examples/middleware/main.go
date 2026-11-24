@@ -31,8 +31,8 @@ func run() error {
 			middleware.WithFailureThreshold(5), //nolint:mnd // configuration values for example
 		),
 		autotask.WithRateLimiter(
-			middleware.WithRequestsPerHour(8000),         //nolint:mnd // configuration values for example
-			middleware.WithBurstSize(10),                //nolint:mnd // configuration values for example
+			middleware.WithRequestsPerHour(8000), //nolint:mnd // configuration values for example
+			middleware.WithBurstSize(10),         //nolint:mnd // configuration values for example
 		),
 		autotask.WithThresholdMonitor(
 			middleware.WithCriticalCallback(func(info middleware.ThresholdInfo) {
