@@ -44,12 +44,12 @@ func TestFor(t *testing.T) {
 	}
 }
 
-// TestDefault pins that Default reads the process's build info. A test binary
-// carries no module version, so the value is the bare product token.
-func TestDefault(t *testing.T) {
+// TestDefaultIsProductToken pins that Default is the bare product token in a
+// test binary, which carries no module version. That Default passes the real
+// build info to For is not pinned.
+func TestDefaultIsProductToken(t *testing.T) {
 	t.Parallel()
-	info, _ := debug.ReadBuildInfo()
-	if got, want := Default(), For(info); got != want {
+	if got, want := Default(), "go-autotask"; got != want {
 		t.Errorf("Default = %q; want %q", got, want)
 	}
 }
