@@ -431,6 +431,21 @@ func TestChildItemsBelongToParentCollection(t *testing.T) {
 		assertTitles(t, "Companies/9/Contacts after the refused writes", listCompany(), []string{"company"})
 	})
 
+	t.Run("parent id 0 means no parent", func(t *testing.T) {
+		_, client := NewServer(t,
+			WithChildEntity[entities.Company](0, entities.Contact{ID: autotask.Set(int64(1)), FirstName: autotask.Set("seeded at 0")}),
+		)
+		ctx := t.Context()
+		if _, err := autotask.CreateChild[entities.Company](ctx, client, 0, &entities.Contact{FirstName: autotask.Set("created at 0")}); err != nil {
+			t.Fatal(err)
+		}
+		list, err := autotask.ListChild[entities.Opportunity, entities.Contact](ctx, client, 9)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertTitles(t, "Opportunities/9/Contacts", contactNames(list), []string{"created at 0", "seeded at 0"})
+	})
+
 	t.Run("seeded through two routes", func(t *testing.T) {
 		contact := func(id int64, name string) entities.Contact {
 			return entities.Contact{ID: autotask.Set(id), FirstName: autotask.Set(name)}
@@ -986,9 +1001,10 @@ func TestIDsAbove2To53StayExact(t *testing.T) {
 
 // TestQueryFiltersCompareNumbersExactly pins that the numeric operators compare
 // by exact value: the two seeded ids differ only above 2^53, where a float64
-// comparison or a formatted text comparison cannot tell them apart. The last
-// rows pin that text values still compare as text and that an ordering operator
-// matches nothing when either side is not a number.
+// comparison or a formatted text comparison cannot tell them apart. The text
+// operators see a number as it was stored, and the last rows pin that text
+// values still compare as text and that an ordering operator matches nothing
+// when either side is not a number.
 func TestQueryFiltersCompareNumbersExactly(t *testing.T) {
 	const low = int64(1) << 53
 	const high = low + 1
@@ -1012,6 +1028,9 @@ func TestQueryFiltersCompareNumbersExactly(t *testing.T) {
 		{"gte", `{"field":"id","op":"gte","value":9007199254740993}`, []int64{high}},
 		{"lt", `{"field":"id","op":"lt","value":9007199254740993}`, []int64{low}},
 		{"lte", `{"field":"id","op":"lte","value":9007199254740992}`, []int64{low}},
+		{"contains on a number", `{"field":"id","op":"contains","value":"199254740993"}`, []int64{high}},
+		{"beginsWith on a number", `{"field":"id","op":"beginsWith","value":"9007199254740993"}`, []int64{high}},
+		{"endsWith on a number", `{"field":"id","op":"endsWith","value":"992"}`, []int64{low}},
 		{"eq on text", `{"field":"title","op":"eq","value":"high"}`, []int64{high}},
 		{"in on text", `{"field":"title","op":"in","value":["low"]}`, []int64{low}},
 		{"gt on a text field", `{"field":"title","op":"gt","value":1}`, nil},

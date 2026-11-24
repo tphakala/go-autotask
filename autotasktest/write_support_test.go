@@ -301,22 +301,44 @@ func TestChildMetadataAnswersForChildEntity(t *testing.T) {
 	const childPath = "/v1.0/Tickets/5/AdditionalConfigurationItems/entityInformation"
 	const entityName = "TicketAdditionalConfigurationItems"
 
-	t.Run("default answer names the child entity and creates no store", func(t *testing.T) {
-		ts, client := NewServer(t)
-		ctx := t.Context()
-		var resp struct {
-			Info struct {
-				Name string `json:"name"`
-			} `json:"info"`
-		}
-		if err := client.Do(ctx, http.MethodGet, childPath, nil, &resp); err != nil {
-			t.Fatal(err)
-		}
-		if resp.Info.Name != entityName {
-			t.Errorf("entityInformation name = %q, want %q", resp.Info.Name, entityName)
-		}
-		noStore(t, ts, entityName)
-	})
+	for _, tt := range []struct {
+		name       string
+		opts       []ServerOption
+		path       string
+		wantName   string
+		wantDelete bool
+		noStore    string // a store the read must not create
+	}{
+		{name: "default answer names the child entity and creates no store", path: childPath, wantName: entityName, noStore: entityName},
+		{
+			name: "segment store answers with its delete flag", opts: []ServerOption{WithDeleteSupport("Contacts")},
+			path: "/v1.0/Companies/9/Contacts/entityInformation", wantName: "Contacts", wantDelete: true,
+		},
+		{
+			name: "a WithChildEntity route names its store", opts: []ServerOption{WithChildEntity[widgetReport](42, gadget{ID: autotask.Set(int64(5))})},
+			path: "/v1.0/Widgets/42/Items/entityInformation", wantName: "Gadgets",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ts, client := NewServer(t, tt.opts...)
+			ctx := t.Context()
+			var resp struct {
+				Info struct {
+					Name      string `json:"name"`
+					CanDelete bool   `json:"canDelete"`
+				} `json:"info"`
+			}
+			if err := client.Do(ctx, http.MethodGet, tt.path, nil, &resp); err != nil {
+				t.Fatal(err)
+			}
+			if resp.Info.Name != tt.wantName || resp.Info.CanDelete != tt.wantDelete {
+				t.Errorf("entityInformation = %+v, want name %q and canDelete %v", resp.Info, tt.wantName, tt.wantDelete)
+			}
+			if tt.noStore != "" {
+				noStore(t, ts, tt.noStore)
+			}
+		})
+	}
 
 	t.Run("explicit metadata applies to all three paths", func(t *testing.T) {
 		_, client := NewServer(t, WithEntityMetadata(entityName,
