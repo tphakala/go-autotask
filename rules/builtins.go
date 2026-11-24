@@ -249,17 +249,15 @@ func NewWithExpression(m dsl.Matcher) {
 // that is shadowed or ambiguous in the outer struct cannot be keyed directly,
 // so this is a report rather than a rewrite.
 //
-// Each of the two patterns binds only the first element of the literal that
-// fits its own shape and tests the conditions on that element alone. The first
-// pattern's $embT also fits a package-qualified type, so a same-package
-// embedded field keyed after any element whose value is a keyed literal is not
-// reported, as in T{Opts: Options{A: 1}, Base: Base{Name: "x"}}. The second
-// pattern fits only an element whose type is written as pkg.Name, so an
-// embedded imported type is not reported after such an element, as in
-// T{Header: http.Header{"A": nil}, Client: http.Client{Jar: nil}}, but is after
-// one whose type is written otherwise, such as Options{A: 1},
-// map[string]string{...} or a same-package alias of http.Header (measured with
-// golangci-lint 2.15.0).
+// Each of the two patterns appears to bind only the first element of the
+// literal that fits its own shape and to test the conditions on that element
+// alone, so an embedded field keyed after another element can go unreported.
+// The patterns differ by how the embedded type is spelled: the first expects a
+// bare name (a same-package or dot-imported type) and its $embT also seems to
+// fit pkg.Name, so it can stop at an earlier element whose value is any keyed
+// literal; the second expects pkg.Name and fits only elements spelled that way.
+// The cases measured with golangci-lint 2.15.0 are in
+// rules/testdata/fixture.
 //
 // See: https://go.dev/doc/go1.27#language
 func EmbeddedFieldLiteral(m dsl.Matcher) {
@@ -269,7 +267,7 @@ func EmbeddedFieldLiteral(m dsl.Matcher) {
 		Where(m["emb"].Text == m["embT"].Text && m["embT"].Filter(isStructType) && m["T"].Filter(embedsStruct)).
 		Report("initialize the promoted field directly: $T{$k: $v, ...} instead of $emb: $embT{$k: $v, ...} (Go 1.27+); not applicable if $k is shadowed or ambiguous in $T, or if $emb is a regular field named after its type")
 
-	// Embedded type from another package: field name is the bare type name.
+	// Embedded type written as pkg.Name: field name is the bare type name.
 	m.Match(
 		`$T{$*_, $emb: $pkg.$embT{$k: $v, $*_}, $*_}`,
 	).

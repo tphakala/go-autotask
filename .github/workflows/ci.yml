@@ -50,3 +50,7 @@ jobs:
           # golangci-lint's cache does not track rules/*.go, so a restored cache
           # would skip loading changed ruleguard rules for unchanged packages.
           skip-cache: true
+
+      - name: Check ruleguard rule fixtures
+        # golangci-lint-action puts the binary it installed on PATH.
+        run: sh rules/check-fixtures.sh
