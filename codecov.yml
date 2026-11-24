@@ -1,0 +1,4 @@
+# examples/ holds runnable demo programs, not library code; no test runs
+# them, so their lines would always count as uncovered.
+ignore:
+  - "examples/**"
