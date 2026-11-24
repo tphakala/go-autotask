@@ -159,7 +159,7 @@ func tempPattern(name string) string { return "." + name + ".tmp*" }
 // replaceFile writes data to path through a temporary file in the same
 // directory and a rename, so path holds either its previous content or data.
 // A path that is a symbolic link is followed: the file it points to is
-// replaced and the link stays.
+// replaced and the link stays; a link to a missing file is an error.
 func replaceFile(path string, data []byte) error {
 	info, err := os.Lstat(path)
 	switch {
