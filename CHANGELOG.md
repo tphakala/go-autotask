@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-11-24
+
 ### Added
 
 - **`ListChildRawIterOf[P, C]`**: an untyped child iterator that builds its URL from the entity types, as `ListChildIter` does (parent segment from `ChildParentName` or the parent's `EntityName`, child segment from `ChildEntityName` or `EntityName`), so a caller that needs the raw maps no longer passes segment strings that can name a route the API does not serve.
@@ -248,7 +250,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Entity types: Company, Contact, Ticket, Resource, Contract, Project, Task, ConfigurationItem, TicketNote, TimeEntry
 - GitHub Actions: CI (test and lint), CodeQL, govulncheck, Dependabot, automated releases, stale issue cleanup
 
-[Unreleased]: https://github.com/tphakala/go-autotask/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/tphakala/go-autotask/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/tphakala/go-autotask/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/tphakala/go-autotask/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/tphakala/go-autotask/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/tphakala/go-autotask/compare/v1.6.0...v1.7.0
