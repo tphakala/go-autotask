@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-11-24
+
 ### Added
 
 - **`ValidateBaseURL`** (#75): returns an error unless a URL is one `NewClient` accepts as a base URL: an absolute `http` or `https` URL with a host and no `@`, query or fragment. It is the check `NewClient` applies to `WithBaseURL`, `WithZoneBaseURL`, `WithZoneInfo` and a discovered zone URL, so a program can check a configured URL when it loads it. An empty URL is an error, though `WithBaseURL("")` leaves zone discovery on. The error leaves the URL out. `NewClient` errors are unchanged.
@@ -283,7 +285,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Entity types: Company, Contact, Ticket, Resource, Contract, Project, Task, ConfigurationItem, TicketNote, TimeEntry
 - GitHub Actions: CI (test and lint), CodeQL, govulncheck, Dependabot, automated releases, stale issue cleanup
 
-[Unreleased]: https://github.com/tphakala/go-autotask/compare/v1.11.0...HEAD
+[Unreleased]: https://github.com/tphakala/go-autotask/compare/v1.12.0...HEAD
+[1.12.0]: https://github.com/tphakala/go-autotask/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/tphakala/go-autotask/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/tphakala/go-autotask/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/tphakala/go-autotask/compare/v1.8.0...v1.9.0
