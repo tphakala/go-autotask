@@ -3,6 +3,7 @@ package autotask_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -353,8 +354,8 @@ func companyNamesViaListRaw(ctx context.Context, client *autotask.Client, q *aut
 
 // TestPaginationFilteredQueryResendsQuery pins that every page of a filtered
 // query is requested by POST with the same query bytes, so a result larger
-// than one page holds only matching items and the filter, IncludeFields and
-// MaxRecords reach the server on each page.
+// than one page holds only matching items. The first body carries IncludeFields
+// and MaxRecords, and later pages repeat it byte for byte.
 func TestPaginationFilteredQueryResendsQuery(t *testing.T) {
 	t.Parallel()
 
@@ -402,6 +403,16 @@ func TestPaginationFilteredQueryResendsQuery(t *testing.T) {
 			}
 			if len(bodies[0]) == 0 {
 				t.Fatal("first query body is empty")
+			}
+			var sent struct {
+				IncludeFields []string `json:"IncludeFields"`
+				MaxRecords    int      `json:"MaxRecords"`
+			}
+			if err := json.Unmarshal(bodies[0], &sent); err != nil {
+				t.Fatalf("first query body %q: %v", bodies[0], err)
+			}
+			if !slices.Equal(sent.IncludeFields, []string{"id", "companyName"}) || sent.MaxRecords != 10 {
+				t.Errorf("first query body %q: IncludeFields = %v, MaxRecords = %d; want [id companyName] and 10", bodies[0], sent.IncludeFields, sent.MaxRecords)
 			}
 			for i, b := range bodies[1:] {
 				if !bytes.Equal(b, bodies[0]) {
