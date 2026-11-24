@@ -536,3 +536,77 @@ func TestCircuitBreakerIgnoresProbeThatEndsAfterTheBreakerMoved(t *testing.T) {
 		})
 	}
 }
+
+func TestCircuitBreakerIgnoresFailureFromEarlierClosedPeriod(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		transportErr bool
+	}{
+		{"response failure", false},
+		{"transport error", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				const openTimeout = 10 * time.Second
+				release := make(chan struct{})
+				releaseHeld := sync.OnceFunc(func() { close(release) })
+				defer releaseHeld() // an early Fatalf must not leave requests blocked in the bubble
+				inner := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					status := http.StatusOK
+					switch {
+					case req.Header.Get("X-Hold") != "":
+						<-release
+						if tc.transportErr {
+							return nil, errors.New("connection reset")
+						}
+						status = http.StatusServiceUnavailable
+					case req.Header.Get("X-Fail") != "":
+						status = http.StatusServiceUnavailable
+					}
+					return &http.Response{StatusCode: status, Body: http.NoBody}, nil
+				})
+				cb := NewCircuitBreaker(inner, WithFailureThreshold(1), WithOpenTimeout(openTimeout), WithSuccessThreshold(1))
+				want := func(step string, state CircuitState) {
+					t.Helper()
+					if got := cb.State(); got != state {
+						t.Fatalf("state %s = %s; want %s", step, got, state)
+					}
+				}
+
+				// A request admitted while the breaker is closed stays in flight.
+				held := newReq(t)
+				held.Header.Set("X-Hold", "1")
+				var done sync.WaitGroup
+				done.Go(func() {
+					resp, _ := cb.RoundTrip(held)
+					if resp != nil {
+						_ = resp.Body.Close()
+					}
+				})
+				synctest.Wait()
+
+				// The breaker opens, goes half-open and closes again.
+				failing := newReq(t)
+				failing.Header.Set("X-Fail", "1")
+				resp, err := cb.RoundTrip(failing)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_ = resp.Body.Close()
+				want("after the opening failure", StateOpen)
+				synctest.Sleep(openTimeout)
+				want("after openTimeout", StateHalfOpen)
+				if err := send(t, cb); err != nil {
+					t.Fatal(err)
+				}
+				want("after a successful probe", StateClosed)
+
+				// The held request fails in the new closed period. It was admitted
+				// in the earlier one, so it does not count against this one.
+				releaseHeld()
+				done.Wait()
+				want("after a failure of a request admitted in the earlier closed period", StateClosed)
+			})
+		})
+	}
+}
