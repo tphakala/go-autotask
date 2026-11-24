@@ -352,12 +352,16 @@ func (cb *CircuitBreaker) recordFailure(ctx context.Context) {
 }
 
 // applyFailure records a failure and returns the state before and after it.
-// An in-flight request can fail after another one opened the breaker, so the
-// two states can be equal even when the failure reached the threshold.
+// An in-flight request can fail after another one opened the breaker. That
+// failure is ignored: it is not counted and it leaves the open deadline alone,
+// so the breaker stays open for openTimeout after the failure that opened it.
 func (cb *CircuitBreaker) applyFailure() (from, to CircuitState) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 	from = cb.state
+	if from == StateOpen {
+		return from, from
+	}
 	now := time.Now()
 	cutoff := now.Add(-cb.config.failureWindow)
 	var recent []time.Time

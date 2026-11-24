@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -211,4 +212,54 @@ func TestCircuitBreakerLogsStateChanges(t *testing.T) {
 			t.Errorf("transitions = %v; want %v", got, want)
 		}
 	})
+}
+
+func TestCircuitBreakerLateFailuresKeepOpenDeadline(t *testing.T) {
+	for _, threshold := range []int{1, 2} {
+		t.Run(fmt.Sprintf("threshold %d", threshold), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				const openTimeout = 10 * time.Second
+				release := make(chan struct{})
+				inner := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					if req.Header.Get("X-Hold") != "" {
+						<-release
+					}
+					return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: http.NoBody}, nil
+				})
+				cb := NewCircuitBreaker(inner, WithFailureThreshold(threshold), WithOpenTimeout(openTimeout))
+
+				// Admit as many requests as the threshold while the breaker is closed,
+				// and hold them in the transport.
+				var held sync.WaitGroup
+				for range threshold {
+					req := newReq(t)
+					req.Header.Set("X-Hold", "1")
+					held.Go(func() {
+						resp, _ := cb.RoundTrip(req)
+						if resp != nil {
+							_ = resp.Body.Close()
+						}
+					})
+				}
+				synctest.Wait()
+
+				for range threshold {
+					_ = send(t, cb)
+				}
+				if got := cb.State(); got != StateOpen {
+					t.Fatalf("state after %d failures = %s; want open", threshold, got)
+				}
+
+				// The held requests fail halfway through the open period.
+				synctest.Sleep(openTimeout / 2)
+				close(release)
+				held.Wait()
+
+				synctest.Sleep(openTimeout / 2)
+				if got := cb.State(); got != StateHalfOpen {
+					t.Errorf("state openTimeout after opening = %s; want half-open (late failures must not restart the open timeout)", got)
+				}
+			})
+		})
+	}
 }
