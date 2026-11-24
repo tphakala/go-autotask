@@ -278,6 +278,7 @@ func (ts *TestServer) registerChildRoute(route, name string) bool {
 // the same store Get, List and Count read. A child list at the route's parent
 // collection and parentID includes them, and a list under another parent id, or
 // under another parent collection that resolves to the same store, does not.
+// A parentID of 0 means no parent: those items show under every parent.
 //
 // A child URL /v1.0/{Parent}/{id}/{Segment} resolves to a store in this order:
 // the route a WithChildEntity registered for that parent and segment, else the

@@ -74,7 +74,10 @@ func (ts *TestServer) handleCount(w http.ResponseWriter, r *http.Request) {
 // filterItems applies basic in-memory filter matching.
 // It evaluates top-level conditions for all standard Autotask operators
 // (eq, noteq, gt, gte, lt, lte, beginsWith, endsWith, contains, exist, notExist, in, notIn).
-// Numbers compare by exact value and other values as text. This is not a full
+// eq, noteq, in, notIn, gt, gte, lt and lte compare numbers by exact value. eq,
+// noteq, in and notIn compare other values as text, and gt, gte, lt and lte
+// match only numbers. contains, beginsWith and endsWith match on the text a
+// value formats to, which for a number is its JSON text. This is not a full
 // Autotask query engine: group conditions (and/or) are not evaluated.
 func filterItems(items []json.RawMessage, queryBody []byte) []json.RawMessage {
 	if len(queryBody) == 0 {

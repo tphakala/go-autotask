@@ -541,9 +541,8 @@ func (ts *TestServer) handleThresholdInfo(w http.ResponseWriter, r *http.Request
 }
 
 // decodeObject decodes a JSON object with numbers kept as json.Number, so an
-// id above 2^53 survives create, Get, Update and Delete by id exactly, and query
-// filters decode with it too so they compare numbers by value. A null body or data after the object
-// is an error.
+// id above 2^53 is not rounded through float64. A body that is not a JSON
+// object, a null body, or data after the object is an error.
 func decodeObject(data []byte) (map[string]any, error) {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
