@@ -208,6 +208,9 @@ type CircuitBreaker struct {
 	failures          []time.Time
 	lastStateChange   time.Time
 	halfOpenSuccesses int
+	// generation counts state changes. A request records the generation it was
+	// admitted in, and its outcome counts only while that generation is current.
+	generation uint64
 }
 
 func NewCircuitBreaker(next http.RoundTripper, opts ...CircuitBreakerOption) *CircuitBreaker {
@@ -228,13 +231,22 @@ func NewCircuitBreaker(next http.RoundTripper, opts ...CircuitBreakerOption) *Ci
 // State returns the breaker's state, moving an open breaker whose open timeout
 // has passed to half-open first.
 func (cb *CircuitBreaker) State() CircuitState {
-	return cb.currentState(context.Background())
+	state, _ := cb.currentState(context.Background())
+	return state
 }
 
-// currentState is State with the context its log record is written under.
-func (cb *CircuitBreaker) currentState(ctx context.Context) CircuitState {
+// moveTo changes the state and starts a new generation. The caller holds cb.mu.
+func (cb *CircuitBreaker) moveTo(state CircuitState, now time.Time) {
+	cb.state = state
+	cb.lastStateChange = now
+	cb.generation++
+}
+
+// currentState is State with the context its log record is written under. It
+// also returns the generation the state belongs to, read under the same lock.
+func (cb *CircuitBreaker) currentState(ctx context.Context) (state CircuitState, generation uint64) {
 	cb.mu.RLock()
-	state := cb.state
+	state, generation = cb.state, cb.generation
 	shouldTransition := state == StateOpen && time.Since(cb.lastStateChange) >= cb.config.openTimeout
 	cb.mu.RUnlock()
 
@@ -243,17 +255,16 @@ func (cb *CircuitBreaker) currentState(ctx context.Context) CircuitState {
 		cb.mu.Lock()
 		// Double-check under write lock
 		if cb.state == StateOpen && time.Since(cb.lastStateChange) >= cb.config.openTimeout {
-			cb.state = StateHalfOpen
-			cb.lastStateChange = time.Now()
+			cb.moveTo(StateHalfOpen, time.Now())
 			moved = true
 		}
-		state = cb.state
+		state, generation = cb.state, cb.generation
 		cb.mu.Unlock()
 		if moved {
 			cb.logTransition(ctx, StateOpen, StateHalfOpen)
 		}
 	}
-	return state
+	return state, generation
 }
 
 // logTransition writes the state change record. It is called after cb.mu is
@@ -269,7 +280,7 @@ func (cb *CircuitBreaker) logTransition(ctx context.Context, from, to CircuitSta
 
 func (cb *CircuitBreaker) RoundTrip(req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
-	state := cb.currentState(ctx)
+	state, generation := cb.currentState(ctx)
 	switch state {
 	case StateOpen:
 		return nil, &CircuitBreakerOpenError{}
@@ -279,14 +290,14 @@ func (cb *CircuitBreaker) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp, err := cb.next.RoundTrip(req)
 	if err != nil {
 		if cb.config.isFailure(nil, err) {
-			cb.recordFailure(ctx)
+			cb.recordFailure(ctx, generation)
 		}
 		return nil, err
 	}
 	if cb.responseFailed(resp) {
-		cb.recordFailure(ctx)
+		cb.recordFailure(ctx, generation)
 	} else if state == StateHalfOpen {
-		cb.recordHalfOpenSuccess(ctx)
+		cb.recordHalfOpenSuccess(ctx, generation)
 	}
 	return resp, nil
 }
@@ -346,18 +357,22 @@ func (b *replayBody) Read(p []byte) (int, error) {
 
 func (b *replayBody) Close() error { return b.body.Close() }
 
-func (cb *CircuitBreaker) recordFailure(ctx context.Context) {
-	from, to := cb.applyFailure()
+func (cb *CircuitBreaker) recordFailure(ctx context.Context, generation uint64) {
+	from, to := cb.applyFailure(generation)
 	cb.logTransition(ctx, from, to)
 }
 
-// applyFailure records a failure and returns the state before and after it.
-// An in-flight request can fail after another one opened the breaker, so the
-// two states can be equal even when the failure reached the threshold.
-func (cb *CircuitBreaker) applyFailure() (from, to CircuitState) {
+// applyFailure records the failure of a request admitted in the given
+// generation, and returns the state before and after it. An outcome of a
+// request admitted before the last state change is ignored: it is not counted,
+// and it does not reopen the breaker or move the open deadline.
+func (cb *CircuitBreaker) applyFailure(generation uint64) (from, to CircuitState) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 	from = cb.state
+	if generation != cb.generation {
+		return from, from
+	}
 	now := time.Now()
 	cutoff := now.Add(-cb.config.failureWindow)
 	var recent []time.Time
@@ -369,35 +384,34 @@ func (cb *CircuitBreaker) applyFailure() (from, to CircuitState) {
 	recent = append(recent, now)
 	cb.failures = recent
 	if cb.state == StateHalfOpen {
-		cb.state = StateOpen
-		cb.lastStateChange = now
+		cb.moveTo(StateOpen, now)
 		cb.halfOpenSuccesses = 0
 		return from, cb.state
 	}
 	if len(recent) >= cb.config.failureThreshold {
-		cb.state = StateOpen
-		cb.lastStateChange = now
+		cb.moveTo(StateOpen, now)
 		cb.failures = nil
 	}
 	return from, cb.state
 }
 
-func (cb *CircuitBreaker) recordHalfOpenSuccess(ctx context.Context) {
-	from, to := cb.applyHalfOpenSuccess()
+func (cb *CircuitBreaker) recordHalfOpenSuccess(ctx context.Context, generation uint64) {
+	from, to := cb.applyHalfOpenSuccess(generation)
 	cb.logTransition(ctx, from, to)
 }
 
-func (cb *CircuitBreaker) applyHalfOpenSuccess() (from, to CircuitState) {
+// applyHalfOpenSuccess counts a success of a request admitted in half-open in
+// the given generation. It is ignored if the breaker has changed state since.
+func (cb *CircuitBreaker) applyHalfOpenSuccess(generation uint64) (from, to CircuitState) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 	from = cb.state
-	if cb.state != StateHalfOpen {
+	if generation != cb.generation {
 		return from, from
 	}
 	cb.halfOpenSuccesses++
 	if cb.halfOpenSuccesses >= cb.config.successThreshold {
-		cb.state = StateClosed
-		cb.lastStateChange = time.Now()
+		cb.moveTo(StateClosed, time.Now())
 		cb.halfOpenSuccesses = 0
 		cb.failures = nil
 	}
