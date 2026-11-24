@@ -215,16 +215,22 @@ func (s *entityStore) itemsAt(p requestPath) []json.RawMessage {
 	return s.all()
 }
 
+// requestedPage returns the page the ?page=N query parameter asks for, or 1
+// when it is missing or not a positive number.
+func requestedPage(r *http.Request) int {
+	if p := r.URL.Query().Get("page"); p != "" {
+		if n, err := strconv.Atoi(p); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 1
+}
+
 // writePage answers a list request with one page of items. A pageSize of 0 or
 // less puts every item on one page. The page comes from the ?page=N query
 // parameter, and a page past the last item answers an empty page.
 func (ts *TestServer) writePage(w http.ResponseWriter, r *http.Request, items []json.RawMessage) {
-	pageNum := 1
-	if p := r.URL.Query().Get("page"); p != "" {
-		if n, err := strconv.Atoi(p); err == nil && n > 0 {
-			pageNum = n
-		}
-	}
+	pageNum := requestedPage(r)
 	pageSize := ts.opts.pageSize
 	if pageSize <= 0 {
 		pageSize = max(len(items), 1)

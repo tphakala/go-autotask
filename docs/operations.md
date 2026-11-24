@@ -112,6 +112,8 @@ for item, err := range autotask.ListRawIter(ctx, client, "Tickets", autotask.New
 }
 ```
 
+Each later page of `ListIter` and `ListRawIter` is requested by POST to the response's `nextPageUrl` with the same query. A `nextPageUrl` on another origin than the client's base URL gets no query, as it gets no credentials.
+
 All paginating loops (including `ListChildRawIterOf`) are bounded by a 1000-page safety limit (`maxPages`); if it is ever hit (for example an API response that cycles `nextPageUrl`), the iterator yields a `*MaxPagesExceededError` rather than looping forever.
 
 The top-level iterators (`ListIter`, `ListRawIter`) do not apply the query's `MaxRecords` cap client-side, unlike `List` and `ListRaw`; break out of the range once you have enough items.

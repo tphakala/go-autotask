@@ -1,9 +1,14 @@
 package autotask_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -316,5 +321,137 @@ func TestPaginationListIterWithMaxRecords(t *testing.T) {
 	}
 	if count != 5 {
 		t.Fatalf("got %d items, want 5", count)
+	}
+}
+
+// companyNamesViaList returns the company names List returns, in order.
+func companyNamesViaList(ctx context.Context, client *autotask.Client, q *autotask.Query) ([]string, error) {
+	items, err := autotask.List[entities.Company](ctx, client, q)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(items))
+	for _, it := range items {
+		name, _ := it.CompanyName.Get()
+		names = append(names, name)
+	}
+	return names, nil
+}
+
+// companyNamesViaListRaw returns the company names ListRaw returns, in order.
+func companyNamesViaListRaw(ctx context.Context, client *autotask.Client, q *autotask.Query) ([]string, error) {
+	items, err := autotask.ListRaw(ctx, client, "Companies", q)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(items))
+	for _, it := range items {
+		name, _ := it["companyName"].(string)
+		names = append(names, name)
+	}
+	return names, nil
+}
+
+// TestPaginationFilteredQueryResendsQuery pins that every page of a filtered
+// query is requested by POST with the same query bytes, so a result larger
+// than one page holds only matching items. The first body carries IncludeFields
+// and MaxRecords, and later pages repeat it byte for byte.
+func TestPaginationFilteredQueryResendsQuery(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name string
+		list func(ctx context.Context, client *autotask.Client, q *autotask.Query) ([]string, error)
+	}{
+		{"List", companyNamesViaList},
+		{"ListRaw", companyNamesViaListRaw},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			seed := make([]entities.Company, 0, 5)
+			for _, name := range []string{"keep1", "drop1", "keep2", "drop2", "keep3"} {
+				seed = append(seed, autotasktest.CompanyFixture(func(c *entities.Company) {
+					c.CompanyName = autotask.Set(name)
+				}))
+			}
+			ts, client := autotasktest.NewServer(t,
+				autotasktest.WithPageSize(1),
+				autotasktest.WithEntity(seed...),
+			)
+			q := autotask.NewQuery().
+				Where("companyName", autotask.OpBeginsWith, "keep").
+				Fields("id", "companyName").
+				Limit(10)
+
+			got, err := tt.list(t.Context(), client, q)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := []string{"keep1", "keep2", "keep3"}; !slices.Equal(got, want) {
+				t.Errorf("names = %v, want %v", got, want)
+			}
+
+			var bodies [][]byte
+			for _, req := range ts.Requests() {
+				if req.Method == http.MethodPost && req.Path == "/v1.0/Companies/query" {
+					bodies = append(bodies, req.Body)
+				}
+			}
+			if len(bodies) != 3 {
+				t.Fatalf("query requests = %d, want 3", len(bodies))
+			}
+			if len(bodies[0]) == 0 {
+				t.Fatal("first query body is empty")
+			}
+			var sent struct {
+				IncludeFields []string `json:"IncludeFields"`
+				MaxRecords    int      `json:"MaxRecords"`
+			}
+			if err := json.Unmarshal(bodies[0], &sent); err != nil {
+				t.Fatalf("first query body %q: %v", bodies[0], err)
+			}
+			if !slices.Equal(sent.IncludeFields, []string{"id", "companyName"}) || sent.MaxRecords != 10 {
+				t.Errorf("first query body %q: IncludeFields = %v, MaxRecords = %d; want [id companyName] and 10", bodies[0], sent.IncludeFields, sent.MaxRecords)
+			}
+			for i, b := range bodies[1:] {
+				if !bytes.Equal(b, bodies[0]) {
+					t.Errorf("query body of page %d = %q, want %q", i+2, b, bodies[0])
+				}
+			}
+		})
+	}
+}
+
+// TestPaginationQueryMarshalErrorSendsNoRequest pins that a query that cannot
+// be encoded is yielded as the first and only result of the iterator, before
+// any request, with the text a failed request body encode has.
+func TestPaginationQueryMarshalErrorSendsNoRequest(t *testing.T) {
+	t.Parallel()
+
+	ts, client := autotasktest.NewServer(t)
+	q := autotask.NewQuery().Where("companyName", autotask.OpEq, make(chan int))
+
+	var typedErrs, rawErrs []error
+	for item, err := range autotask.ListIter[entities.Company](t.Context(), client, q) {
+		if item != nil {
+			t.Errorf("ListIter yielded item %v with its error %v", item, err)
+		}
+		typedErrs = append(typedErrs, err)
+	}
+	for item, err := range autotask.ListRawIter(t.Context(), client, "Companies", q) {
+		if item != nil {
+			t.Errorf("ListRawIter yielded item %v with its error %v", item, err)
+		}
+		rawErrs = append(rawErrs, err)
+	}
+
+	for name, errs := range map[string][]error{"ListIter": typedErrs, "ListRawIter": rawErrs} {
+		if len(errs) != 1 || errs[0] == nil || !strings.Contains(errs[0].Error(), "autotask: marshaling request body") {
+			t.Errorf("%s errors = %v, want one marshaling request body error", name, errs)
+		}
+	}
+	if n := ts.RequestCount(); n != 0 {
+		t.Errorf("requests = %d, want 0", n)
 	}
 }

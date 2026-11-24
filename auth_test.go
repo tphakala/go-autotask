@@ -2,6 +2,7 @@ package autotask_test
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -132,9 +133,12 @@ func TestAuthSameOriginValidation(t *testing.T) {
 	// evilServer is a cross-origin server that should NOT receive auth credentials.
 	var mu sync.Mutex
 	var evilHeaders http.Header
+	var evilBody []byte
 	evilServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
 		mu.Lock()
 		evilHeaders = r.Header.Clone()
+		evilBody = body
 		mu.Unlock()
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"items":       []any{},
@@ -195,6 +199,12 @@ func TestAuthSameOriginValidation(t *testing.T) {
 	}
 	if got := evilHeaders.Get("User-Agent"); !isLibraryUserAgent(got) {
 		t.Errorf("cross-origin User-Agent = %q; want go-autotask or go-autotask/<version>", got)
+	}
+
+	// The query holds the caller's filter, so a page link on another origin
+	// gets no body, the same as it gets no credentials.
+	if len(evilBody) != 0 {
+		t.Errorf("cross-origin request body = %q; want empty (the query should not leave the base origin)", evilBody)
 	}
 }
 

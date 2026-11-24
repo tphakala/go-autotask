@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/tphakala/go-autotask/internal/jsonmember"
+	"github.com/tphakala/go-autotask/internal/redirect"
 )
 
 // maxPages is the safety limit on pagination loops to prevent infinite loops
@@ -30,6 +31,28 @@ type pageResponse[I any] struct {
 	PageDetails struct {
 		NextPageURL string `json:"nextPageUrl"`
 	} `json:"pageDetails"`
+}
+
+// encodeQuery encodes q once, so a paged query sends the same bytes on every
+// page. The error is worded as do words a marshal failure of a request body.
+func encodeQuery(q *Query) (json.RawMessage, error) {
+	b, err := json.Marshal(q)
+	if err != nil {
+		return nil, fmt.Errorf("autotask: marshaling request body: %w", err)
+	}
+	return b, nil
+}
+
+// queryPageBody returns the body for a query request to path: the encoded
+// query when path is on the base URL's origin, and nil otherwise. A nextPageUrl
+// on another origin already gets no credentials (see do), and the query, which
+// can hold customer data, is withheld from it too. It uses the check do uses
+// for credentials, so a page gets the query exactly when it gets credentials.
+func (c *Client) queryPageBody(path string, query json.RawMessage) any {
+	if c.baseURL != "" && redirect.SameOrigin(joinURL(c.baseURL, path), c.baseURL) {
+		return query
+	}
+	return nil
 }
 
 // fetchPage sends one list request and decodes the page. It returns
