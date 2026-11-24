@@ -233,17 +233,26 @@ func TestThresholdMonitorWithoutOptionsRuns(t *testing.T) {
 func TestThresholdMonitorKeepsOptionsOfEveryCall(t *testing.T) {
 	t.Parallel()
 	srv := newLoggingServer(t, http.StatusOK, "")
+	own := logtest.New()
 	critical, waitCritical := signal(t)
 	client, err := autotask.NewClient(t.Context(), autotask.AuthConfig{Username: "u", Secret: "s", IntegrationCode: "c"},
 		autotask.WithZoneBaseURL(srv.URL),
+		autotask.WithThresholdMonitor(
+			middleware.WithCriticalCallback(func(middleware.ThresholdInfo) {}),
+			middleware.WithThresholdMonitorLogger(own.Logger()),
+		),
 		autotask.WithThresholdMonitor(critical),
-		autotask.WithThresholdMonitor(middleware.WithCheckInterval(time.Hour)),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
-	// A second call that replaced the first call's options would drop the
-	// critical callback.
+	// The second call's callback replaces the first call's, so it fires only
+	// when the second call's options are applied after the first call's.
 	waitCritical()
+	// The logger comes only from the first call. The monitor logs the record
+	// before it calls the callback (ThresholdMonitor.notify).
+	if got := messages(own)[msgCritical]; got == 0 {
+		t.Error("the first call's logger got no critical record")
+	}
 }
