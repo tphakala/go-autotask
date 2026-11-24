@@ -178,6 +178,11 @@ func getUDFs(ctx context.Context, c *autotask.Client) (int, error) {
 	return len(udfs), err
 }
 
+func getPickList(ctx context.Context, c *autotask.Client) (int, error) {
+	values, err := GetPickList(ctx, c, "Tickets", "status")
+	return len(values), err
+}
+
 func getEntityInfo(ctx context.Context, c *autotask.Client) (int, error) {
 	info, err := GetEntityInfo(ctx, c, "Tickets")
 	if info == nil {
@@ -196,6 +201,7 @@ func TestMetadataResponseWithoutResultIsMissingMemberError(t *testing.T) {
 	}{
 		{"GetFields", getFields, `{}`, "fields"},
 		{"GetUDFs", getUDFs, `{}`, "fields"},
+		{"GetPickList", getPickList, `{}`, "fields"},
 		{"GetEntityInfo", getEntityInfo, `{}`, "info"},
 		{"GetEntityInfo null info", getEntityInfo, `{"info":null}`, "info"},
 	}
